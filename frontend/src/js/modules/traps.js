@@ -306,6 +306,7 @@ window.TrapsModule = {
 
     renderVarBindPicker: function(objects) {
         const tbody = document.getElementById('vb-picker-body');
+        const esc = TrishulUtils.escapeHtml;
         
         if (objects.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No objects found</td></tr>';
@@ -314,11 +315,14 @@ window.TrapsModule = {
         
         tbody.innerHTML = objects.slice(0, 100).map(obj => `
             <tr>
-                <td><code class="small">${obj.name}</code></td>
-                <td><span class="badge bg-secondary small">${obj.module}</span></td>
-                <td><span class="small">${obj.syntax}</span></td>
+                <td><code class="small">${esc(obj.name)}</code></td>
+                <td><span class="badge bg-secondary small">${esc(obj.module)}</span></td>
+                <td><span class="small">${esc(obj.syntax)}</span></td>
                 <td>
-                    <button type="button" class="btn btn-xs btn-primary" onclick="TrapsModule.addVarbindFromPicker('${obj.full_name}', '${obj.syntax}')">
+                    <button type="button" class="btn btn-xs btn-primary"
+                            onclick="TrapsModule.addVarbindFromPickerElement(this)"
+                            data-full-name="${esc(obj.full_name)}"
+                            data-syntax="${esc(obj.syntax)}">
                         <i class="fas fa-plus"></i>
                     </button>
                 </td>
@@ -328,6 +332,10 @@ window.TrapsModule = {
         if (objects.length > 100) {
             tbody.innerHTML += `<tr><td colspan="4" class="text-center text-muted small">Showing first 100 results. Use search to narrow down.</td></tr>`;
         }
+    },
+
+    addVarbindFromPickerElement: function(button) {
+        this.addVarbindFromPicker(button?.dataset?.fullName || '', button?.dataset?.syntax || '');
     },
 
     addVarbindFromPicker: function(fullName, syntax) {
@@ -377,6 +385,7 @@ window.TrapsModule = {
     addVarbind: function(oid="", type="String", val="") {
         const container = document.getElementById("vb-container");
         const emptyMsg  = document.getElementById("vb-empty");
+        const esc = TrishulUtils.escapeHtml;
         if (emptyMsg) emptyMsg.classList.add('d-none');
         
         const id   = `vb-row-${this.vbCount++}`;
@@ -385,7 +394,7 @@ window.TrapsModule = {
                 <div class="card-body p-2">
                     <div class="input-group input-group-sm mb-1">
                         <span class="input-group-text bg-light">OID</span>
-                        <input type="text" class="form-control vb-oid" value="${oid}" placeholder="1.3.6... or IF-MIB::ifIndex">
+                        <input type="text" class="form-control vb-oid" value="${esc(oid)}" placeholder="1.3.6... or IF-MIB::ifIndex">
                         <button class="btn btn-outline-danger" type="button" onclick="document.getElementById('${id}').remove()">X</button>
                     </div>
                     <div class="input-group input-group-sm">
@@ -398,7 +407,7 @@ window.TrapsModule = {
                             <option value="Counter"    ${type==='Counter'   ?'selected':''}>Counter</option>
                             <option value="Gauge"      ${type==='Gauge'     ?'selected':''}>Gauge</option>
                         </select>
-                        <input type="text" class="form-control vb-val" value="${val}" placeholder="Value">
+                        <input type="text" class="form-control vb-val" value="${esc(val)}" placeholder="Value">
                     </div>
                 </div>
             </div>
@@ -578,21 +587,30 @@ window.TrapsModule = {
         const port      = parseInt(document.getElementById("tr-port").value);
         const community = document.getElementById("tr-community").value;
         const resolve   = document.getElementById("tr-resolve-toggle").checked;
-        
-        await fetch('/api/traps/start', {
-            method:  'POST',
-            headers: {'Content-Type': 'application/json'},
-            body:    JSON.stringify({
-                port:         port,
-                community:    community,
-                resolve_mibs: resolve
-            })
-        });
-        
-        // WS status push from trap_manager will update the badge;
-        // this call is a REST fallback for any timing gap.
-        this.checkStatus();
-        this.showNotification('Trap receiver started', 'success');
+
+        try {
+            const res = await fetch('/api/traps/start', {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({
+                    port:         port,
+                    community:    community,
+                    resolve_mibs: resolve
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || 'Trap receiver failed to start');
+            }
+
+            // WS status push from trap_manager will update the badge;
+            // this call is a REST fallback for any timing gap.
+            this.checkStatus();
+            this.showNotification(data.status === 'already_running' ? 'Trap receiver is already running' : 'Trap receiver started', 'success');
+        } catch (e) {
+            console.error('Trap receiver start failed:', e);
+            this.showNotification(`Trap receiver failed: ${e.message}`, 'error');
+        }
     },
 
     stopReceiver: async function() {
@@ -689,6 +707,7 @@ window.TrapsModule = {
     renderTraps: function() {
         const tbody      = document.getElementById("tr-table-body");
         const countBadge = document.getElementById("tr-count-badge");
+        const esc = TrishulUtils.escapeHtml;
         
         if (!tbody) return;
         
@@ -725,16 +744,16 @@ window.TrapsModule = {
             // <form onsubmit=...> and navigate the SPA back to the dashboard.
             return `
                 <tr>
-                    <td class="small text-muted">${t.time_str}</td>
-                    <td><code class="small">${t.source}</code></td>
+                    <td class="small text-muted">${esc(t.time_str)}</td>
+                    <td><code class="small">${esc(t.source)}</code></td>
                     <td>
-                        <span class="badge ${trapBadgeClass}">${trapType}</span>
+                        <span class="badge ${trapBadgeClass}">${esc(trapType)}</span>
                     </td>
                     <td>
                         <code class="small" style="cursor: pointer;"
                               onclick="TrapsModule.showTrapDetails(${idx})"
                               title="Click to view full JSON">
-                            ${varbindsPreview}
+                            ${esc(varbindsPreview)}
                         </code>
                     </td>
                     <td class="text-center">
@@ -805,6 +824,7 @@ window.TrapsModule = {
         const modal   = document.createElement('div');
         modal.className = 'modal fade';
         modal.id        = modalId;
+        const escapedJson = TrishulUtils.escapeHtml(json);
         modal.innerHTML = `
             <div class="modal-dialog modal-lg">
                 <div class="modal-content">
@@ -814,7 +834,7 @@ window.TrapsModule = {
                     </div>
                     <div class="modal-body">
                         <pre class="bg-dark text-light p-3 rounded"
-                             style="max-height: 500px; overflow-y: auto;">${json.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                             style="max-height: 500px; overflow-y: auto;">${escapedJson}</pre>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-sm btn-primary py-1 px-2"
@@ -921,29 +941,6 @@ window.TrapsModule = {
     // ==================== Utilities ====================
 
     showNotification: function(message, type = 'info') {
-        const banner = document.createElement('div');
-        let icon = 'fa-info-circle';
-        let cls  = 'alert-info';
-
-        if (type === 'success') {
-            icon = 'fa-check-circle';
-            cls  = 'alert-success';
-        } else if (type === 'error') {
-            icon = 'fa-exclamation-circle';
-            cls  = 'alert-danger';
-        } else if (type === 'warning') {
-            icon = 'fa-exclamation-triangle';
-            cls  = 'alert-warning';
-        }
-
-        banner.className     = `alert ${cls} alert-dismissible fade show position-fixed`;
-        banner.style.cssText = 'top: 80px; right: 20px; z-index: 9999; min-width: 300px;';
-        banner.innerHTML     = `
-            <i class="fas ${icon} me-2"></i> ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(banner);
-        
-        setTimeout(() => banner.remove(), 3000);
+        TrishulUtils.showNotification(message, type);
     }
 };

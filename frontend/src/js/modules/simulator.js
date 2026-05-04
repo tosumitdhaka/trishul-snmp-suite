@@ -9,19 +9,15 @@ window.SimulatorModule = {
         if (!window.AppState) {
             window.AppState = {};
         }
-        
-        // Load logs from localStorage for persistence
-        if (!window.AppState.logs) {
-            window.AppState.logs = this.loadLogsFromStorage();
-        }
 
-        const area = document.getElementById("sim-log-area");
-        if (area && window.AppState.logs.length > 0) {
-            area.innerHTML = window.AppState.logs.join("");
-            area.scrollTop = area.scrollHeight;
-        } else if (area) {
-            area.innerHTML = '<div class="text-muted small p-2">Waiting for events...</div>';
-        }
+        const storedLogs = Array.isArray(window.AppState.logs)
+            ? window.AppState.logs
+            : this.loadLogsFromStorage();
+        window.AppState.logs = storedLogs
+            .map(entry => this.normalizeLogEntry(entry))
+            .filter(Boolean);
+
+        this.renderLogs(window.AppState.logs, true);
 
         if (window.AppState.simulator) {
             this.updateUI(window.AppState.simulator);
@@ -83,7 +79,10 @@ window.SimulatorModule = {
         try {
             const stored = localStorage.getItem('trishul_simulator_logs');
             if (stored) {
-                return JSON.parse(stored);
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed)) {
+                    return parsed;
+                }
             }
         } catch (e) {
             console.error('Failed to load logs from storage:', e);
@@ -106,6 +105,93 @@ window.SimulatorModule = {
             localStorage.removeItem('trishul_simulator_logs');
         } catch (e) {
             console.error('Failed to clear logs from storage:', e);
+        }
+    },
+
+    decodeLegacyHtml: function(value) {
+        return String(value || '')
+            .replace(/&quot;/g, '"')
+            .replace(/&#0?39;/g, "'")
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&');
+    },
+
+    stripHtmlTags: function(value) {
+        return String(value || '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    },
+
+    normalizeLogEntry: function(entry) {
+        if (!entry) return null;
+
+        if (typeof entry === 'object') {
+            return {
+                time: String(entry.time || new Date().toLocaleTimeString()),
+                level: String(entry.level || 'info'),
+                message: String(entry.message || ''),
+            };
+        }
+
+        if (typeof entry === 'string') {
+            const levelMatch = entry.match(/data-level="([^"]*)"/);
+            const textMatch = entry.match(/data-text="([^"]*)"/);
+            const timeMatch = entry.match(/\[([^\]]+)\]/);
+            const fallbackText = this.stripHtmlTags(entry).replace(/^\[[^\]]+\]\s*/, '').trim();
+
+            return {
+                time: timeMatch ? this.decodeLegacyHtml(timeMatch[1]) : new Date().toLocaleTimeString(),
+                level: this.decodeLegacyHtml(levelMatch ? levelMatch[1] : 'info'),
+                message: this.decodeLegacyHtml(textMatch ? textMatch[1] : fallbackText),
+            };
+        }
+
+        return null;
+    },
+
+    buildLogHtml: function(entry) {
+        const esc = TrishulUtils.escapeHtml;
+        const level = entry.level || 'info';
+        const message = String(entry.message || '');
+        const time = String(entry.time || '');
+
+        let icon  = 'fa-info-circle';
+        let color = 'text-muted';
+
+        if (level === 'success') {
+            icon  = 'fa-check-circle';
+            color = 'text-success';
+        } else if (level === 'error') {
+            icon  = 'fa-exclamation-circle';
+            color = 'text-danger';
+        } else if (level === 'warning') {
+            icon  = 'fa-exclamation-triangle';
+            color = 'text-warning';
+        }
+
+        return `
+            <div class="border-bottom py-2 px-2 log-entry" data-level="${esc(level)}" data-text="${esc(message)}">
+                <span class="text-muted small">[${esc(time)}]</span>
+                <i class="fas ${icon} ${color} ms-2"></i>
+                <span class="ms-2">${esc(message)}</span>
+            </div>
+        `;
+    },
+
+    renderLogs: function(entries, scrollToBottom) {
+        const area = document.getElementById('sim-log-area');
+        if (!area) return;
+
+        if (!Array.isArray(entries) || entries.length === 0) {
+            area.innerHTML = '<div class="text-muted small p-2">Waiting for events...</div>';
+            return;
+        }
+
+        area.innerHTML = entries.map(entry => this.buildLogHtml(entry)).join('');
+        if (scrollToBottom) {
+            area.scrollTop = area.scrollHeight;
         }
     },
 
@@ -323,6 +409,7 @@ window.SimulatorModule = {
         const configDisabledHint = document.getElementById('config-disabled-hint');
         const portInput  = document.getElementById('sim-config-port');
         const commInput  = document.getElementById('sim-config-comm');
+        const esc = TrishulUtils.escapeHtml;
 
         if (!badge || !stateText || !detailText) return;
 
@@ -331,7 +418,7 @@ window.SimulatorModule = {
             badge.textContent = 'RUNNING';
             stateText.textContent = 'Online';
             stateText.className = 'mb-0 text-success fw-bold';
-            detailText.innerHTML = `Listening on <strong>UDP ${data.port}</strong> <br> Community: <code>${data.community}</code> <br> PID: ${data.pid}`;
+            detailText.innerHTML = `Listening on <strong>UDP ${Number(data.port) || '--'}</strong> <br> Community: <code>${esc(data.community || '')}</code> <br> PID: ${Number(data.pid) || '--'}`;
 
             this.setButtons(true);
 
@@ -396,52 +483,25 @@ window.SimulatorModule = {
     },
 
     log: function(msg, type = 'info') {
-        const area = document.getElementById('sim-log-area');
-        const time = new Date().toLocaleTimeString();
+        const entry = {
+            time: new Date().toLocaleTimeString(),
+            level: type,
+            message: String(msg || ''),
+        };
 
-        let icon  = 'fa-info-circle';
-        let color = 'text-muted';
-
-        if (type === 'success') {
-            icon  = 'fa-check-circle';
-            color = 'text-success';
-        } else if (type === 'error') {
-            icon  = 'fa-exclamation-circle';
-            color = 'text-danger';
-        } else if (type === 'warning') {
-            icon  = 'fa-exclamation-triangle';
-            color = 'text-warning';
-        }
-
-        const html = `
-            <div class="border-bottom py-2 px-2 log-entry" data-level="${type}" data-text="${this.escapeHtml(msg)}">
-                <span class="text-muted small">[${time}]</span>
-                <i class="fas ${icon} ${color} ms-2"></i>
-                <span class="ms-2">${msg}</span>
-            </div>
-        `;
-
-        window.AppState.logs.push(html);
+        window.AppState.logs.push(entry);
         if (window.AppState.logs.length > 500) window.AppState.logs.shift();
 
         this.saveLogsToStorage();
-
-        if (area) {
-            if (area.textContent.includes('Waiting for events')) area.innerHTML = '';
-            area.innerHTML += html;
-            area.scrollTop = area.scrollHeight;
-        }
+        this.renderLogs(window.AppState.logs, true);
 
         this.updateLogStats();
     },
 
     clearLog: function() {
-        const area = document.getElementById('sim-log-area');
         window.AppState.logs = [];
         this.clearStoredLogs();
-        if (area) {
-            area.innerHTML = '<div class="text-muted small p-2">Waiting for events...</div>';
-        }
+        this.renderLogs([]);
         this.updateLogStats();
     },
 
@@ -456,10 +516,10 @@ window.SimulatorModule = {
     },
 
     getPlainLogText: function() {
-        const div = document.createElement('div');
-        div.innerHTML = window.AppState.logs.join('');
-        const entries = div.querySelectorAll('.log-entry');
-        return Array.from(entries).map(e => e.innerText).join('\n');
+        return (window.AppState.logs || []).map(entry => {
+            const normalized = this.normalizeLogEntry(entry);
+            return normalized ? `[${normalized.time}] ${normalized.message}` : '';
+        }).filter(Boolean).join('\n');
     },
 
     filterLogs: function() {
@@ -472,25 +532,17 @@ window.SimulatorModule = {
         const searchTerm = (searchInput?.value || '').toLowerCase();
         const level      = filterSelect?.value || 'all';
 
-        const div = document.createElement('div');
-        div.innerHTML = window.AppState.logs.join('');
-        const entries = div.querySelectorAll('.log-entry');
-
-        const filtered = Array.from(entries).filter(e => {
-            const entryLevel = e.getAttribute('data-level') || 'info';
-            const text       = (e.getAttribute('data-text') || '').toLowerCase();
-            const matchesLevel  = level === 'all' || entryLevel === level;
-            const matchesSearch = !searchTerm || text.includes(searchTerm);
+        const filtered = (window.AppState.logs || []).map(entry => this.normalizeLogEntry(entry)).filter(entry => {
+            if (!entry) return false;
+            const matchesLevel  = level === 'all' || entry.level === level;
+            const matchesSearch = !searchTerm || entry.message.toLowerCase().includes(searchTerm);
             return matchesLevel && matchesSearch;
         });
 
+        this.renderLogs(filtered, true);
         if (filtered.length === 0) {
             area.innerHTML = '<div class="text-muted small p-2">No log entries match current filter.</div>';
-        } else {
-            area.innerHTML = filtered.map(e => e.outerHTML).join('');
-            area.scrollTop = area.scrollHeight;
         }
-
         this.updateLogStats(filtered.length);
     },
 
@@ -505,38 +557,6 @@ window.SimulatorModule = {
     },
 
     showToast: function(message, type = 'success') {
-        const banner = document.createElement('div');
-        let icon = 'fa-check-circle';
-        let cls  = 'alert-success';
-
-        if (type === 'error') {
-            icon = 'fa-exclamation-circle';
-            cls  = 'alert-danger';
-        } else if (type === 'info') {
-            icon = 'fa-info-circle';
-            cls  = 'alert-info';
-        } else if (type === 'warning') {
-            icon = 'fa-exclamation-triangle';
-            cls  = 'alert-warning';
-        }
-
-        banner.className  = `alert ${cls} alert-dismissible fade show position-fixed`;
-        banner.style.cssText = 'top: 80px; right: 20px; z-index: 9999;';
-        banner.innerHTML  = `
-            <i class="fas ${icon} me-2"></i> ${this.escapeHtml(message)}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(banner);
-        setTimeout(() => banner.remove(), 4000);
-    },
-
-    escapeHtml: function(text) {
-        if (text == null) return '';
-        return text
-            .replace(/&/g,  '&amp;')
-            .replace(/</g,  '&lt;')
-            .replace(/>/g,  '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
+        TrishulUtils.showNotification(message, type, 4000);
     }
 };

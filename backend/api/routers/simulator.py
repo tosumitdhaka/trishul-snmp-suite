@@ -122,6 +122,8 @@ def _restart_simulator_with_stats() -> dict:
     _record_stop_stats()
     time.sleep(0.5)
     result = SimulatorManager.restart()
+    if result.get("status") == "failed":
+        return result
     if result.get("status") == "started":
         set_sim_start_time()
         stats_store.increment("simulator", "restart_count")
@@ -154,6 +156,8 @@ async def start_simulator(config: SimConfig = None):
         }
 
     result = SimulatorManager.start(port=p, community=c)
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=500, detail=result.get("error", "Simulator failed to start"))
     if result.get("status") == "started":
         set_sim_start_time()
         stats_store.increment("simulator", "start_count")
@@ -185,6 +189,8 @@ async def restart_simulator():
     result = _restart_simulator_with_stats()
     await _broadcast_status()
     await _broadcast_stats()
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=500, detail=result.get("error", "Simulator failed to restart"))
     if result.get("status") == "started":
         return {
             "status":    "restarted",

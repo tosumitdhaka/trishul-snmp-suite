@@ -5,11 +5,31 @@ window.BrowserModule = {
     searchTimeout: null,
     allModules: [],
     isSearchActive: false,
+    currentSearchResults: [],
+    nodeCache: {},
 
     STATE_KEY: 'browserState',
+
+    cacheNode: function(node) {
+        if (node && node.oid) {
+            this.nodeCache[node.oid] = node;
+        }
+    },
+
+    cacheNodesRecursive: function(nodes) {
+        if (!Array.isArray(nodes)) return;
+        nodes.forEach(node => {
+            this.cacheNode(node);
+            if (Array.isArray(node.children)) {
+                this.cacheNodesRecursive(node.children);
+            }
+        });
+    },
     
     init: async function() {
         this.currentView = 'module';
+        this.currentSearchResults = [];
+        this.nodeCache = {};
         this.setButtonStates();
 
         // Restore state if exists
@@ -193,6 +213,7 @@ window.BrowserModule = {
                 const data = await res.json();
                 
                 if (data.children && data.children.length > 0) {
+                    this.cacheNodesRecursive(data.children);
                     children.innerHTML = data.children.map(child => 
                         this.buildTreeNodeHtml(child, 0)
                     ).join('');
@@ -221,14 +242,7 @@ window.BrowserModule = {
         
         if (!nodeEl) {
             // Node might be in search results
-            const searchResults = document.querySelectorAll('.search-result-item');
-            for (const result of searchResults) {
-                const onclick = result.getAttribute('onclick');
-                if (onclick && onclick.includes(this.pendingSelectedOid)) {
-                    nodeEl = result;
-                    break;
-                }
-            }
+            nodeEl = document.querySelector(`.search-result-item[data-oid="${this.pendingSelectedOid}"]`);
         }
         
         if (nodeEl) {
@@ -442,6 +456,7 @@ window.BrowserModule = {
         const query = document.getElementById('browser-search-input').value.trim();
         const container = document.getElementById('browser-tree-container');
         const countBadge = document.getElementById('browser-tree-count');
+        const esc = TrishulUtils.escapeHtml;
         
         if (query.length < 2) {
             return;
@@ -455,6 +470,8 @@ window.BrowserModule = {
             const typeFilter = this.currentTypeFilter || '';
             const res = await fetch(`/api/mibs/browse/search?query=${encodeURIComponent(query)}&module=${module}&type_filter=${typeFilter}&limit=100`);
             const data = await res.json();
+            this.currentSearchResults = data.results || [];
+            this.cacheNodesRecursive(this.currentSearchResults);
             
             countBadge.textContent = data.count;
             
@@ -462,7 +479,7 @@ window.BrowserModule = {
                 container.innerHTML = `
                     <div class="text-center text-muted p-5">
                         <i class="fas fa-search fa-3x mb-3"></i>
-                        <p>No results found for "<strong>${query}</strong>"</p>
+                        <p>No results found for "<strong>${esc(query)}</strong>"</p>
                         <p class="small">Try different keywords or clear filters</p>
                     </div>
                 `;
@@ -479,11 +496,12 @@ window.BrowserModule = {
             
         } catch (e) {
             console.error('Search failed:', e);
-            container.innerHTML = `<div class="alert alert-danger m-2 small">Search failed: ${e.message}</div>`;
+            container.innerHTML = `<div class="alert alert-danger m-2 small">Search failed: ${TrishulUtils.escapeHtml(e.message)}</div>`;
         }
     },
     
     renderSearchResults: function(results, container) {
+        const esc = TrishulUtils.escapeHtml;
         let html = '<div class="list-group list-group-flush">';
         
         results.forEach(node => {
@@ -492,21 +510,22 @@ window.BrowserModule = {
             
             html += `
                 <div class="list-group-item list-group-item-action p-2 search-result-item" 
-                     onclick="BrowserModule.selectNode('${node.oid}')" 
+                     onclick="BrowserModule.selectNodeFromElement(this)"
+                     data-oid="${esc(node.oid)}"
                      style="cursor: pointer;">
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
                             <div class="fw-bold small">
                                 <i class="fas ${icon} ${iconColor} me-1"></i>
-                                ${node.name}
+                                ${esc(node.name)}
                             </div>
-                            <code class="text-muted" style="font-size: 0.7rem;">${node.oid}</code>
-                            <span class="badge bg-secondary ms-2" style="font-size: 0.65rem;">${node.module}</span>
+                            <code class="text-muted" style="font-size: 0.7rem;">${esc(node.oid)}</code>
+                            <span class="badge bg-secondary ms-2" style="font-size: 0.65rem;">${esc(node.module)}</span>
                         </div>
                     </div>
                     ${node.description ? `
                         <div class="text-muted mt-1" style="font-size: 0.75rem; max-height: 40px; overflow: hidden; text-overflow: ellipsis;">
-                            ${node.description.substring(0, 120)}${node.description.length > 120 ? '...' : ''}
+                            ${esc(node.description.substring(0, 120))}${node.description.length > 120 ? '...' : ''}
                         </div>
                     ` : ''}
                 </div>
@@ -524,6 +543,7 @@ window.BrowserModule = {
         
         const container = document.getElementById('browser-tree-container');
         const countBadge = document.getElementById('browser-tree-count');
+        this.currentSearchResults = [];
         
         container.innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm"></div></div>';
         
@@ -557,6 +577,7 @@ window.BrowserModule = {
                     return;
                 }
                 
+                this.cacheNodesRecursive(data.modules);
                 this.renderModuleTree(data.modules, container);
                 countBadge.textContent = data.count;
                 
@@ -576,6 +597,8 @@ window.BrowserModule = {
                 }
                 
                 data = await res.json();
+                this.cacheNode(data.root);
+                this.cacheNodesRecursive(data.children);
                 this.renderOidTree(data, container);
                 countBadge.textContent = data.total_descendants;
                 
@@ -585,7 +608,7 @@ window.BrowserModule = {
             }
         } catch (e) {
             console.error('Failed to load tree:', e);
-            container.innerHTML = `<div class="alert alert-danger m-2 small">Failed to load tree: ${e.message}</div>`;
+            container.innerHTML = `<div class="alert alert-danger m-2 small">Failed to load tree: ${TrishulUtils.escapeHtml(e.message)}</div>`;
         }
     },
     
@@ -595,6 +618,7 @@ window.BrowserModule = {
             return;
         }
         
+        const esc = TrishulUtils.escapeHtml;
         let html = '';
         
         modules.forEach(module => {
@@ -611,14 +635,15 @@ window.BrowserModule = {
             }
             
             html += `
-                <div class="tree-node tree-module" data-oid="${module.oid}">
+                <div class="tree-node tree-module" data-oid="${esc(module.oid)}">
                     <div class="d-flex align-items-center py-2 px-3 tree-node-content border-bottom">
                         ${hasChildren ? `
                             <i class="fas fa-chevron-right fa-xs me-2 tree-expand-icon" 
-                            onclick="event.stopPropagation(); BrowserModule.toggleNode('${module.oid}')"></i>
+                            onclick="event.stopPropagation(); BrowserModule.toggleNode(this.dataset.oid)"
+                            data-oid="${esc(module.oid)}"></i>
                         ` : '<span style="width: 18px;"></span>'}
                         <i class="fas fa-book text-primary me-2"></i>
-                        <span class="tree-node-name fw-bold">${module.name}</span>
+                        <span class="tree-node-name fw-bold">${esc(module.name)}</span>
                         <span class="badge bg-light text-dark ms-auto" style="font-size: 0.7rem;">${children.length} ${this.currentTypeFilter ? this.getTypeLabel(this.currentTypeFilter) : 'objects'}</span>
                     </div>
                     ${hasChildren ? `
@@ -638,17 +663,19 @@ window.BrowserModule = {
     },
     
     renderOidTree: function(data, container) {
+        const esc = TrishulUtils.escapeHtml;
         const html = `
-            <div class="tree-node" data-oid="${data.root.oid}">
+            <div class="tree-node" data-oid="${esc(data.root.oid)}">
                 <div class="d-flex align-items-center py-2 px-3 tree-node-content border-bottom" 
-                     onclick="BrowserModule.selectNode('${data.root.oid}')">
+                     onclick="BrowserModule.selectNode(this.parentElement.dataset.oid)">
                     ${data.children.length > 0 ? `
                         <i class="fas fa-chevron-right fa-xs me-2 tree-expand-icon" 
-                           onclick="event.stopPropagation(); BrowserModule.toggleNode('${data.root.oid}')"></i>
+                           onclick="event.stopPropagation(); BrowserModule.toggleNode(this.dataset.oid)"
+                           data-oid="${esc(data.root.oid)}"></i>
                     ` : '<span style="width: 18px;"></span>'}
                     <i class="fas fa-cube text-secondary me-2"></i>
-                    <span class="tree-node-name fw-bold">${data.root.name}</span>
-                    <code class="ms-auto text-muted small">${data.root.oid}</code>
+                    <span class="tree-node-name fw-bold">${esc(data.root.name)}</span>
+                    <code class="ms-auto text-muted small">${esc(data.root.oid)}</code>
                 </div>
                 <div class="tree-children" style="display: none; padding-left: 20px;">
                     ${data.children.map(child => this.buildTreeNodeHtml(child, 1)).join('')}
@@ -660,22 +687,24 @@ window.BrowserModule = {
     },
 
     buildTreeNodeHtml: function(node, level) {
+        const esc = TrishulUtils.escapeHtml;
         const indent = level * 15;
         const hasChildren = node.has_children || (node.children && node.children.length > 0);
         const icon = this.getNodeIcon(node.type);
         const iconColor = this.getNodeIconColor(node.type);
         
         let html = `
-            <div class="tree-node" data-oid="${node.oid}" style="padding-left: ${indent}px;">
+            <div class="tree-node" data-oid="${esc(node.oid)}" style="padding-left: ${indent}px;">
                 <div class="d-flex align-items-center py-1 px-2 tree-node-content" 
-                     onclick="BrowserModule.selectNode('${node.oid}')">
+                     onclick="BrowserModule.selectNode(this.parentElement.dataset.oid)">
                     ${hasChildren ? `
                         <i class="fas fa-chevron-right fa-xs me-2 tree-expand-icon" 
-                           onclick="event.stopPropagation(); BrowserModule.toggleNode('${node.oid}')"></i>
+                           onclick="event.stopPropagation(); BrowserModule.toggleNode(this.dataset.oid)"
+                           data-oid="${esc(node.oid)}"></i>
                     ` : '<span style="width: 18px;"></span>'}
                     <i class="fas ${icon} ${iconColor} me-2" style="font-size: 0.85rem;"></i>
-                    <span class="tree-node-name small">${node.name}</span>
-                    <code class="ms-auto text-muted" style="font-size: 0.65rem;">${node.oid.split('.').slice(-2).join('.')}</code>
+                    <span class="tree-node-name small">${esc(node.name)}</span>
+                    <code class="ms-auto text-muted" style="font-size: 0.65rem;">${esc(node.oid.split('.').slice(-2).join('.'))}</code>
                 </div>
                 ${hasChildren ? '<div class="tree-children" style="display: none;"></div>' : ''}
             </div>
@@ -797,6 +826,7 @@ window.BrowserModule = {
                         const data = await res.json();
                         
                         if (data.children && data.children.length > 0) {
+                            this.cacheNodesRecursive(data.children);
                             children.innerHTML = data.children.map(child => 
                                 this.buildTreeNodeHtml(child, 0)
                             ).join('');
@@ -840,6 +870,7 @@ window.BrowserModule = {
                 const data = await res.json();
                 
                 if (data.children && data.children.length > 0) {
+                    this.cacheNodesRecursive(data.children);
                     children.innerHTML = data.children.map(child => 
                         this.buildTreeNodeHtml(child, 0)
                     ).join('');
@@ -908,6 +939,7 @@ window.BrowserModule = {
                     const data = await res.json();
                     
                     if (data.children.length > 0) {
+                        this.cacheNodesRecursive(data.children);
                         childrenEl.innerHTML = data.children.map(child => 
                             this.buildTreeNodeHtml(child, 0)
                         ).join('');
@@ -934,7 +966,7 @@ window.BrowserModule = {
         });
         
         const nodeEl = document.querySelector(`.tree-node[data-oid="${oid}"] > .tree-node-content`) ||
-                    document.querySelector(`.search-result-item[onclick*="${oid}"]`);
+                    document.querySelector(`.search-result-item[data-oid="${oid}"]`);
         if (nodeEl) {
             nodeEl.classList.add('bg-primary', 'text-white');
         }
@@ -964,12 +996,13 @@ window.BrowserModule = {
             
         } catch (e) {
             console.error('Failed to load details:', e);
+            const message = TrishulUtils.escapeHtml(e.message);
             
             panel.innerHTML = `
                 <div class="alert alert-warning m-3">
                     <i class="fas fa-exclamation-triangle me-2"></i>
                     <strong>Could not load details</strong>
-                    <p class="small mb-0 mt-2">${e.message}</p>
+                    <p class="small mb-0 mt-2">${message}</p>
                 </div>
                 <div class="text-center mt-3">
                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="BrowserModule.clearSelection()">
@@ -983,9 +1016,16 @@ window.BrowserModule = {
     renderDetails: function(data) {
         const node = data.node;
         const panel = document.getElementById('browser-details-panel');
+        const esc = TrishulUtils.escapeHtml;
         
         const isNotification = node.type === 'NotificationType';
         const trapObjects = data.trap_objects || [];
+        const trapPayload = TrishulUtils.encodeDataAttr({
+            full_name: node.full_name,
+            name: node.name,
+            oid: node.oid,
+            objects: trapObjects
+        });
         
         panel.innerHTML = `
             <!-- Breadcrumb with tooltips -->
@@ -994,10 +1034,10 @@ window.BrowserModule = {
                     <ol class="breadcrumb small mb-0">
                         ${data.breadcrumb.map((b, idx) => `
                             <li class="breadcrumb-item ${idx === data.breadcrumb.length - 1 ? 'active' : ''}" 
-                                title="${b.full_name} (${b.oid})">
-                                ${idx === data.breadcrumb.length - 1 ? b.name : `
-                                    <a href="#" onclick="BrowserModule.selectNode('${b.oid}'); return false;">
-                                        ${b.name}
+                                title="${esc(b.full_name)} (${esc(b.oid)})">
+                                ${idx === data.breadcrumb.length - 1 ? esc(b.name) : `
+                                    <a href="#" onclick="return BrowserModule.selectNodeFromLink(this)" data-oid="${esc(b.oid)}">
+                                        ${esc(b.name)}
                                     </a>
                                 `}
                             </li>
@@ -1011,15 +1051,16 @@ window.BrowserModule = {
                 <tbody>
                     <tr>
                         <td class="text-muted fw-bold" style="width: 30%;">Name</td>
-                        <td><code>${node.name}</code></td>
+                        <td><code>${esc(node.name)}</code></td>
                     </tr>
                     <tr>
                         <td class="text-muted fw-bold">Full Name</td>
                         <td>
                             <div class="d-flex align-items-center">
-                                <code class="flex-grow-1 text-truncate" title="${node.full_name}">${node.full_name}</code>
+                                <code class="flex-grow-1 text-truncate" title="${esc(node.full_name)}">${esc(node.full_name)}</code>
                                 <button type="button" class="btn btn-xs btn-outline-secondary ms-2" 
-                                        onclick="navigator.clipboard.writeText('${node.full_name}'); TrishulUtils.showNotification('Copied!', 'success')">
+                                        onclick="BrowserModule.copyValue(this.dataset.copy)"
+                                        data-copy="${esc(node.full_name)}">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
@@ -1029,9 +1070,10 @@ window.BrowserModule = {
                         <td class="text-muted fw-bold">OID</td>
                         <td>
                             <div class="d-flex align-items-center">
-                                <code class="flex-grow-1 text-truncate" title="${node.oid}">${node.oid}</code>
+                                <code class="flex-grow-1 text-truncate" title="${esc(node.oid)}">${esc(node.oid)}</code>
                                 <button type="button" class="btn btn-xs btn-outline-secondary ms-2" 
-                                        onclick="navigator.clipboard.writeText('${node.oid}'); TrishulUtils.showNotification('Copied!', 'success')">
+                                        onclick="BrowserModule.copyValue(this.dataset.copy)"
+                                        data-copy="${esc(node.oid)}">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
@@ -1039,28 +1081,28 @@ window.BrowserModule = {
                     </tr>
                     <tr>
                         <td class="text-muted fw-bold">Module</td>
-                        <td><span class="badge bg-secondary">${node.module}</span></td>
+                        <td><span class="badge bg-secondary">${esc(node.module)}</span></td>
                     </tr>
                     <tr>
                         <td class="text-muted fw-bold">Type</td>
-                        <td><span class="badge bg-info">${node.type}</span></td>
+                        <td><span class="badge bg-info">${esc(node.type)}</span></td>
                     </tr>
                     ${node.syntax ? `
                         <tr>
                             <td class="text-muted fw-bold">Syntax</td>
-                            <td><code class="small">${node.syntax}</code></td>
+                            <td><code class="small">${esc(node.syntax)}</code></td>
                         </tr>
                     ` : ''}
                     ${node.access ? `
                         <tr>
                             <td class="text-muted fw-bold">Access</td>
-                            <td><span class="badge bg-warning text-dark">${node.access}</span></td>
+                            <td><span class="badge bg-warning text-dark">${esc(node.access)}</span></td>
                         </tr>
                     ` : ''}
                     ${node.status ? `
                         <tr>
                             <td class="text-muted fw-bold">Status</td>
-                            <td><span class="badge ${node.status === 'current' ? 'bg-success' : 'bg-secondary'}">${node.status}</span></td>
+                            <td><span class="badge ${node.status === 'current' ? 'bg-success' : 'bg-secondary'}">${esc(node.status)}</span></td>
                         </tr>
                     ` : ''}
                 </tbody>
@@ -1070,7 +1112,7 @@ window.BrowserModule = {
                 <div class="mb-3">
                     <label class="fw-bold small text-muted d-block mb-1">Description</label>
                     <div class="small text-muted p-2 bg-light rounded" style="max-height: 120px; overflow-y: auto; font-size: 0.75rem;">
-                        ${node.description}
+                        ${esc(node.description)}
                     </div>
                 </div>
             ` : ''}
@@ -1081,8 +1123,8 @@ window.BrowserModule = {
                     <div class="list-group list-group-flush small" style="max-height: 150px; overflow-y: auto;">
                         ${trapObjects.map(obj => `
                             <div class="list-group-item px-2 py-1 border-0 bg-light mb-1 rounded">
-                                <code class="small">${obj.name}</code>
-                                <div class="text-muted" style="font-size: 0.65rem;">${obj.full_name}</div>
+                                <code class="small">${esc(obj.name)}</code>
+                                <div class="text-muted" style="font-size: 0.65rem;">${esc(obj.full_name)}</div>
                             </div>
                         `).join('')}
                     </div>
@@ -1093,7 +1135,7 @@ window.BrowserModule = {
                 <div class="mb-3">
                     <label class="fw-bold small text-muted d-block mb-1">Indexes</label>
                     <ul class="small mb-0 ps-3">
-                        ${node.indexes.map(idx => `<li><code class="small">${idx}</code></li>`).join('')}
+                        ${node.indexes.map(idx => `<li><code class="small">${esc(idx)}</code></li>`).join('')}
                     </ul>
                 </div>
             ` : ''}
@@ -1102,24 +1144,34 @@ window.BrowserModule = {
             <hr>
             <div class="d-grid gap-2">
                 ${!isNotification ? `
-                    <button type="button" class="btn btn-sm btn-primary" onclick="BrowserModule.useInWalker('${node.full_name}')">
+                    <button type="button" class="btn btn-sm btn-primary" onclick="BrowserModule.useInWalker(this.dataset.fullName)" data-full-name="${esc(node.full_name)}">
                         <i class="fas fa-walking"></i> Walk this OID
                     </button>
                 ` : ''}
                 ${isNotification ? `
-                    <button type="button" class="btn btn-sm btn-success" onclick="BrowserModule.useInTrapSender(${JSON.stringify({
-                        full_name: node.full_name,
-                        name: node.name,
-                        oid: node.oid,
-                        objects: trapObjects
-                    }).replace(/"/g, '&quot;')})">
+                    <button type="button" class="btn btn-sm btn-success" onclick="BrowserModule.useInTrapSenderFromElement(this)" data-trap="${esc(trapPayload)}">
                         <i class="fas fa-paper-plane"></i> Send this Trap
                     </button>
                 ` : ''}
             </div>
         `;
     },
-    
+
+    selectNodeFromElement: function(el) {
+        this.selectNode(el?.dataset?.oid);
+    },
+
+    selectNodeFromLink: function(link) {
+        this.selectNode(link?.dataset?.oid);
+        return false;
+    },
+
+    copyValue: function(value) {
+        navigator.clipboard.writeText(value || '')
+            .then(() => TrishulUtils.showNotification('Copied', 'success'))
+            .catch(() => TrishulUtils.showNotification('Copy failed', 'error'));
+    },
+
     useInWalker: function(fullName) {
         sessionStorage.setItem('walkerOid', fullName);
         window.location.hash = '#walker';
@@ -1132,5 +1184,77 @@ window.BrowserModule = {
             sessionStorage.setItem('selectedTrap', JSON.stringify(trapData));
         }
         window.location.hash = '#traps';
+    },
+
+    useInTrapSenderFromElement: function(button) {
+        const trapData = TrishulUtils.decodeDataAttr(button?.dataset?.trap || '', null);
+        if (trapData) {
+            this.useInTrapSender(trapData);
+        }
+    },
+
+    _getCurrentViewRecords: function() {
+        if (this.isSearchActive) {
+            return (this.currentSearchResults || []).map(node => ({
+                view: 'search',
+                oid: node.oid,
+                name: node.name,
+                full_name: node.full_name,
+                module: node.module,
+                type: node.type,
+                description: node.description || ''
+            }));
+        }
+
+        const rows = [];
+        document.querySelectorAll('#browser-tree-container .tree-node[data-oid]').forEach(nodeEl => {
+            const oid = nodeEl.getAttribute('data-oid');
+            const cached = this.nodeCache[oid] || {};
+            rows.push({
+                view: this.currentView,
+                oid: oid,
+                name: cached.name || '',
+                full_name: cached.full_name || '',
+                module: cached.module || '',
+                type: cached.type || '',
+                description: cached.description || '',
+                has_children: cached.has_children != null ? String(!!cached.has_children) : '',
+            });
+        });
+        return rows;
+    },
+
+    exportCurrentView: function(format) {
+        const rows = this._getCurrentViewRecords();
+        if (rows.length === 0) {
+            TrishulUtils.showNotification('Nothing to export from the current browser view', 'warning');
+            return;
+        }
+
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        if (format === 'csv') {
+            const csv = TrishulUtils.toCsv(rows, [
+                { key: 'view', label: 'view' },
+                { key: 'oid', label: 'oid' },
+                { key: 'name', label: 'name' },
+                { key: 'full_name', label: 'full_name' },
+                { key: 'module', label: 'module' },
+                { key: 'type', label: 'type' },
+                { key: 'description', label: 'description' },
+                { key: 'has_children', label: 'has_children' },
+            ]);
+            TrishulUtils.downloadText(`trishul-browser-view-${stamp}.csv`, csv, 'text/csv;charset=utf-8');
+            return;
+        }
+
+        TrishulUtils.downloadText(
+            `trishul-browser-view-${stamp}.json`,
+            JSON.stringify({
+                exported_at: new Date().toISOString(),
+                view: this.isSearchActive ? 'search' : this.currentView,
+                records: rows
+            }, null, 2),
+            'application/json;charset=utf-8'
+        );
     }
 };

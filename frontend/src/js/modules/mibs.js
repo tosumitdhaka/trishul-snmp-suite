@@ -106,6 +106,7 @@ window.MibsModule = {
 
     renderMibList: function(mibs) {
         const list = document.getElementById('mib-list');
+        const esc = TrishulUtils.escapeHtml;
 
         if (mibs.length === 0) {
             list.innerHTML = '<li class="list-group-item text-center text-muted">No MIBs loaded</li>';
@@ -117,15 +118,15 @@ window.MibsModule = {
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center">
                         <i class="fas fa-book text-success me-2"></i>
-                        <strong>${mib.name}</strong>
+                        <strong>${esc(mib.name)}</strong>
                         <span class="badge bg-success ms-2">✓</span>
                     </div>
                     <small class="text-muted d-block mt-1">
-                        ${mib.objects} objects · ${mib.traps} traps
-                        ${mib.imports.length > 0 ? `· Imports: ${mib.imports.slice(0, 3).join(', ')}${mib.imports.length > 3 ? '...' : ''}` : ''}
+                        ${Number(mib.objects || 0)} objects · ${Number(mib.traps || 0)} traps
+                        ${mib.imports.length > 0 ? `· Imports: ${mib.imports.slice(0, 3).map(esc).join(', ')}${mib.imports.length > 3 ? '...' : ''}` : ''}
                     </small>
                 </div>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="MibsModule.deleteMib('${mib.file}')">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="MibsModule.deleteMib(this.dataset.filename)" data-filename="${esc(mib.file)}">
                     <i class="fas fa-trash"></i>
                 </button>
             </li>
@@ -134,6 +135,7 @@ window.MibsModule = {
 
     renderFailedMibs: function(errors) {
         const list = document.getElementById('failed-mib-list');
+        const esc = TrishulUtils.escapeHtml;
 
         list.innerHTML = errors.map(mib => `
             <li class="list-group-item">
@@ -141,21 +143,27 @@ window.MibsModule = {
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center">
                             <i class="fas fa-exclamation-circle text-danger me-2"></i>
-                            <strong class="text-danger">${mib.name}</strong>
+                            <strong class="text-danger">${esc(mib.name)}</strong>
                         </div>
                         <div class="small text-muted mt-1 font-monospace" style="max-width: 500px; overflow-wrap: break-word;">
-                            ${mib.error || 'Unknown error'}
+                            ${esc(mib.error || 'Unknown error')}
                         </div>
                         ${mib.status === 'missing_deps' ? `
                             <div class="mt-2">
                                 <span class="badge bg-warning text-dark">Missing dependencies</span>
+                                ${mib.missing_deps && mib.missing_deps.length > 0 ? `
+                                    <div class="small mt-1">${mib.missing_deps.map(esc).join(', ')}</div>
+                                ` : ''}
+                                <button type="button" class="btn btn-xs btn-outline-primary ms-2" onclick="MibsModule.fetchDependenciesFromElement(this)" data-deps="${esc(TrishulUtils.encodeDataAttr(mib.missing_deps || []))}">
+                                    <i class="fas fa-cloud-download-alt"></i> Fetch
+                                </button>
                                 <button type="button" class="btn btn-xs btn-outline-info ms-2" onclick="MibsModule.showDependencyHelp()">
                                     <i class="fas fa-question-circle"></i> Help
                                 </button>
                             </div>
                         ` : ''}
                     </div>
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="MibsModule.deleteMib('${mib.file}')">
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="MibsModule.deleteMib(this.dataset.filename)" data-filename="${esc(mib.file)}">
                         <i class="fas fa-trash"></i>
                     </button>
                 </div>
@@ -181,6 +189,7 @@ window.MibsModule = {
 
     renderTraps: function(traps) {
         const tbody = document.getElementById('trap-table-body');
+        const esc = TrishulUtils.escapeHtml;
 
         if (traps.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted p-3">No traps found</td></tr>';
@@ -196,34 +205,39 @@ window.MibsModule = {
 
         tbody.innerHTML = traps.map(trap => {
             const isSystemMib = knownSystemMibs.includes(trap.module) && !loadedModules.has(trap.module);
+            const payload = esc(TrishulUtils.encodeDataAttr(trap));
 
             return `
             <tr ${isSystemMib ? 'class="table-secondary"' : ''}>
-                <td title="${trap.name}">
+                <td title="${esc(trap.name)}">
                     <div class="d-flex align-items-center">
                         <i class="fas fa-bell ${isSystemMib ? 'text-secondary' : 'text-warning'} me-2"></i>
-                        <strong class="text-truncate">${trap.name}</strong>
+                        <strong class="text-truncate">${esc(trap.name)}</strong>
                         ${isSystemMib ? '<span class="badge bg-secondary ms-2" style="font-size: 0.6rem;">System</span>' : ''}
                     </div>
                 </td>
-                <td title="${trap.oid}">
-                    <code class="small text-muted text-truncate d-block" style="font-size: 0.7rem;">${trap.oid}</code>
+                <td title="${esc(trap.oid)}">
+                    <code class="small text-muted text-truncate d-block" style="font-size: 0.7rem;">${esc(trap.oid)}</code>
                 </td>
                 <td class="text-center">
-                    <span class="badge ${isSystemMib ? 'bg-secondary' : 'bg-primary'}" style="font-size: 0.7rem;">${trap.module}</span>
+                    <span class="badge ${isSystemMib ? 'bg-secondary' : 'bg-primary'}" style="font-size: 0.7rem;">${esc(trap.module)}</span>
                 </td>
                 <td class="text-center">
-                    <span class="badge bg-info" style="font-size: 0.7rem;">${trap.objects.length}</span>
+                    <span class="badge bg-info" style="font-size: 0.7rem;">${Number((trap.objects || []).length)}</span>
                 </td>
                 <td class="text-center">
                     <div class="btn-group btn-group-sm" role="group">
                         <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
-                                onclick='MibsModule.showTrapDetails(${JSON.stringify(trap).replace(/'/g, "&apos;")})'
+                                onclick="MibsModule.handleTrapAction(this)"
+                                data-action="details"
+                                data-trap="${payload}"
                                 title="View Details">
                             <i class="fas fa-info-circle"></i>
                         </button>
                         <button type="button" class="btn btn-success btn-sm py-0 px-2"
-                                onclick='MibsModule.useTrapDirectly(${JSON.stringify(trap).replace(/'/g, "&apos;")})'
+                                onclick="MibsModule.handleTrapAction(this)"
+                                data-action="send"
+                                data-trap="${payload}"
                                 title="Send Trap">
                             <i class="fas fa-paper-plane"></i>
                         </button>
@@ -231,6 +245,18 @@ window.MibsModule = {
                 </td>
             </tr>`;
         }).join('');
+    },
+
+    handleTrapAction: function(button) {
+        const trap = TrishulUtils.decodeDataAttr(button?.dataset?.trap || '', null);
+        if (!trap) return;
+        if (button.dataset.action === 'details') {
+            this.showTrapDetails(trap);
+            return;
+        }
+        if (button.dataset.action === 'send') {
+            this.useTrapDirectly(trap);
+        }
     },
 
     useTrapDirectly: function(trap) {
@@ -252,49 +278,50 @@ window.MibsModule = {
 
         const title = document.getElementById('trap-detail-title');
         const body  = document.getElementById('trap-detail-body');
+        const esc = TrishulUtils.escapeHtml;
 
         title.textContent = trap.full_name;
-
-        const safeOid = (trap.oid || '').replace(/'/g, "\\'");
+        const copyOid = esc(trap.oid || '');
 
         body.innerHTML = `
             <div class="mb-3">
                 <label class="fw-bold">Name:</label>
-                <div><code>${trap.name}</code></div>
+                <div><code>${esc(trap.name)}</code></div>
             </div>
             <div class="mb-3">
                 <label class="fw-bold">Full Name:</label>
-                <div><code>${trap.full_name}</code></div>
+                <div><code>${esc(trap.full_name)}</code></div>
             </div>
             <div class="mb-3">
                 <label class="fw-bold">OID:</label>
                 <div>
-                    <code>${trap.oid}</code>
+                    <code>${esc(trap.oid)}</code>
                     <button type="button" class="btn btn-xs btn-outline-secondary ms-2"
-                            onclick="navigator.clipboard.writeText('${safeOid}')">
+                            onclick="MibsModule.copyValue(this.dataset.copy)"
+                            data-copy="${copyOid}">
                         <i class="fas fa-copy"></i> Copy
                     </button>
                 </div>
             </div>
             <div class="mb-3">
                 <label class="fw-bold">Module:</label>
-                <div><span class="badge bg-secondary">${trap.module}</span></div>
+                <div><span class="badge bg-secondary">${esc(trap.module)}</span></div>
             </div>
             <div class="mb-3">
                 <label class="fw-bold">Description:</label>
-                <div class="text-muted">${trap.description || 'No description available'}</div>
+                <div class="text-muted">${esc(trap.description || 'No description available')}</div>
             </div>
             <div class="mb-3">
                 <label class="fw-bold">Associated Objects (VarBinds):</label>
-                ${trap.objects.length > 0 ? `
+                ${(trap.objects || []).length > 0 ? `
                     <ul class="list-group mt-2">
-                        ${trap.objects.map(obj => `
+                        ${(trap.objects || []).map(obj => `
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <div>
-                                    <code>${obj.name}</code>
-                                    <div class="small text-muted">${obj.full_name}</div>
+                                    <code>${esc(obj.name)}</code>
+                                    <div class="small text-muted">${esc(obj.full_name)}</div>
                                 </div>
-                                <code class="text-muted small">${obj.oid}</code>
+                                <code class="text-muted small">${esc(obj.oid)}</code>
                             </li>
                         `).join('')}
                     </ul>
@@ -303,6 +330,12 @@ window.MibsModule = {
         `;
 
         this.trapDetailsModal.show();
+    },
+
+    copyValue: function(value) {
+        navigator.clipboard.writeText(value || '')
+            .then(() => TrishulUtils.showNotification('Copied', 'success'))
+            .catch(() => TrishulUtils.showNotification('Copy failed', 'error'));
     },
 
     useTrapInSender: function() {
@@ -346,6 +379,7 @@ window.MibsModule = {
 
             const res  = await fetch('/api/mibs/validate-batch', { method: 'POST', body: formData });
             const data = await res.json();
+            const esc = TrishulUtils.escapeHtml;
 
             validationList.innerHTML = data.files.map(r => {
                 const hasLocalMissing = r.missing_deps.length > 0;
@@ -359,23 +393,23 @@ window.MibsModule = {
                         <div class="card-body p-2">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
-                                    <strong>${r.filename}</strong>
-                                    <span class="text-muted small ms-2">(${r.mib_name})</span>
+                                    <strong>${esc(r.filename)}</strong>
+                                    <span class="text-muted small ms-2">(${esc(r.mib_name)})</span>
                                 </div>
                                 ${statusBadge}
                             </div>
                             ${r.errors.length > 0 ? `
                                 <div class="alert alert-danger py-1 px-2 mt-2 mb-0 small">
-                                    <strong>Errors:</strong><br>${r.errors.join('<br>')}
+                                    <strong>Errors:</strong><br>${r.errors.map(esc).join('<br>')}
                                 </div>` : ''}
                             ${r.imports.length > 0 ? `
                                 <div class="text-muted small mt-2">
-                                    <strong>Imports:</strong> ${r.imports.join(', ')}
+                                    <strong>Imports:</strong> ${r.imports.map(esc).join(', ')}
                                 </div>` : ''}
                             ${hasLocalMissing ? `
                                 <div class="alert alert-warning py-1 px-2 mt-2 mb-0 small">
                                     <i class="fas fa-exclamation-triangle"></i>
-                                    <strong>Missing:</strong> ${r.missing_deps.join(', ')}
+                                    <strong>Missing:</strong> ${r.missing_deps.map(esc).join(', ')}
                                 </div>` : ''}
                         </div>
                     </div>`;
@@ -383,19 +417,29 @@ window.MibsModule = {
 
             resultsDiv.classList.remove('d-none');
 
+            const fetchBtn = document.getElementById('btn-fetch-dependencies');
             if (data.global_missing_deps.length > 0) {
                 depList.innerHTML = `
                     <p class="mb-2">The following dependencies are not available:</p>
                     <ul class="mb-2">
-                        ${data.global_missing_deps.map(dep => `<li><code>${dep}</code></li>`).join('')}
+                        ${data.global_missing_deps.map(dep => `<li><code>${esc(dep)}</code></li>`).join('')}
                     </ul>
                     <p class="mb-0 small">
                         <strong>Options:</strong><br>
-                        • Upload these MIBs in a separate batch first<br>
+                        • Fetch them from the approved remote source list<br>
+                        • Upload them manually in a separate batch first<br>
                         • Continue anyway (affected MIBs will fail to load)
                     </p>`;
+                if (fetchBtn) {
+                    fetchBtn.disabled = false;
+                    fetchBtn.dataset.deps = TrishulUtils.encodeDataAttr(data.global_missing_deps);
+                }
                 depAlert.classList.remove('d-none');
             } else {
+                if (fetchBtn) {
+                    fetchBtn.disabled = true;
+                    fetchBtn.dataset.deps = '';
+                }
                 depAlert.classList.add('d-none');
             }
 
@@ -444,6 +488,15 @@ window.MibsModule = {
             let message = `Upload Complete!\n\n✓ Successfully loaded: ${loaded}\n`;
             if (failed > 0) message += `⚠ Failed to load: ${failed}\n`;
             if (errors > 0) message += `✗ Upload errors: ${errors}\n`;
+            if (data.dependency_fetch && data.dependency_fetch.enabled) {
+                const downloadedDeps = (data.dependency_fetch.downloaded || []).length;
+                const cachedDeps = (data.dependency_fetch.cached || []).length;
+                const failedDeps = (data.dependency_fetch.failed || []).length;
+                message += `\nDependency fetch: ${downloadedDeps} downloaded`;
+                if (cachedDeps > 0) message += `, ${cachedDeps} cached`;
+                if (failedDeps > 0) message += `, ${failedDeps} failed`;
+                message += '\n';
+            }
 
             const problemFiles = data.results.filter(r => r.status === 'failed' || r.status === 'error');
             if (problemFiles.length > 0) {
@@ -480,7 +533,14 @@ window.MibsModule = {
             const data = await res.json();
             await this.loadStatus();
             await this.loadTraps();
-            TrishulUtils.showNotification(`Reloaded: ${data.loaded} loaded, ${data.failed} failed`, 'success');
+            const downloadedDeps = data.dependency_fetch ? (data.dependency_fetch.downloaded || []).length : 0;
+            const cachedDeps = data.dependency_fetch ? (data.dependency_fetch.cached || []).length : 0;
+            let message = `Reloaded: ${data.loaded} loaded, ${data.failed} failed`;
+            if (data.dependency_fetch && data.dependency_fetch.enabled) {
+                message += ` · deps ${downloadedDeps} downloaded`;
+                if (cachedDeps > 0) message += `, ${cachedDeps} cached`;
+            }
+            TrishulUtils.showNotification(message, 'success');
         } catch (e) {
             console.error('Reload failed', e);
             TrishulUtils.showNotification('Reload failed: ' + e.message, 'error');
@@ -512,13 +572,59 @@ window.MibsModule = {
     showDependencyHelp: function() {
         alert(
             'How to resolve missing dependencies:\n\n' +
-            '1. Download the required MIB files from vendor websites or mibs.pysnmp.com\n' +
-            '2. Upload them using this same dialog\n' +
-            '3. Re-upload the original MIB after dependencies are loaded\n\n' +
-            'Common sources:\n' +
-            '- Standard MIBs: https://www.iana.org/assignments/ianaiftype-mib\n' +
-            '- Vendor MIBs: Check manufacturer support pages'
+            '1. Use "Fetch Missing Dependencies" to download from the approved source list configured in Settings\n' +
+            '2. Or upload the required MIBs manually using this dialog\n' +
+            '3. Reload after the dependencies are available\n\n' +
+            'Validation never performs remote fetches. Auto-fetch, if enabled, only runs during upload/reload.'
         );
+    },
+
+    fetchDependenciesFromElement: async function(button) {
+        const deps = TrishulUtils.decodeDataAttr(button?.dataset?.deps || '', []);
+        await this.fetchDependencies(deps);
+    },
+
+    fetchDependenciesFromValidation: async function() {
+        const button = document.getElementById('btn-fetch-dependencies');
+        const deps = TrishulUtils.decodeDataAttr(button?.dataset?.deps || '', []);
+        await this.fetchDependencies(deps);
+    },
+
+    fetchDependencies: async function(dependencies) {
+        const deps = Array.isArray(dependencies) ? dependencies.filter(Boolean) : [];
+        if (deps.length === 0) {
+            TrishulUtils.showNotification('No missing dependencies to fetch', 'warning');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/mibs/fetch-dependencies', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dependencies: deps, reload_after_fetch: true })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || 'Dependency fetch failed');
+            }
+
+            const downloaded = (data.downloaded || []).length;
+            const cached = (data.cached || []).length;
+            const failed = (data.failed || []).length;
+            let message = `Dependency fetch complete: ${downloaded} downloaded`;
+            if (cached > 0) message += `, ${cached} cached`;
+            if (failed > 0) message += `, ${failed} failed`;
+            TrishulUtils.showNotification(message, failed > 0 ? 'warning' : 'success', 5000);
+            await this.loadStatus();
+            await this.loadTraps();
+            const input = document.getElementById('mib-upload-input');
+            if (input && input.files && input.files.length > 0) {
+                await this.validateFiles();
+            }
+        } catch (e) {
+            console.error('Dependency fetch failed:', e);
+            TrishulUtils.showNotification(`Dependency fetch failed: ${e.message}`, 'error', 5000);
+        }
     }
 
 };

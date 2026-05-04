@@ -79,7 +79,7 @@
                 </span>
             </div>
             <div class="card-body">
-                <p class="text-muted small">These settings are written to <code>app_settings.json</code> and applied on next container restart.</p>
+                <p class="text-muted small">Auto-start changes apply on restart. Session timeout and remote MIB fetch settings apply immediately and are also persisted to <code>app_settings.json</code>.</p>
 
                 <div class="mb-3">
                     <label class="form-label small fw-bold">Auto-Start on Boot</label>
@@ -108,6 +108,27 @@
                         <span class="input-group-text">seconds</span>
                     </div>
                     <div class="form-text small">Min 60 s &middot; Max 86400 s (24 h) &middot; Default 3600 s (1 h)</div>
+                </div>
+
+                <hr class="my-2">
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Remote MIB Fetch</label>
+                    <div class="form-check form-switch mt-1">
+                        <input class="form-check-input" type="checkbox" role="switch" id="set-mib-auto-fetch">
+                        <label class="form-check-label small" for="set-mib-auto-fetch">Auto-fetch missing dependencies during upload/reload</label>
+                    </div>
+                    <div class="form-text small">Manual fetch stays available in MIB Manager. Validation never performs remote fetches.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold" for="set-mib-remote-sources">Approved Remote Sources</label>
+                    <textarea class="form-control form-control-sm font-monospace"
+                              id="set-mib-remote-sources"
+                              rows="4"
+                              spellcheck="false"
+                              placeholder="https://example.invalid/mibs/@mib@"></textarea>
+                    <div class="form-text small">One source per line. Each entry must include <code>@mib@</code>. Order matters.</div>
                 </div>
 
                 <div id="app-settings-msg" class="alert d-none small py-2 mb-3"></div>

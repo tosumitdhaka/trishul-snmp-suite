@@ -18,7 +18,7 @@ import tempfile
 import shutil
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from services.mib_service import get_mib_service
 from services.sim_manager import SimulatorManager
 from services.trap_manager import trap_manager
@@ -45,17 +45,32 @@ class BatchValidationResponse(BaseModel):
     can_upload: bool
 
 
+class DependencyFetchRequest(BaseModel):
+    dependencies: List[str] = Field(default_factory=list)
+    reload_after_fetch: bool = True
+
+
 # ==================== Helper Functions ====================
+
+def sanitize_mib_filename(filename: str) -> str:
+    safe_name = pathlib.Path(filename or "").name
+    if not safe_name or safe_name != filename or safe_name in {".", ".."}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid filename '{filename}'. Directory traversal not allowed."
+        )
+    if pathlib.Path(safe_name).suffix.lower() not in {".mib", ".txt", ".my"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported MIB filename '{filename}'. Use .mib, .txt, or .my."
+        )
+    return safe_name
+
 
 def save_mib_file(file: UploadFile) -> str:
     """Save uploaded MIB file with filename sanitization (IMPR-11)."""
     try:
-        safe_name = pathlib.Path(file.filename).name
-        if not safe_name or safe_name != file.filename:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid filename '{file.filename}'. Directory traversal not allowed."
-            )
+        safe_name = sanitize_mib_filename(file.filename)
         os.makedirs(settings.MIB_DIR, exist_ok=True)
         file_path = os.path.join(settings.MIB_DIR, safe_name)
         with open(file_path, 'wb') as f:
@@ -72,12 +87,15 @@ def save_mib_file(file: UploadFile) -> str:
 
 def delete_mib_file(filename: str) -> bool:
     try:
-        file_path = os.path.join(settings.MIB_DIR, filename)
+        safe_name = sanitize_mib_filename(filename)
+        file_path = os.path.join(settings.MIB_DIR, safe_name)
         if not os.path.exists(file_path):
             return False
         os.remove(file_path)
-        logger.info(f"Deleted MIB file: {filename}")
+        logger.info(f"Deleted MIB file: {safe_name}")
         return True
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete MIB file {filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
@@ -96,6 +114,43 @@ def list_mib_files() -> List[str]:
         return []
 
 
+async def _save_temp_validation_file(temp_dir: str, upload: UploadFile) -> tuple[str, str]:
+    safe_name = sanitize_mib_filename(upload.filename)
+    content = await upload.read()
+    stem = pathlib.Path(safe_name).stem
+    suffix = pathlib.Path(safe_name).suffix or ".mib"
+    fd, temp_path = tempfile.mkstemp(dir=temp_dir, prefix=f"{stem}_", suffix=suffix)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
+    return safe_name, temp_path
+
+
+def _current_directory_missing_dependencies(mib_service) -> List[str]:
+    return mib_service.collect_missing_dependencies_for_directory()
+
+
+def _maybe_auto_fetch_dependencies(mib_service) -> dict:
+    if not settings.MIB_AUTO_FETCH:
+        return {"enabled": False, "downloaded": [], "cached": [], "failed": []}
+    missing = _current_directory_missing_dependencies(mib_service)
+    if not missing:
+        return {
+            "enabled": True,
+            "requested": [],
+            "downloaded": [],
+            "cached": [],
+            "failed": [],
+        }
+    return {"enabled": True, **mib_service.fetch_missing_dependencies(missing)}
+
+
 def _reload_dependents(sim_was_running: bool, trap_was_running: bool) -> dict:
     """
     Part B: restart simulator and trap receiver after a MIB reload.
@@ -109,18 +164,24 @@ def _reload_dependents(sim_was_running: bool, trap_was_running: bool) -> dict:
     trap_msg = "Trap receiver not running"
 
     if sim_was_running:
-        _restart_simulator_with_stats()
-        sim_msg = "Simulator restarted"
+        sim_result = _restart_simulator_with_stats()
+        if sim_result.get("status") == "started":
+            sim_msg = "Simulator restarted"
+        else:
+            sim_msg = f"Simulator restart failed: {sim_result.get('error', sim_result.get('status', 'unknown error'))}"
 
     if trap_was_running:
         # Use stored _port, _community, resolve_mibs — not defaults
         trap_manager.stop()
-        trap_manager.start(
+        trap_result = trap_manager.start(
             port=trap_manager._port,
             community=trap_manager._community,
             resolve_mibs=trap_manager.resolve_mibs
         )
-        trap_msg = "Trap receiver restarted"
+        if trap_result.get("status") == "started":
+            trap_msg = "Trap receiver restarted"
+        else:
+            trap_msg = f"Trap receiver restart failed: {trap_result.get('error', trap_result.get('status', 'unknown error'))}"
 
     return {"simulator": sim_msg, "trap_receiver": trap_msg}
 
@@ -162,46 +223,57 @@ async def validate_batch(files: List[UploadFile] = File(...)):
     mib_service = get_mib_service()
     temp_dir    = tempfile.mkdtemp(prefix="mib_validation_")
     try:
-        temp_files = {}
+        temp_files: list[tuple[str, str]] = []
         for file in files:
-            content   = await file.read()
-            temp_path = os.path.join(temp_dir, file.filename)
-            with open(temp_path, 'wb') as f:
-                f.write(content)
-            temp_files[file.filename] = temp_path
+            safe_name, temp_path = await _save_temp_validation_file(temp_dir, file)
+            temp_files.append((safe_name, temp_path))
 
-        batch_mibs  = {}
-        for filename, temp_path in temp_files.items():
-            validation = mib_service.validate_mib_file(temp_path)
-            batch_mibs[validation["mib_name"]] = filename
+        analysis = mib_service.analyze_validation_batch([path for _name, path in temp_files])
 
-        results        = []
-        global_missing = set()
-        for filename, temp_path in temp_files.items():
-            validation    = mib_service.validate_mib_file(temp_path)
-            truly_missing = []
-            for dep in validation["missing_deps"]:
-                if dep in batch_mibs: continue
-                if dep in mib_service.loaded_mibs: continue
-                if dep in mib_service.mib_builder.mibSymbols: continue
-                if mib_service._is_standard_mib(dep): continue
-                truly_missing.append(dep)
-                global_missing.add(dep)
+        results = []
+        for temp_path, validation in analysis["files"]:
+            filename = next((name for name, path in temp_files if path == temp_path), pathlib.Path(temp_path).name)
             results.append(MibValidationResult(
                 filename=filename,
                 mib_name=validation["mib_name"],
                 valid=len(validation["errors"]) == 0,
                 imports=validation["imports"],
-                missing_deps=truly_missing,
+                missing_deps=validation["missing_deps"],
                 errors=validation["errors"]
             ))
         return BatchValidationResponse(
             files=results,
-            global_missing_deps=sorted(list(global_missing)),
+            global_missing_deps=analysis["global_missing_deps"],
             can_upload=all(r.valid for r in results)
         )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@router.post("/fetch-dependencies")
+async def fetch_dependencies(req: DependencyFetchRequest):
+    dependencies = [dep.strip() for dep in req.dependencies if dep.strip()]
+    if not dependencies:
+        raise HTTPException(status_code=400, detail="No dependencies requested")
+
+    mib_service = get_mib_service()
+    fetch_result = mib_service.fetch_missing_dependencies(dependencies)
+
+    dep_msgs = {"simulator": "Simulator not running", "trap_receiver": "Trap receiver not running"}
+    if req.reload_after_fetch and (fetch_result["downloaded"] or fetch_result["cached"]):
+        sim_was_running = SimulatorManager.status().get("running", False)
+        trap_was_running = trap_manager.get_status().get("running", False)
+        mib_service.reload()
+        stats_store.increment("mibs", "reload_count")
+        dep_msgs = _reload_dependents(sim_was_running, trap_was_running)
+        _broadcast_mibs()
+
+    return {
+        "status": "completed",
+        **fetch_result,
+        "remaining_missing": _current_directory_missing_dependencies(mib_service),
+        **dep_msgs,
+    }
 
 
 @router.post("/upload")
@@ -226,6 +298,7 @@ async def upload_mibs(files: List[UploadFile] = File(...)):
         trap_was_running = trap_manager.get_status().get("running", False)
 
         mib_service = get_mib_service()
+        auto_fetch = _maybe_auto_fetch_dependencies(mib_service)
         mib_service.reload()
         stats_store.increment("mibs", "reload_count")
         if files_saved > 0:
@@ -248,7 +321,12 @@ async def upload_mibs(files: List[UploadFile] = File(...)):
 
         dep_msgs = _reload_dependents(sim_was_running, trap_was_running)
         _broadcast_mibs()
-        return {"results": results, **dep_msgs}
+        return {
+            "results": results,
+            "dependency_fetch": auto_fetch,
+            "remaining_missing": _current_directory_missing_dependencies(mib_service),
+            **dep_msgs,
+        }
 
     except Exception as e:
         logger.error(f"Upload failed: {e}", exc_info=True)
@@ -262,6 +340,7 @@ async def reload_mibs():
         trap_was_running = trap_manager.get_status().get("running", False)
 
         mib_service = get_mib_service()
+        auto_fetch = _maybe_auto_fetch_dependencies(mib_service)
         mib_service.reload()
         stats_store.increment("mibs", "reload_count")
 
@@ -273,6 +352,8 @@ async def reload_mibs():
             "status": "reloaded",
             "loaded": status["loaded"],
             "failed": status["failed"],
+            "dependency_fetch": auto_fetch,
+            "remaining_missing": _current_directory_missing_dependencies(mib_service),
             **dep_msgs
         }
     except Exception as e:

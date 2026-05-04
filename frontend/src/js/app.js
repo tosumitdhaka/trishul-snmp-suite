@@ -188,6 +188,12 @@ function initializeAppLogic() {
         }
     });
 
+    window.addEventListener('trishul:ws:close', (e) => {
+        if (e.detail && e.detail.code === 4001 && sessionStorage.getItem("snmp_token")) {
+            logout(false);
+        }
+    });
+
     // Routing
     window.addEventListener('hashchange', handleRouting);
     handleRouting();

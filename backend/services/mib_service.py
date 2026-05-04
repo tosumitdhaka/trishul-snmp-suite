@@ -1,9 +1,13 @@
 import os
 import re
 import logging
+import threading
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
+from urllib.parse import quote
+
+import requests
 from pysnmp.smi import builder, view, compiler
 from pysnmp.proto.api import v2c
 from core.config import settings
@@ -26,6 +30,7 @@ class MibInfo:
         self.file_path = file_path
         self.status = status
         self.imports: List[str] = []
+        self.missing_deps: List[str] = []
         self.objects_count = 0
         self.traps_count = 0
         self.error_message: Optional[str] = None
@@ -36,6 +41,7 @@ class MibInfo:
             "file": os.path.basename(self.file_path),
             "status": self.status,
             "imports": self.imports,
+            "missing_deps": self.missing_deps,
             "objects": self.objects_count,
             "traps": self.traps_count,
             "error": self.error_message
@@ -91,6 +97,25 @@ class MibService:
     """
     Singleton MIB manager with dependency tracking and hot-reload support.
     """
+
+    MIB_LOAD_PRIORITY = (
+        "SNMPv2-SMI",
+        "SNMPv2-CONF",
+        "SNMPv2-TC",
+        "SNMPv2-MIB",
+        "IANAifType-MIB",
+        "IF-MIB",
+        "HOST-RESOURCES-MIB",
+        "ENTITY-MIB",
+        "DISMAN-EVENT-MIB",
+        "IP-MIB",
+        "TCP-MIB",
+        "UDP-MIB",
+        "BRIDGE-MIB",
+        "NOTIFICATION-LOG-MIB",
+        "RFC1213-MIB",
+        "RMON-MIB",
+    )
     
     _instance = None
     
@@ -123,15 +148,14 @@ class MibService:
         logger.info(f"MibService initialized: {len(self.loaded_mibs)} MIBs loaded")
     
     def _configure_sources(self):
-        """Configure MIB search paths"""
+        """Configure local-only MIB search paths."""
         sources = [
             f'file://{os.path.abspath(settings.MIB_DIR)}',
             'file:///usr/share/snmp/mibs',
             'file:///usr/share/snmp/mibs/ietf',
             'file:///usr/share/snmp/mibs/iana',
-            'https://mibs.pysnmp.com/asn1/@mib@'
         ]
-        
+
         compiler.add_mib_compiler(self.mib_builder, sources=sources)
         logger.debug(f"MIB sources configured: {sources}")
     
@@ -144,8 +168,12 @@ class MibService:
         mib_files = self._discover_mib_files()
         logger.info(f"Found {len(mib_files)} MIB files")
         
-        for mib_name, file_path in mib_files.items():
-            self._load_single_mib(mib_name, file_path)
+        for mib_name, file_path in self._ordered_mib_items(mib_files):
+            self._load_single_mib(mib_name, file_path, log_failure=False)
+
+        self._retry_failed_mibs()
+        self._reconcile_loaded_mibs()
+        self._log_unresolved_failures()
         
         self._update_statistics()
         self._build_tree_structure()  # NEW: Build tree after loading
@@ -155,7 +183,7 @@ class MibService:
         """Scan MIB directory and return {mib_name: file_path}"""
         mib_files = {}
         
-        for file_name in os.listdir(settings.MIB_DIR):
+        for file_name in sorted(os.listdir(settings.MIB_DIR)):
             if file_name.endswith(('.mib', '.txt', '.my')):
                 mib_name = file_name.rsplit('.', 1)[0]
                 file_path = os.path.join(settings.MIB_DIR, file_name)
@@ -163,26 +191,87 @@ class MibService:
         
         return mib_files
     
-    def _load_single_mib(self, mib_name: str, file_path: str):
+    def _ordered_mib_items(self, mib_files: Dict[str, str]) -> List[Tuple[str, str]]:
+        priority_index = {name: idx for idx, name in enumerate(self.MIB_LOAD_PRIORITY)}
+        fallback_rank = len(priority_index)
+        return sorted(
+            mib_files.items(),
+            key=lambda item: (priority_index.get(item[0], fallback_rank), item[0]),
+        )
+
+    def _mark_loaded_mib(self, mib_name: str, file_path: str):
+        mib_info = MibInfo(mib_name, file_path, status="loaded")
+        mib_info.imports = self._extract_imports(file_path)
+        self.failed_mibs.pop(mib_name, None)
+        self.loaded_mibs[mib_name] = mib_info
+        return mib_info
+
+    def _record_failed_mib(self, mib_name: str, file_path: str, error: Exception, log_failure: bool = True):
+        mib_info = MibInfo(mib_name, file_path, status="error")
+        mib_info.error_message = str(error)
+        mib_info.imports = self._extract_imports(file_path)
+        mib_info.missing_deps = self._find_missing_dependencies(mib_info.imports)
+
+        if "Cannot find" in str(error) or "No module named" in str(error):
+            mib_info.status = "missing_deps"
+
+        self.failed_mibs[mib_name] = mib_info
+        self.loaded_mibs.pop(mib_name, None)
+
+        if log_failure:
+            logger.warning(f"✗ Failed to load MIB {mib_name}: {error}")
+
+    def _load_single_mib(self, mib_name: str, file_path: str, log_failure: bool = True):
         """Load a single MIB and track its status"""
         try:
             self.mib_builder.load_modules(mib_name)
-            
-            mib_info = MibInfo(mib_name, file_path, status="loaded")
-            mib_info.imports = self._extract_imports(file_path)
-            
-            self.loaded_mibs[mib_name] = mib_info
+            self._mark_loaded_mib(mib_name, file_path)
             logger.debug(f"✓ Loaded MIB: {mib_name}")
             
         except Exception as e:
-            mib_info = MibInfo(mib_name, file_path, status="error")
-            mib_info.error_message = str(e)
-            
-            if "Cannot find" in str(e) or "No module named" in str(e):
-                mib_info.status = "missing_deps"
-            
-            self.failed_mibs[mib_name] = mib_info
-            logger.warning(f"✗ Failed to load MIB {mib_name}: {e}")
+            self._record_failed_mib(mib_name, file_path, e, log_failure=log_failure)
+
+    def _retry_failed_mibs(self, max_rounds: int = 2):
+        """Retry deferred failures after more dependencies have been loaded."""
+        for _ in range(max_rounds):
+            progress = False
+            for mib_name, mib_info in list(self.failed_mibs.items()):
+                if mib_name in self.mib_builder.mibSymbols:
+                    self._mark_loaded_mib(mib_name, mib_info.file_path)
+                    logger.info("Recovered MIB after dependency resolution: %s", mib_name)
+                    progress = True
+                    continue
+
+                previous_error = mib_info.error_message
+                self._load_single_mib(mib_name, mib_info.file_path, log_failure=False)
+                current = self.failed_mibs.get(mib_name)
+                if current is None:
+                    logger.info("Recovered MIB on retry: %s", mib_name)
+                    progress = True
+                    continue
+                if current.error_message != previous_error:
+                    progress = True
+
+            if not progress:
+                break
+
+    def _reconcile_loaded_mibs(self):
+        """
+        Some MIBs fail on their first direct load attempt but are pulled in
+        successfully as dependencies of later modules. Reconcile the final
+        builder state so status reflects the resolved outcome instead of the
+        transient first-pass error.
+        """
+        for mib_name, mib_info in list(self.failed_mibs.items()):
+            if mib_name not in self.mib_builder.mibSymbols:
+                continue
+            self._mark_loaded_mib(mib_name, mib_info.file_path)
+            logger.info("Recovered MIB after indirect load: %s", mib_name)
+
+    def _log_unresolved_failures(self):
+        for mib_name in sorted(self.failed_mibs):
+            error_message = self.failed_mibs[mib_name].error_message or "Unknown error"
+            logger.warning("✗ Failed to load MIB %s: %s", mib_name, error_message)
     
     def _extract_imports(self, file_path: str) -> List[str]:
         """Parse MIB file to extract IMPORTS"""
@@ -202,6 +291,33 @@ class MibService:
             logger.debug(f"Could not parse imports from {file_path}: {e}")
         
         return imports
+
+    def has_local_mib(self, mib_name: str) -> bool:
+        """Return True when a matching MIB file already exists locally."""
+        return mib_name in self._discover_mib_files()
+
+    def _find_missing_dependencies(
+        self,
+        imports: List[str],
+        batch_mibs: Optional[Set[str]] = None,
+    ) -> List[str]:
+        """Return imports that are not already loaded, built-in, or present locally."""
+        local_mibs = set(self._discover_mib_files().keys())
+        missing: List[str] = []
+        for dep in imports:
+            if batch_mibs and dep in batch_mibs:
+                continue
+            if dep in self.loaded_mibs:
+                continue
+            if dep in self.mib_builder.mibSymbols:
+                continue
+            if dep in local_mibs:
+                continue
+            if self._is_standard_mib(dep):
+                continue
+            if dep not in missing:
+                missing.append(dep)
+        return missing
     
     def _update_statistics(self):
         """Count objects and traps in loaded MIBs"""
@@ -236,7 +352,7 @@ class MibService:
             'IANAifType-MIB', 'IANA-ADDRESS-FAMILY-NUMBERS-MIB',
             'INET-ADDRESS-MIB', 'IF-MIB', 'IP-MIB', 'TCP-MIB', 'UDP-MIB',
             'HOST-RESOURCES-MIB', 'ENTITY-MIB', 'BRIDGE-MIB',
-            'RFC1155-SMI', 'RFC1213-MIB', 'RFC-1215'
+            'RFC1155-SMI', 'RFC-1212', 'RFC1213-MIB', 'RFC-1215'
         }
         
         return mib_name in standard_mibs
@@ -268,17 +384,7 @@ class MibService:
             imports = self._extract_imports(file_path)
             result["imports"] = imports
             
-            for imp in imports:
-                if imp in self.loaded_mibs:
-                    continue
-                
-                if self._is_standard_mib(imp):
-                    continue
-                
-                if imp in self.mib_builder.mibSymbols:
-                    continue
-                
-                result["missing_deps"].append(imp)
+            result["missing_deps"] = self._find_missing_dependencies(imports)
             
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
@@ -296,6 +402,174 @@ class MibService:
             result["errors"].append(f"Validation error: {str(e)}")
         
         return result
+
+    def analyze_validation_batch(self, file_paths: List[str]) -> dict:
+        """Validate a file batch and resolve missing deps relative to the batch set."""
+        validations: List[Tuple[str, dict]] = []
+        batch_mibs: Set[str] = set()
+
+        for file_path in file_paths:
+            validation = self.validate_mib_file(file_path)
+            validations.append((file_path, validation))
+            if validation.get("mib_name"):
+                batch_mibs.add(validation["mib_name"])
+
+        results = []
+        global_missing: Set[str] = set()
+        for file_path, validation in validations:
+            missing = self._find_missing_dependencies(validation["imports"], batch_mibs=batch_mibs)
+            validation["missing_deps"] = missing
+            results.append((file_path, validation))
+            global_missing.update(missing)
+
+        return {
+            "files": results,
+            "global_missing_deps": sorted(global_missing),
+        }
+
+    def collect_missing_dependencies_for_directory(self) -> List[str]:
+        """Scan local MIB files and return still-missing import names."""
+        mib_files = list(self._discover_mib_files().values())
+        if not mib_files:
+            return []
+        analysis = self.analyze_validation_batch(mib_files)
+        return analysis["global_missing_deps"]
+
+    def _validate_remote_source_template(self, source: str) -> str:
+        value = source.strip()
+        if not value:
+            raise ValueError("Remote source cannot be empty.")
+        if "@mib@" not in value:
+            raise ValueError(f"Remote source '{value}' must include the @mib@ placeholder.")
+        if not (value.startswith("https://") or value.startswith("http://")):
+            raise ValueError(f"Remote source '{value}' must use http:// or https://.")
+        return value
+
+    def get_remote_fetch_sources(self) -> List[str]:
+        sources: List[str] = []
+        for source in settings.MIB_REMOTE_SOURCES:
+            try:
+                normalized = self._validate_remote_source_template(str(source))
+            except ValueError as exc:
+                logger.warning("Ignoring invalid remote MIB source %s: %s", source, exc)
+                continue
+            if normalized not in sources:
+                sources.append(normalized)
+        return sources
+
+    def _sanitize_remote_mib_name(self, mib_name: str) -> str:
+        value = str(mib_name or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
+            raise ValueError(f"Invalid MIB name '{mib_name}'.")
+        return value
+
+    def _default_remote_filename(self, mib_name: str) -> str:
+        return f"{mib_name}.mib"
+
+    def _looks_like_mib_content(self, content: str) -> bool:
+        normalized = content.upper()
+        return "DEFINITIONS" in normalized and "BEGIN" in normalized
+
+    def fetch_mib_dependency(self, mib_name: str) -> dict:
+        """
+        Fetch one MIB from the configured approved source list.
+
+        Validation and normal reload paths stay local-only; only this helper
+        performs network access.
+        """
+        safe_mib_name = self._sanitize_remote_mib_name(mib_name)
+        existing_files = self._discover_mib_files()
+        if safe_mib_name in existing_files:
+            file_path = existing_files[safe_mib_name]
+            return {
+                "status": "cached",
+                "mib_name": safe_mib_name,
+                "filename": os.path.basename(file_path),
+                "imports": self._extract_imports(file_path),
+            }
+
+        errors = []
+        for source in self.get_remote_fetch_sources():
+            url = source.replace("@mib@", quote(safe_mib_name))
+            try:
+                response = requests.get(url, timeout=(5, 15), allow_redirects=False)
+            except requests.RequestException as exc:
+                errors.append(f"{source}: {exc}")
+                continue
+
+            if response.status_code != 200:
+                errors.append(f"{source}: HTTP {response.status_code}")
+                continue
+
+            content = response.text
+            if not self._looks_like_mib_content(content):
+                errors.append(f"{source}: response did not look like a MIB file")
+                continue
+
+            os.makedirs(settings.MIB_DIR, exist_ok=True)
+            filename = self._default_remote_filename(safe_mib_name)
+            file_path = settings.MIB_DIR / filename
+            file_path.write_text(content, encoding="utf-8")
+            return {
+                "status": "downloaded",
+                "mib_name": safe_mib_name,
+                "filename": filename,
+                "source": source,
+                "imports": self._extract_imports(str(file_path)),
+            }
+
+        return {
+            "status": "failed",
+            "mib_name": safe_mib_name,
+            "errors": errors or ["No approved remote source returned a usable MIB."],
+        }
+
+    def fetch_missing_dependencies(self, dependencies: List[str], max_rounds: int = 5) -> dict:
+        """
+        Fetch a dependency set recursively from the approved source list.
+
+        Newly downloaded MIBs are scanned for imports so chained dependencies can
+        be retrieved in the same user-triggered or auto-fetch run.
+        """
+        pending = [str(dep).strip() for dep in dependencies if str(dep).strip()]
+        seen: Set[str] = set()
+        fetched: List[dict] = []
+        cached: List[dict] = []
+        failed: List[dict] = []
+        rounds = 0
+        max_operations = max_rounds * max(1, len(pending) or 1)
+
+        while pending and rounds < max_operations:
+            rounds += 1
+            mib_name = pending.pop(0)
+            if mib_name in seen or self._is_standard_mib(mib_name):
+                continue
+            seen.add(mib_name)
+
+            result = self.fetch_mib_dependency(mib_name)
+            if result["status"] == "downloaded":
+                fetched.append(result)
+            elif result["status"] == "cached":
+                cached.append(result)
+            else:
+                failed.append(result)
+                continue
+
+            local_path = self._discover_mib_files().get(mib_name)
+            if not local_path:
+                continue
+            imports = self._extract_imports(local_path)
+            missing = self._find_missing_dependencies(imports, batch_mibs=set(pending) | seen)
+            for dep in missing:
+                if dep not in seen and dep not in pending:
+                    pending.append(dep)
+
+        return {
+            "requested": sorted(seen),
+            "downloaded": fetched,
+            "cached": cached,
+            "failed": failed,
+        }
     
     def list_traps(self) -> List[dict]:
         """Enumerate all NOTIFICATION-TYPE objects"""
@@ -924,7 +1198,6 @@ class MibService:
         # Reconfigure and reload
         self._configure_sources()
         self._load_all_mibs()
-        self._build_tree_structure()
         
         logger.info(f"Reload complete: {len(self.loaded_mibs)} loaded, {len(self.oid_tree)} nodes indexed")
         
@@ -933,10 +1206,13 @@ class MibService:
         logger.info(f"Total traps across all MIBs: {total_traps}")
 
 _mib_service_instance = None
+_mib_service_lock = threading.Lock()
 
 def get_mib_service() -> MibService:
     """Get or create the MibService singleton"""
     global _mib_service_instance
     if _mib_service_instance is None:
-        _mib_service_instance = MibService()
+        with _mib_service_lock:
+            if _mib_service_instance is None:
+                _mib_service_instance = MibService()
     return _mib_service_instance

@@ -3,7 +3,7 @@ import json
 import os
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import HTTPException, status, Header
 from core.config import settings
@@ -40,7 +40,7 @@ def _verify_password(plain: str, stored: str) -> bool:
 # { token_uuid: (username, issued_at) }
 # Resets on container restart — for persistence a DB/Redis would be needed.
 
-ACTIVE_SESSIONS: dict = {}
+ACTIVE_SESSIONS: dict[str, tuple[str, datetime]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -93,13 +93,35 @@ def login_user(username: str, password: str) -> Optional[str]:
         save_credentials(username, password)
 
     token = str(uuid.uuid4())
-    ACTIVE_SESSIONS[token] = (username, datetime.utcnow())
+    ACTIVE_SESSIONS[token] = (username, datetime.now(timezone.utc))
     return token
 
 
 def logout_user(token: str) -> None:
     """Remove session token. Safe to call with an already-expired token."""
     ACTIVE_SESSIONS.pop(token, None)
+
+
+def validate_session_token(token: Optional[str]) -> tuple[bool, Optional[str], str]:
+    """
+    Shared session validator for REST and WebSocket code paths.
+
+    Returns:
+        (is_valid, username, reason)
+    """
+    if not token or token not in ACTIVE_SESSIONS:
+        return False, None, "Invalid or missing session token"
+
+    username, issued_at = ACTIVE_SESSIONS[token]
+    if issued_at.tzinfo is None:
+        issued_at = issued_at.replace(tzinfo=timezone.utc)
+
+    elapsed = (datetime.now(timezone.utc) - issued_at).total_seconds()
+    if elapsed > settings.SESSION_TIMEOUT:
+        ACTIVE_SESSIONS.pop(token, None)
+        return False, None, "Session expired. Please log in again."
+
+    return True, username, ""
 
 
 # ---------------------------------------------------------------------------
@@ -111,20 +133,11 @@ def validate_auth(x_auth_token: Optional[str] = Header(None)) -> str:
     Validate session token and enforce SESSION_TIMEOUT.  (BUG-5)
     Returns the authenticated username.
     """
-    if not x_auth_token or x_auth_token not in ACTIVE_SESSIONS:
+    valid, username, reason = validate_session_token(x_auth_token)
+    if not valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing session token"
-        )
-
-    username, issued_at = ACTIVE_SESSIONS[x_auth_token]
-    elapsed = (datetime.utcnow() - issued_at).total_seconds()
-
-    if elapsed > settings.SESSION_TIMEOUT:
-        del ACTIVE_SESSIONS[x_auth_token]
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired. Please log in again."
+            detail=reason
         )
 
     return username

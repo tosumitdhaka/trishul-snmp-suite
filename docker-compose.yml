@@ -7,13 +7,13 @@
 #   C4: increased healthcheck interval 10s->30s — 10s was generating excessive
 #       uvicorn access log noise with no operational benefit post-startup
 # Platform fix:
-#   Added platform: linux/arm64 — ensures native execution on Apple Silicon / ARM hosts
-#   without QEMU emulation, preventing container crash-loop (exit 255)
+#   Multi-arch images are now the default deployment path.
+#   No hard platform pin is set here, so Compose can pull the matching
+#   amd64/arm64 image for the current host automatically.
 
 services:
   backend:
     image: ghcr.io/tosumitdhaka/trishul-snmp-backend:latest
-    platform: linux/arm64
     container_name: trishul-snmp-backend
     env_file:
       - .env
@@ -28,7 +28,7 @@ services:
       - PYTHONUNBUFFERED=1
       # Application Metadata
       - APP_NAME=${APP_NAME:-Trishul SNMP Studio}
-      - APP_VERSION=${APP_VERSION:-1.2.3}
+      - APP_VERSION=${APP_VERSION:-1.3.0}
       - APP_AUTHOR=${APP_AUTHOR:-Sumit Dhaka}
       - APP_DESCRIPTION=${APP_DESCRIPTION:-Network Management & SNMP Utilities}
       # SNMP Settings
@@ -52,7 +52,6 @@ services:
 
   frontend:
     image: ghcr.io/tosumitdhaka/trishul-snmp-frontend:latest
-    platform: linux/arm64
     container_name: trishul-snmp-frontend
     ports:
       - "8080:80"

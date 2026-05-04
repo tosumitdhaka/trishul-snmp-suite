@@ -21,6 +21,11 @@ from datetime import datetime, timezone
 from typing import Optional
 from core.config import settings
 from core import stats_store
+from core.process_startup import (
+    cleanup_startup_status_path,
+    create_startup_status_path,
+    wait_for_startup_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +89,39 @@ class TrapManager:
             "--resolve-mibs",  "true" if resolve_mibs else "false",
             "--ws-port",       str(settings.WS_INTERNAL_PORT),
         ]
+        status_path = create_startup_status_path("trap_receiver")
+        cmd.extend(["--startup-status-file", str(status_path)])
 
-        self.process = subprocess.Popen(
+        process = subprocess.Popen(
             cmd,
             cwd=str(settings.BASE_DIR),
             stdout=sys.stdout,
             stderr=sys.stderr
         )
+        startup = wait_for_startup_status(process, status_path)
+        cleanup_startup_status_path(status_path)
+
+        if startup.get("status") != "ready":
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            logger.error(
+                "Trap receiver failed to start on UDP %s: %s",
+                self._port,
+                startup.get("message", "Unknown startup error"),
+            )
+            return {
+                "status": "failed",
+                "port": self._port,
+                "resolve_mibs": resolve_mibs,
+                "error": startup.get("message", "Trap receiver failed to start."),
+                "details": startup,
+            }
+
+        self.process = process
 
         self._start_time = datetime.now(timezone.utc)
         stats_store.increment("traps", "receiver_start_count")

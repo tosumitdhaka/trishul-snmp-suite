@@ -2,3 +2,6 @@ backend/data*
 .venv*
 .vscode*
 *.tmp*
+__pycache__/
+*.pyc
+.pytest_cache/

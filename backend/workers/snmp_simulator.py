@@ -17,6 +17,7 @@ from pysnmp.smi import builder, compiler
 from pysnmp.proto.api import v2c
 from core.config import settings
 from core.stats_store import worker_set_field, worker_update_stats
+from core.process_startup import write_startup_status
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
@@ -209,7 +210,7 @@ def compile_and_generate_data(mib_dir, custom_data_path):
     return data_store
 
 
-async def run_simulator(port, community, mib_dir, data_path):
+async def run_simulator(port, community, mib_dir, data_path, startup_status_file=None):
     mock_data  = compile_and_generate_data(mib_dir, data_path)
     snmpEngine = engine.SnmpEngine()
 
@@ -225,6 +226,7 @@ async def run_simulator(port, community, mib_dir, data_path):
     cmdrsp.NextCommandResponder(snmpEngine, snmpContext)
 
     logger.info(f"\u2705 SIMULATOR RUNNING on UDP {port}")
+    write_startup_status(startup_status_file, "ready", f"Simulator listening on UDP {port}.", port=port)
 
     while True:
         await asyncio.sleep(1)
@@ -236,9 +238,21 @@ if __name__ == '__main__':
     parser.add_argument("--community", type=str, default="public")
     parser.add_argument("--mib-dir",   type=str, required=True)
     parser.add_argument("--data-file", type=str, required=True)
+    parser.add_argument("--startup-status-file", type=str, default=None)
     args = parser.parse_args()
 
     try:
-        asyncio.run(run_simulator(args.port, args.community, args.mib_dir, args.data_file))
+        asyncio.run(
+            run_simulator(
+                args.port,
+                args.community,
+                args.mib_dir,
+                args.data_file,
+                startup_status_file=args.startup_status_file,
+            )
+        )
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        write_startup_status(args.startup_status_file, "error", str(e), port=args.port)
+        raise

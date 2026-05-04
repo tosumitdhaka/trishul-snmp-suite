@@ -14,6 +14,11 @@ import sys
 import os
 import logging
 from core.config import settings
+from core.process_startup import (
+    cleanup_startup_status_path,
+    create_startup_status_path,
+    wait_for_startup_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +50,34 @@ class SimulatorManager:
             "--mib-dir",   mib_dir,
             "--data-file", data_file,
         ]
+        status_path = create_startup_status_path("simulator")
+        cmd.extend(["--startup-status-file", str(status_path)])
 
-        cls._process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+        process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+        startup = wait_for_startup_status(process, status_path)
+        cleanup_startup_status_path(status_path)
 
+        if startup.get("status") != "ready":
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            logger.error(
+                "Simulator failed to start on UDP %s: %s",
+                cls._port,
+                startup.get("message", "Unknown startup error"),
+            )
+            return {
+                "status": "failed",
+                "port": cls._port,
+                "community": cls._community,
+                "error": startup.get("message", "Simulator failed to start."),
+                "details": startup,
+            }
+
+        cls._process = process
         logger.info(f"Simulator started: pid={cls._process.pid} port={cls._port} community={cls._community}")
         return {
             "status":    "started",

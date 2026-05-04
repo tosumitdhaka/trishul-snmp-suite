@@ -84,6 +84,14 @@
                     <span id="browser-tree-title">MIB Tree</span>
                 </span>
                 <div class="d-flex align-items-center gap-2">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary" onclick="BrowserModule.exportCurrentView('json')">
+                            <i class="fas fa-file-code me-1"></i> JSON
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="BrowserModule.exportCurrentView('csv')">
+                            <i class="fas fa-file-csv me-1"></i> CSV
+                        </button>
+                    </div>
                     <span class="small" style="color:#94a3b8;">Depth:</span>
                     <select class="form-select form-select-sm" id="expand-depth-select"
                             style="width: 60px; font-size: 0.75rem;">

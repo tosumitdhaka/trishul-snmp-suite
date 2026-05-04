@@ -20,10 +20,17 @@ Thread safety:
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from copy import deepcopy
+from pathlib import Path
 from threading import Lock
 from typing import Any
 from core.config import settings
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Linux containers are the supported runtime
+    fcntl = None
 
 _lock = Lock()
 
@@ -77,12 +84,12 @@ VALID_MODULES = set(DEFAULT_STATS.keys())
 # Internal helpers  (call only while _lock is held)
 # ---------------------------------------------------------------------------
 
-def _load_unsafe() -> dict:
+def _load_from_path_unsafe(stats_path: Path) -> dict:
     """Load stats.json and merge with DEFAULT_STATS. No lock acquired."""
-    if not settings.STATS_FILE.exists():
+    if not stats_path.exists():
         return deepcopy(DEFAULT_STATS)
     try:
-        with open(settings.STATS_FILE, "r") as f:
+        with open(stats_path, "r") as f:
             on_disk = json.load(f)
         merged = deepcopy(DEFAULT_STATS)
         for module, values in on_disk.items():
@@ -93,9 +100,8 @@ def _load_unsafe() -> dict:
         return deepcopy(DEFAULT_STATS)
 
 
-def _save_unsafe(stats: dict) -> None:
+def _save_to_path_unsafe(stats_path: Path, stats: dict) -> None:
     """Write stats atomically via tempfile + os.replace. No lock acquired."""
-    stats_path = settings.STATS_FILE
     os.makedirs(stats_path.parent, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
         dir=stats_path.parent, prefix="stats_", suffix=".tmp"
@@ -112,6 +118,26 @@ def _save_unsafe(stats: dict) -> None:
         raise
 
 
+@contextmanager
+def _stats_file_lock(stats_path: Path):
+    """
+    Cross-process lock for stats.json mutations.
+
+    API routes and worker subprocesses both acquire the same lock file before
+    a read-modify-write cycle so increments cannot silently overwrite each other.
+    """
+    lock_path = stats_path.parent / f".{stats_path.name}.lock"
+    os.makedirs(lock_path.parent, exist_ok=True)
+    with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
 # ---------------------------------------------------------------------------
 # Public API  (routers + services inside the API process)
 # ---------------------------------------------------------------------------
@@ -119,31 +145,35 @@ def _save_unsafe(stats: dict) -> None:
 def load() -> dict:
     """Return a full copy of current stats merged with defaults."""
     with _lock:
-        return _load_unsafe()
+        with _stats_file_lock(settings.STATS_FILE):
+            return _load_from_path_unsafe(settings.STATS_FILE)
 
 
 def save(stats: dict) -> None:
     """Overwrite entire stats file. Prefer update_module() for partial updates."""
     with _lock:
-        _save_unsafe(stats)
+        with _stats_file_lock(settings.STATS_FILE):
+            _save_to_path_unsafe(settings.STATS_FILE, stats)
 
 
 def increment(module: str, key: str, by: int = 1) -> None:
     """Atomically increment a single integer counter."""
     with _lock:
-        stats = _load_unsafe()
-        stats.setdefault(module, {})
-        stats[module][key] = stats[module].get(key, 0) + by
-        _save_unsafe(stats)
+        with _stats_file_lock(settings.STATS_FILE):
+            stats = _load_from_path_unsafe(settings.STATS_FILE)
+            stats.setdefault(module, {})
+            stats[module][key] = stats[module].get(key, 0) + by
+            _save_to_path_unsafe(settings.STATS_FILE, stats)
 
 
 def set_field(module: str, key: str, value: Any) -> None:
     """Atomically set a single field."""
     with _lock:
-        stats = _load_unsafe()
-        stats.setdefault(module, {})
-        stats[module][key] = value
-        _save_unsafe(stats)
+        with _stats_file_lock(settings.STATS_FILE):
+            stats = _load_from_path_unsafe(settings.STATS_FILE)
+            stats.setdefault(module, {})
+            stats[module][key] = value
+            _save_to_path_unsafe(settings.STATS_FILE, stats)
 
 
 def update_module(module: str, updates: dict) -> None:
@@ -153,16 +183,18 @@ def update_module(module: str, updates: dict) -> None:
     value together (e.g. stop_count + simulator_run_seconds).
     """
     with _lock:
-        stats = _load_unsafe()
-        stats.setdefault(module, {})
-        stats[module].update(updates)
-        _save_unsafe(stats)
+        with _stats_file_lock(settings.STATS_FILE):
+            stats = _load_from_path_unsafe(settings.STATS_FILE)
+            stats.setdefault(module, {})
+            stats[module].update(updates)
+            _save_to_path_unsafe(settings.STATS_FILE, stats)
 
 
 def reset() -> None:
     """Reset all stats to zero defaults."""
     with _lock:
-        _save_unsafe(deepcopy(DEFAULT_STATS))
+        with _stats_file_lock(settings.STATS_FILE):
+            _save_to_path_unsafe(settings.STATS_FILE, deepcopy(DEFAULT_STATS))
 
 
 # ---------------------------------------------------------------------------
@@ -174,32 +206,23 @@ def reset() -> None:
 
 def _worker_load(stats_file: str) -> dict:
     """Load stats from file in worker context. Returns DEFAULT_STATS copy on any error."""
-    if os.path.exists(stats_file):
-        try:
-            with open(stats_file, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return deepcopy(DEFAULT_STATS)
+    return _load_from_path_unsafe(Path(stats_file))
 
 
 def _worker_save(stats_file: str, stats: dict) -> None:
     """Atomically write stats in worker context."""
-    parent = os.path.dirname(stats_file) or "."
-    os.makedirs(parent, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=parent, prefix="stats_", suffix=".tmp")
-    with os.fdopen(fd, "w") as f:
-        json.dump(stats, f, indent=2, default=str)
-    os.replace(tmp, stats_file)
+    _save_to_path_unsafe(Path(stats_file), stats)
 
 
 def worker_increment(stats_file: str, module: str, key: str, by: int = 1) -> None:
     """Increment a counter from a worker subprocess."""
     try:
-        stats = _worker_load(stats_file)
-        stats.setdefault(module, {})
-        stats[module][key] = stats[module].get(key, 0) + by
-        _worker_save(stats_file, stats)
+        path = Path(stats_file)
+        with _stats_file_lock(path):
+            stats = _worker_load(stats_file)
+            stats.setdefault(module, {})
+            stats[module][key] = stats[module].get(key, 0) + by
+            _worker_save(stats_file, stats)
     except Exception:
         pass  # never crash a worker over stats
 
@@ -207,10 +230,12 @@ def worker_increment(stats_file: str, module: str, key: str, by: int = 1) -> Non
 def worker_set_field(stats_file: str, module: str, key: str, value: Any) -> None:
     """Set a single field from a worker subprocess."""
     try:
-        stats = _worker_load(stats_file)
-        stats.setdefault(module, {})
-        stats[module][key] = value
-        _worker_save(stats_file, stats)
+        path = Path(stats_file)
+        with _stats_file_lock(path):
+            stats = _worker_load(stats_file)
+            stats.setdefault(module, {})
+            stats[module][key] = value
+            _worker_save(stats_file, stats)
     except Exception:
         pass
 
@@ -218,10 +243,12 @@ def worker_set_field(stats_file: str, module: str, key: str, value: Any) -> None
 def worker_update_module(stats_file: str, module: str, updates: dict) -> None:
     """Atomically apply multiple field updates from a worker subprocess."""
     try:
-        stats = _worker_load(stats_file)
-        stats.setdefault(module, {})
-        stats[module].update(updates)
-        _worker_save(stats_file, stats)
+        path = Path(stats_file)
+        with _stats_file_lock(path):
+            stats = _worker_load(stats_file)
+            stats.setdefault(module, {})
+            stats[module].update(updates)
+            _worker_save(stats_file, stats)
     except Exception:
         pass
 
@@ -242,13 +269,15 @@ def worker_update_stats(
         sets:       dict of {key: value} -- written as absolute values
     """
     try:
-        stats = _worker_load(stats_file)
-        stats.setdefault(module, {})
-        if increments:
-            for k, v in increments.items():
-                stats[module][k] = stats[module].get(k, 0) + v
-        if sets:
-            stats[module].update(sets)
-        _worker_save(stats_file, stats)
+        path = Path(stats_file)
+        with _stats_file_lock(path):
+            stats = _worker_load(stats_file)
+            stats.setdefault(module, {})
+            if increments:
+                for k, v in increments.items():
+                    stats[module][k] = stats[module].get(k, 0) + v
+            if sets:
+                stats[module].update(sets)
+            _worker_save(stats_file, stats)
     except Exception:
         pass  # never crash a worker over stats

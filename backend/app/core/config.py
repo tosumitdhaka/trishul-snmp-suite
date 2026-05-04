@@ -4,6 +4,18 @@ import shutil
 from pathlib import Path
 
 
+def _parse_remote_mib_sources(raw: str | None) -> list[str]:
+    """Parse a newline/comma separated source list, keeping ordering stable."""
+    if not raw:
+        return []
+    sources: list[str] = []
+    for part in raw.replace(",", "\n").splitlines():
+        source = part.strip()
+        if source and source not in sources:
+            sources.append(source)
+    return sources
+
+
 class Settings:
     # Base paths
     BASE_DIR   = Path(__file__).parent.parent.resolve()
@@ -31,7 +43,7 @@ class Settings:
 
     # Application metadata
     APP_NAME        = os.getenv("APP_NAME",        "Trishul SNMP Studio")
-    APP_VERSION     = os.getenv("APP_VERSION",     "1.2.5")
+    APP_VERSION     = os.getenv("APP_VERSION",     "1.3.0")
     APP_AUTHOR      = os.getenv("APP_AUTHOR",      "Sumit Dhaka")
     APP_DESCRIPTION = os.getenv("APP_DESCRIPTION", "Network Management & SNMP Utilities")
 
@@ -46,6 +58,17 @@ class Settings:
     # Worker subprocesses send trap datagrams here so the main process
     # can broadcast real-time WS push events without shared memory.
     WS_INTERNAL_PORT = int(os.getenv("WS_INTERNAL_PORT", "19876"))
+
+    # Remote MIB fetch (manual by default; upload/reload can opt into auto-fetch)
+    DEFAULT_MIB_REMOTE_SOURCES = [
+        "https://mibs.pysnmp.com/asn1/@mib@",
+        "https://mibbrowser.online/mibs/@mib@.mib",
+    ]
+    MIB_AUTO_FETCH = os.getenv("MIB_AUTO_FETCH", "false").lower() == "true"
+    MIB_REMOTE_SOURCES = (
+        _parse_remote_mib_sources(os.getenv("MIB_REMOTE_SOURCES"))
+        or DEFAULT_MIB_REMOTE_SOURCES.copy()
+    )
 
     def __init__(self):
         self.DATA_DIR.mkdir(exist_ok=True)
@@ -99,6 +122,12 @@ class Settings:
                 self.AUTO_START_SIMULATOR = bool(data["auto_start_simulator"])
             if "auto_start_trap_receiver" in data:
                 self.AUTO_START_TRAP_RECEIVER = bool(data["auto_start_trap_receiver"])
+            if "mib_auto_fetch" in data:
+                self.MIB_AUTO_FETCH = bool(data["mib_auto_fetch"])
+            if "mib_remote_sources" in data and isinstance(data["mib_remote_sources"], list):
+                sources = [str(source).strip() for source in data["mib_remote_sources"] if str(source).strip()]
+                if sources:
+                    self.MIB_REMOTE_SOURCES = sources
         except Exception:
             pass  # Corrupt file — silently fall back to env defaults
 

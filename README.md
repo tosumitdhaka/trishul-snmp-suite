@@ -23,10 +23,10 @@ A web-based SNMP toolkit for network engineers and administrators. Simulate SNMP
 - 🖥️ **SNMP Simulator** - Run configurable SNMP agent with custom OID values
 - 🚶 **Walk & Parse** - Execute SNMP walks with MIB resolution, export to JSON/CSV
 - 📡 **Trap Manager** - Send/receive SNMP traps with real-time monitoring
-- 📚 **MIB Manager** - Upload, validate MIBs, browse trap library, auto-resolve OIDs with dependency detection
-- 🌳 **MIB Browser** - Interactive tree explorer with hierarchical OID navigation, search, and filtering
-- 🔐 **Secure** - Session-based authentication with credential management
-- 🐳 **Containerized** - One-command Docker deployment with host network support
+- 📚 **MIB Manager** - Upload, validate, and reload MIBs with dependency detection plus trusted-source dependency fetch
+- 🌳 **MIB Browser** - Interactive tree explorer with hierarchical OID navigation, search, filtering, and current-view JSON/CSV export
+- 🔐 **Secure** - Session-based authentication with active WebSocket logout and timeout enforcement
+- 🐳 **Containerized** - Docker deployment with amd64 and arm64 support
 - 🌐 **Modern UI** - Clean, responsive interface built with Bootstrap 5
 - 📊 **Export Data** - JSON/CSV export for walks and trap data
 - 🔄 **Real-time** - Live trap receiver with instant OID resolution
@@ -71,6 +71,14 @@ curl -fsSL https://raw.githubusercontent.com/tosumitdhaka/trishul-snmp/main/inst
 ```
 BACKEND_PORT=9000 FRONTEND_PORT=3000 ./install-trishul-snmp.sh up
 ```
+
+### Test This Checkout Locally
+
+```
+./install-trishul-snmp.sh up-local
+```
+
+This builds backend and frontend images from the current repository and starts the same one-shot deployment flow locally.
 
 **[📖 Detailed Installation Guide →](https://github.com/tosumitdhaka/trishul-snmp/wiki/Installation-Guide)**
 
@@ -272,25 +280,27 @@ Manage authentication and system preferences.
 
 ## 📚 Documentation
 
-**Complete guides available in [Wiki](https://github.com/tosumitdhaka/trishul-snmp/wiki):**
+### Repo Docs
+- 📋 [Changelog](docs/changelog.md) - Version history and release notes
+- 🛠️ [Development Setup](docs/development_setup.md) - Docker-first workflow plus native backend iteration
+- 🚀 [Release Process](docs/release_process.md) - Version bumps, changelog, image publishing, and verification
+- 🧭 [GitHub Workflow](docs/github_workflow.md) - Tracker IDs, labels, milestones, and PR conventions
+- 🗺️ [Roadmap](docs/roadmap.md) - Active delivery tracks and deferred scope
+- 🧾 [Issue Tracker](docs/issue_tracker.md) - Stable IDs for bugs, gaps, improvements, and features
 
-### Getting Started
-- 📖 [Installation Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/Installation-Guide) - Detailed setup instructions
-- 🚀 [First Steps](https://github.com/tosumitdhaka/trishul-snmp/wiki/First-Steps) - 15-minute walkthrough
-- ❓ [FAQ](https://github.com/tosumitdhaka/trishul-snmp/wiki/FAQ) - Frequently asked questions
-- 📋 [Changelog](https://github.com/tosumitdhaka/trishul-snmp/wiki/Changelog) - Version history 
-
-### User Guides
+### User Guides (Wiki)
+- 📖 [Installation Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/Installation-Guide)
+- 🚀 [First Steps](https://github.com/tosumitdhaka/trishul-snmp/wiki/First-Steps)
+- ❓ [FAQ](https://github.com/tosumitdhaka/trishul-snmp/wiki/FAQ)
 - 🖥️ [SNMP Simulator Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/SNMP-Simulator-Guide)
 - 🚶 [Walker Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/Walker-Guide)
 - 📡 [Trap Manager Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/Trap-Manager-Guide)
 - 📚 [MIB Manager Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/MIB-Manager-Guide)
 - 🌳 [MIB Browser Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/MIB-Browser-Guide)
 
-### Technical
+### Technical Reference (Wiki)
 - 🏗️ [Architecture Overview](https://github.com/tosumitdhaka/trishul-snmp/wiki/Architecture-Overview)
 - 🔧 [API Reference](https://github.com/tosumitdhaka/trishul-snmp/wiki/API-Reference)
-- 🛠️ [Development Setup](https://github.com/tosumitdhaka/trishul-snmp/wiki/Development-Setup)
 - 🐛 [Troubleshooting](https://github.com/tosumitdhaka/trishul-snmp/wiki/Troubleshooting)
 
 ---
@@ -322,12 +332,12 @@ We welcome contributions! 🎉
 - 🐛 [Report bugs](https://github.com/tosumitdhaka/trishul-snmp/issues)
 - 💡 [Suggest features](https://github.com/tosumitdhaka/trishul-snmp/issues)
 - 🔧 [Submit pull requests](https://github.com/tosumitdhaka/trishul-snmp/pulls)
-- 📝 [Improve documentation](https://github.com/tosumitdhaka/trishul-snmp/wiki)
+- 📝 [Improve documentation](.github/CONTRIBUTING.md)
 - 🌍 Translate the interface
 - 🎨 Improve UI/UX
 - ⭐ [Star the repo](https://github.com/tosumitdhaka/trishul-snmp)
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [Development Setup](https://github.com/tosumitdhaka/trishul-snmp/wiki/Development-Setup) for details.
+See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md), [docs/github_workflow.md](docs/github_workflow.md), [docs/issue_tracker.md](docs/issue_tracker.md), and [docs/development_setup.md](docs/development_setup.md) for details.
 
 ---
 
@@ -349,31 +359,17 @@ Trishul-SNMP is **100% free and open-source** (MIT License).
 
 ## 🚀 Roadmap
 
-### ✅ v1.2.5 (Current)
-- [x] Dark mode implementation (persisted to local storage)
-- [x] Drag-and-drop MIB file uploads
-- [x] Auto-validation on MIB file selection
-- [x] WebSocket real-time push (dashboard, simulator, traps)
-- [x] Activity stats dashboard (8 live counters)
-- [x] App behaviour settings (auto-start, session timeout)
-- [x] Stats export / reset from Settings page
+Planning now lives in [docs/roadmap.md](docs/roadmap.md). Itemized bugs, gaps, improvement scopes, and feature candidates live in [docs/issue_tracker.md](docs/issue_tracker.md).
 
-### 📋 v1.3.0 (Planned)
-- [ ] Auto-fetch missing MIB dependencies from remote repositories
-- [ ] SNMPv3 authentication (MD5, SHA, AES)
-- [ ] Tree export to JSON/CSV
+**1.3.0 scope**
+- Hardening and reliability work across `BUG-001` to `BUG-006`
+- Smoke coverage and contributor workflow updates across `GAP-001` to `GAP-003`
+- Targeted feature work in `FEAT-001`, `FEAT-003`, and `IMPR-001`
 
-### 📋 v1.2.4
-- [x] WebSocket real-time push (dashboard, simulator, traps)
-- [x] Activity stats dashboard (8 live counters)
-- [x] App behaviour settings (auto-start, session timeout)
-- [x] Stats export / reset from Settings page
+**Deferred to 1.4.0**
+- `FEAT-002` SNMPv3 support
+- `FEAT-004` to `FEAT-006`
 
-### 📋 Planned (Future)
-- [ ] Scheduled SNMP walks
-- [ ] Device/Agent management
-- [ ] Multi-language support
-      
 
 [Vote on features →](https://github.com/tosumitdhaka/trishul-snmp/issues)
 
@@ -389,11 +385,11 @@ Trishul-SNMP is **100% free and open-source** (MIT License).
 
 ### Code of Conduct
 
-Please note that this project is released with a [Contributor Code of Conduct](CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
+Please note that this project is released with a [Contributor Code of Conduct](.github/CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
 
 ### Recognition
 
-All contributors are recognized in [CONTRIBUTORS.md](CONTRIBUTORS.md) and release notes! 🌟
+All contributors are recognized in [docs/contributors.md](docs/contributors.md) and release notes! 🌟
 
 ---
 

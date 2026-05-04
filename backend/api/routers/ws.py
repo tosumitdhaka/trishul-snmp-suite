@@ -35,7 +35,7 @@ Server-push message types
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from core.ws_manager import manager
-from core.security import ACTIVE_SESSIONS
+from core.security import validate_session_token
 from core import stats_store
 
 router = APIRouter(tags=["WebSocket"])
@@ -98,13 +98,14 @@ async def websocket_endpoint(websocket: WebSocket):
     used by REST endpoints).
     """
     token = websocket.query_params.get("token")
-    if not token or token not in ACTIVE_SESSIONS:
+    valid, _username, reason = validate_session_token(token)
+    if not valid:
         # Close with 4001 = policy violation (auth failure)
-        await websocket.close(code=4001, reason="Unauthorized")
+        await websocket.close(code=4001, reason=reason or "Unauthorized")
         logger.warning("[WS] rejected unauthenticated connection")
         return
 
-    await manager.connect(websocket)
+    await manager.connect(websocket, token)
     try:
         # Send full current state immediately so client doesn't need to
         # make any REST calls on page load.
@@ -116,6 +117,11 @@ async def websocket_endpoint(websocket: WebSocket):
         # routers/services when state changes.
         while True:
             data = await websocket.receive_text()
+            valid, _username, reason = validate_session_token(token)
+            if not valid:
+                await websocket.close(code=4001, reason=reason or "Unauthorized")
+                manager.disconnect(websocket)
+                break
             if data == "ping":
                 await websocket.send_text("pong")
 

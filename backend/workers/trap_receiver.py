@@ -29,6 +29,7 @@ from pysnmp.carrier.asyncio.dgram import udp
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.config import settings
 from core.stats_store import worker_increment
+from core.process_startup import write_startup_status
 
 STATS_FILE = str(settings.STATS_FILE)
 
@@ -38,13 +39,14 @@ logger = logging.getLogger("trap_receiver")
 
 class TrapReceiver:
     def __init__(self, port, community, mib_dir, output_file,
-                 resolve_mibs=True, ws_port=19876):
+                 resolve_mibs=True, ws_port=19876, startup_status_file=None):
         self.port        = port
         self.community   = community
         self.mib_dir     = mib_dir
         self.output_file = output_file
         self.resolve_mibs = resolve_mibs
         self.ws_port     = ws_port          # UDP loopback port for WS push
+        self.startup_status_file = startup_status_file
 
         # Reusable UDP socket for WS side-channel
         self._udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -157,6 +159,13 @@ class TrapReceiver:
         logger.info(f"\U0001f3a7 Trap Receiver listening on UDP {self.port} "
                     f"(MIB resolution: {'ON' if self.resolve_mibs else 'OFF'}) "
                     f"WS-UDP port: {self.ws_port}")
+        write_startup_status(
+            self.startup_status_file,
+            "ready",
+            f"Trap receiver listening on UDP {self.port}.",
+            port=self.port,
+            resolve_mibs=self.resolve_mibs,
+        )
         while True:
             await asyncio.sleep(1)
 
@@ -171,6 +180,7 @@ if __name__ == "__main__":
                         choices=["true", "false"])
     parser.add_argument("--ws-port",      type=int, default=19876,
                         help="UDP loopback port for WebSocket push side-channel")
+    parser.add_argument("--startup-status-file", type=str, default=None)
     args = parser.parse_args()
 
     resolve = args.resolve_mibs.lower() == "true"
@@ -178,9 +188,14 @@ if __name__ == "__main__":
 
     receiver = TrapReceiver(
         args.port, args.community, args.mib_path, args.output,
-        resolve_mibs=resolve, ws_port=args.ws_port
+        resolve_mibs=resolve,
+        ws_port=args.ws_port,
+        startup_status_file=args.startup_status_file,
     )
     try:
         asyncio.run(receiver.run())
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        write_startup_status(args.startup_status_file, "error", str(e), port=args.port)
+        raise

@@ -104,9 +104,13 @@ window.SettingsModule = {
             const simEl  = document.getElementById('set-auto-start-sim');
             const trapEl = document.getElementById('set-auto-start-trap');
             const toEl   = document.getElementById('set-session-timeout');
+            const fetchEl = document.getElementById('set-mib-auto-fetch');
+            const sourcesEl = document.getElementById('set-mib-remote-sources');
             if (simEl)  simEl.checked = !!data.auto_start_simulator;
             if (trapEl) trapEl.checked = !!data.auto_start_trap_receiver;
             if (toEl)   toEl.value    = data.session_timeout ?? 3600;
+            if (fetchEl) fetchEl.checked = !!data.mib_auto_fetch;
+            if (sourcesEl) sourcesEl.value = Array.isArray(data.mib_remote_sources) ? data.mib_remote_sources.join('\n') : '';
         } catch (err) {
             console.error('Failed to load app settings', err);
         }
@@ -116,12 +120,24 @@ window.SettingsModule = {
         const simEl  = document.getElementById('set-auto-start-sim');
         const trapEl = document.getElementById('set-auto-start-trap');
         const toEl   = document.getElementById('set-session-timeout');
+        const fetchEl = document.getElementById('set-mib-auto-fetch');
+        const sourcesEl = document.getElementById('set-mib-remote-sources');
         const msgBox = document.getElementById('app-settings-msg');
         const badge  = document.getElementById('settings-restart-badge');
 
         const timeout = parseInt(toEl?.value, 10);
+        const sources = (sourcesEl?.value || '')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
         if (isNaN(timeout) || timeout < 60 || timeout > 86400) {
             msgBox.textContent = 'Session timeout must be between 60 and 86400 seconds.';
+            msgBox.className   = 'alert alert-danger small py-2 mb-3';
+            msgBox.classList.remove('d-none');
+            return;
+        }
+        if (sources.length === 0 || sources.some(source => !source.includes('@mib@'))) {
+            msgBox.textContent = 'Provide at least one approved remote source and include @mib@ in every entry.';
             msgBox.className   = 'alert alert-danger small py-2 mb-3';
             msgBox.classList.remove('d-none');
             return;
@@ -136,7 +152,9 @@ window.SettingsModule = {
                 body:    JSON.stringify({
                     auto_start_simulator:     simEl?.checked  ?? true,
                     auto_start_trap_receiver: trapEl?.checked ?? true,
-                    session_timeout:          timeout
+                    session_timeout:          timeout,
+                    mib_auto_fetch:           fetchEl?.checked ?? false,
+                    mib_remote_sources:       sources
                 })
             });
             const data = await res.json();
@@ -144,7 +162,9 @@ window.SettingsModule = {
                 msgBox.textContent = '\u2713 Settings saved.';
                 msgBox.className   = 'alert alert-success small py-2 mb-3';
                 msgBox.classList.remove('d-none');
-                if (data.restart_required && badge) badge.classList.remove('d-none');
+                if (badge) {
+                    badge.classList.toggle('d-none', !data.restart_required);
+                }
             } else {
                 msgBox.textContent = data.detail || 'Error saving settings.';
                 msgBox.className   = 'alert alert-danger small py-2 mb-3';

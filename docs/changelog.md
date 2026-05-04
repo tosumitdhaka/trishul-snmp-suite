@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-05-04
+
+### Security
+- **MIB Manager** - Hardened validation temp-file handling so uploaded filenames cannot escape the validation directory.
+- **Frontend** - Centralized escaping helpers and removed stored XSS paths across trap, MIB, browser, simulator log, and saved walk-history rendering.
+- **WebSocket** - Active connections now honor logout and session timeout, not just the initial handshake.
+
+### Added
+- **MIB Manager** - Trusted remote dependency fetch with an ordered source list, manual fetch action, and optional auto-fetch during upload or reload.
+- **MIB Browser** - Current-view export for both search results and filtered tree views in JSON and CSV.
+- **Deployment Script** - `install-trishul-snmp.sh` now supports local image builds via `build-local`, `up-local`, `restart-local`, or `TRISHUL_IMAGE_SOURCE=local`.
+- **Tests** - Smoke and regression coverage for login, lifecycle flows, trap send/receive, walk execution, MIB upload/reload, auth cutoff, startup failure handling, and concurrent stats writes.
+- **Docs** - Repo-local development setup, release process, GitHub workflow, and PR template guidance.
+
+### Changed
+- **Docker Compose** - Removed hard `linux/arm64` pins so amd64 and arm64 hosts use the matching image by default.
+- **MIB Fetching** - Validation stays read-only; remote fetch is restricted to configured approved sources and only runs manually or during upload/reload when enabled.
+- **Release Planning** - Roadmap and tracker docs now reflect `1.3.0` as the hardening, workflow, and targeted feature release.
+
+### Fixed
+- **Stats** - File locking prevents lost updates between API requests and worker-style writers.
+- **Simulator / Trap Receiver** - Start endpoints now wait for real readiness and return actionable bind or startup failures.
+- **Traps** - Switched to the current pysnmp varbind API to remove the deprecation warning in the test suite.
+
+---
+
 ## [1.2.5] - 2026-02-22
 
 ### Added
@@ -240,6 +266,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.3.0]: https://github.com/tosumitdhaka/trishul-snmp/compare/v1.2.5...v1.3.0
 [1.2.5]: https://github.com/tosumitdhaka/trishul-snmp/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/tosumitdhaka/trishul-snmp/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/tosumitdhaka/trishul-snmp/compare/v1.2.2...v1.2.3

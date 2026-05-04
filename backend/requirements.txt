@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 pysnmp>=7.0.0
+pysnmp-mibs
 pysmi
 python-multipart
 aiofiles

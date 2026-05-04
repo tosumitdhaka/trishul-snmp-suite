@@ -38,7 +38,11 @@ window.WalkerModule = {
             const targets = JSON.parse(localStorage.getItem('trishul_walker_targets') || '[]');
             const datalist = document.getElementById('recent-targets');
             if (datalist && targets.length > 0) {
-                datalist.innerHTML = targets.map(t => `<option value="${t}">`).join('');
+                datalist.replaceChildren(...targets.map(t => {
+                    const option = document.createElement('option');
+                    option.value = String(t || '');
+                    return option;
+                }));
             }
         } catch (e) {
             console.error('Failed to load recent targets:', e);
@@ -104,6 +108,7 @@ window.WalkerModule = {
         const listEl = document.getElementById('walk-history-list');
         const emptyEl = document.getElementById('walk-history-empty');
         const countEl = document.getElementById('walk-history-count');
+        const esc = TrishulUtils.escapeHtml;
         
         if (!listEl || !emptyEl) return;
         
@@ -119,30 +124,33 @@ window.WalkerModule = {
         listEl.classList.remove('d-none');
         
         listEl.innerHTML = this.walkHistory.map(item => {
+            const itemId = Number(item.id) || 0;
             const timeAgo = TrishulUtils.formatRelativeTime(item.timestamp);
             const targetDisplay = `${item.target}:${item.port}`;
-            const oidDisplay = item.oid.length > 30 ? item.oid.substring(0, 30) + '...' : item.oid;
+            const oidText = String(item.oid || '');
+            const oidDisplay = oidText.length > 30 ? oidText.substring(0, 30) + '...' : oidText;
+            const resultCount = Number(item.count) || 0;
             
             return `
                 <a href="#" class="list-group-item list-group-item-action py-2" 
-                   onclick="WalkerModule.loadHistoryItem(${item.id}); return false;">
+                   onclick="WalkerModule.loadHistoryItem(${itemId}); return false;">
                     <div class="d-flex w-100 justify-content-between align-items-center">
                         <div class="flex-grow-1">
                             <div class="d-flex align-items-center gap-2 mb-1">
                                 <span class="badge bg-${item.mode === 'parsed' ? 'success' : 'secondary'}">
                                     ${item.mode === 'parsed' ? 'JSON' : 'Raw'}
                                 </span>
-                                <small class="text-muted">${timeAgo}</small>
+                                <small class="text-muted">${esc(timeAgo)}</small>
                             </div>
-                            <h6 class="mb-0 text-truncate" style="max-width: 300px;" title="${targetDisplay}">
-                                <i class="fas fa-server text-muted me-1"></i> ${targetDisplay}
+                            <h6 class="mb-0 text-truncate" style="max-width: 300px;" title="${esc(targetDisplay)}">
+                                <i class="fas fa-server text-muted me-1"></i> ${esc(targetDisplay)}
                             </h6>
-                            <small class="text-muted text-truncate d-block" style="max-width: 300px;" title="${item.oid}">
-                                ${oidDisplay}
+                            <small class="text-muted text-truncate d-block" style="max-width: 300px;" title="${esc(oidText)}">
+                                ${esc(oidDisplay)}
                             </small>
                         </div>
                         <div class="text-end ms-2">
-                            <span class="badge bg-info">${item.count} items</span>
+                            <span class="badge bg-info">${resultCount} items</span>
                             <!-- BUG FIX: was event.stopPropagation() only.
                                  stopPropagation() stops bubbling but does NOT cancel
                                  the parent <a href="#"> default navigation — the SPA
@@ -150,7 +158,7 @@ window.WalkerModule = {
                                  Must also call event.preventDefault() to cancel the
                                  anchor default before deleteHistoryItem() runs. -->
                             <button type="button" class="btn btn-sm btn-outline-danger mt-1" 
-                                    onclick="event.stopPropagation(); event.preventDefault(); WalkerModule.deleteHistoryItem(${item.id})"
+                                    onclick="event.stopPropagation(); event.preventDefault(); WalkerModule.deleteHistoryItem(${itemId})"
                                     title="Delete" aria-label="Delete history item">
                                 <i class="fas fa-times"></i>
                             </button>

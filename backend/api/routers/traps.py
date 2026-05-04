@@ -86,7 +86,7 @@ async def send_trap(req: TrapSendRequest):
             elif vb.type == "IpAddress": val = IpAddress(str(vb.value))
             elif vb.type == "TimeTicks": val = TimeTicks(int(vb.value))
             else:                        val = OctetString(str(vb.value))
-            notification.addVarBinds(ObjectType(ObjectIdentity(vb.oid), val))
+            notification.add_varbinds(ObjectType(ObjectIdentity(vb.oid), val))
 
         target = await UdpTransportTarget.create((req.target, req.port))
 
@@ -123,7 +123,10 @@ def get_status():
 
 @router.post("/start")
 def start_receiver(req: TrapStartRequest):
-    return trap_manager.start(req.port, req.community, req.resolve_mibs)
+    result = trap_manager.start(req.port, req.community, req.resolve_mibs)
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=500, detail=result.get("error", "Trap receiver failed to start"))
+    return result
 
 
 @router.post("/stop")

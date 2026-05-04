@@ -6,6 +6,59 @@
  * module can call TrishulUtils.* without any import ceremony.
  */
 window.TrishulUtils = {
+    escapeHtml: function(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    },
+
+    encodeDataAttr: function(value) {
+        try {
+            return encodeURIComponent(JSON.stringify(value));
+        } catch (_) {
+            return '';
+        }
+    },
+
+    decodeDataAttr: function(value, fallback) {
+        try {
+            return JSON.parse(decodeURIComponent(value));
+        } catch (_) {
+            return fallback;
+        }
+    },
+
+    downloadText: function(filename, content, mimeType) {
+        var blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    },
+
+    toCsv: function(rows, columns) {
+        var cols = Array.isArray(columns) ? columns : [];
+        var escapeCell = function(value) {
+            var text = String(value ?? '');
+            return '"' + text.replace(/"/g, '""') + '"';
+        };
+        var header = cols.map(function(col) {
+            return escapeCell(col.label || col.key || '');
+        }).join(',');
+        var body = rows.map(function(row) {
+            return cols.map(function(col) {
+                return escapeCell(row[col.key]);
+            }).join(',');
+        }).join('\n');
+        return header + '\n' + body;
+    },
 
     toggleTheme: function() {
         const htmlEl = document.documentElement;
@@ -110,9 +163,18 @@ window.TrishulUtils = {
         var banner = document.createElement('div');
         banner.className = 'alert ' + cls + ' alert-dismissible fade show position-fixed';
         banner.style.cssText = 'top: 80px; right: 20px; z-index: 9999; min-width: 300px; max-width: 420px;';
-        banner.innerHTML =
-            '<i class="fas ' + icon + ' me-2"></i>' + message +
-            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+
+        var iconEl = document.createElement('i');
+        iconEl.className = 'fas ' + icon + ' me-2';
+        banner.appendChild(iconEl);
+        banner.appendChild(document.createTextNode(String(message ?? '')));
+
+        var closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn-close';
+        closeBtn.setAttribute('data-bs-dismiss', 'alert');
+        banner.appendChild(closeBtn);
+
         document.body.appendChild(banner);
         setTimeout(function() { if (banner.parentNode) banner.remove(); }, duration);
     },

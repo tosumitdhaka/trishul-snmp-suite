@@ -32,7 +32,10 @@ async def lifespan(app: FastAPI):
     if settings.AUTO_START_SIMULATOR:
         try:
             result = SimulatorManager.start()
-            logger.info(f"Auto-start simulator: {result['status']}")
+            if result.get("status") == "failed":
+                logger.error("Auto-start simulator failed: %s", result.get("error", "unknown error"))
+            else:
+                logger.info(f"Auto-start simulator: {result['status']}")
             if result.get("status") == "started":
                 set_sim_start_time()
                 stats_store.increment("simulator", "start_count")
@@ -42,7 +45,10 @@ async def lifespan(app: FastAPI):
     if settings.AUTO_START_TRAP_RECEIVER:
         try:
             result = trap_manager.start()
-            logger.info(f"Auto-start trap receiver: {result['status']}")
+            if result.get("status") == "failed":
+                logger.error("Auto-start trap receiver failed: %s", result.get("error", "unknown error"))
+            else:
+                logger.info(f"Auto-start trap receiver: {result['status']}")
         except Exception as e:
             logger.error(f"Auto-start trap receiver failed: {e}")
 
