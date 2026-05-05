@@ -1,4 +1,4 @@
-<div class="row h-100">
+<div class="row g-3 app-split-page app-fixed-split-page">
     <!-- LEFT: Search, Filter & Tree (60%) -->
     <div class="col-md-7">
         <!-- Search & Filter Card -->
@@ -26,13 +26,13 @@
                 <!-- Search Input -->
                 <div class="mb-3" id="search-section">
                     <div class="input-group">
-                        <span class="input-group-text bg-white">
+                        <span class="input-group-text app-input-group-text">
                             <i class="fas fa-search text-muted"></i>
                         </span>
                         <input type="text" id="browser-search-input" class="form-control"
                                placeholder="Search OIDs, modules, or descriptions..."
                                onkeyup="BrowserModule.debounceSearch()">
-                        <button type="button" class="btn btn-outline-secondary"
+                        <button type="button" class="btn btn-outline-secondary btn-icon"
                                 onclick="BrowserModule.clearSearch()"
                                 id="btn-clear-search"
                                 title="Clear search">
@@ -77,7 +77,7 @@
         </div>
 
         <!-- Tree Card -->
-        <div class="card shadow-sm">
+        <div class="card shadow-sm app-split-fill">
             <div class="card-header" id="tree-controls">
                 <span>
                     <i class="fas fa-sitemap me-2 text-primary"></i>
@@ -92,7 +92,7 @@
                             <i class="fas fa-file-csv me-1"></i> CSV
                         </button>
                     </div>
-                    <span class="small" style="color:#94a3b8;">Depth:</span>
+                    <span class="small app-inline-label">Depth:</span>
                     <select class="form-select form-select-sm" id="expand-depth-select"
                             style="width: 60px; font-size: 0.75rem;">
                         <option value="1">1</option>
@@ -115,8 +115,7 @@
                 </div>
             </div>
             <div class="card-body p-0">
-                <div id="browser-tree-container"
-                     style="max-height: 550px; overflow-y: auto; overflow-x: auto;">
+                <div id="browser-tree-container" class="app-scroll-panel app-split-fill-region">
                     <div class="text-center text-muted p-3">Loading tree...</div>
                 </div>
             </div>
@@ -125,12 +124,11 @@
 
     <!-- RIGHT: Details Panel (40%) -->
     <div class="col-md-5">
-        <div class="card shadow-sm sticky-top" style="top: 20px;">
+        <div class="card shadow-sm app-split-fill">
             <div class="card-header">
                 <span><i class="fas fa-info-circle me-2 text-info"></i> Details</span>
             </div>
-            <div class="card-body" id="browser-details-panel"
-                 style="max-height: 650px; overflow-y: auto;">
+            <div class="card-body app-scroll-panel app-split-fill-region" id="browser-details-panel">
                 <div class="text-center text-muted p-5">
                     <i class="fas fa-mouse-pointer fa-3x mb-3 text-muted"></i>
                     <p class="small">Select an OID from the tree to view details</p>

@@ -43,12 +43,28 @@ Delivered in `1.3.0`:
 - Current-view JSON and CSV export from the MIB browser
 - Shared frontend escaping helpers used by the release-facing UI paths
 
+## Release 1.3.1
+
+### Track 4: UI Polish & Theme Consistency
+
+**Scope:** `BUG-007`, `BUG-008`, `BUG-009`, `GAP-004`, `IMPR-004`, `IMPR-005`
+
+Delivered in `1.3.1`:
+
+- Theme initialization before first paint so saved dark mode applies cleanly
+- Removal of hardcoded light and dark classes that previously left mixed surfaces after a theme switch
+- Dark-mode cleanup for sticky table headers, modal dialogs, code blocks, and log or result panels
+- Consistent button, badge, and icon styling across dashboard and feature pages
+- Responsive shell improvements for login and top-level navigation, including better theme-toggle accessibility
+- A repeatable UI review checklist covering desktop, mobile, light mode, and dark mode
+
 ## Deferred To 1.4.0
 
 **Scope:** `FEAT-002`, `FEAT-004`, `FEAT-005`, `FEAT-006`
 
 Notes:
 
+- `1.3.1` is intentionally a polish release and does not pull scope out of the larger `1.4.0` feature set.
 - `FEAT-002` SNMPv3 support is explicitly deferred out of `1.3.0`.
 - Longer-term feature work stays behind the hardening and workflow baseline established in `1.3.0`.
 

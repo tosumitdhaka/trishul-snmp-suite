@@ -1,8 +1,8 @@
-<div class="row g-3 mb-3">
+<div class="row g-3 app-split-page mb-3">
 
     <!-- Authentication -->
-    <div class="col-md-6">
-        <div class="card shadow-sm h-100">
+    <div class="col-md-6 d-flex flex-column">
+        <div class="card shadow-sm h-100 app-split-fill">
             <div class="card-header py-2">
                 <!-- title wrapped in <span> so icon+text = one flex item (space-between rule) -->
                 <span><i class="fas fa-user-shield me-2 text-primary"></i> Authentication</span>
@@ -13,7 +13,7 @@
                     <!-- Hidden username field for password manager association -->
                     <input type="text" name="username" autocomplete="username" class="visually-hidden" aria-hidden="true">
 
-                    <div class="mb-3 bg-light p-2 rounded border">
+                    <div class="mb-3 app-surface-muted p-2 rounded border">
                         <label class="form-label small fw-bold text-muted">Current Password</label>
                         <input type="password"
                                class="form-control form-control-sm"
@@ -70,8 +70,8 @@
     </div>
 
     <!-- Application Behaviour -->
-    <div class="col-md-6">
-        <div class="card shadow-sm h-100">
+    <div class="col-md-6 d-flex flex-column">
+        <div class="card shadow-sm h-100 app-split-fill">
             <div class="card-header py-2 d-flex justify-content-between align-items-center">
                 <span><i class="fas fa-sliders-h me-2 text-success"></i> Application Behaviour</span>
                 <span id="settings-restart-badge" class="badge bg-warning text-dark d-none">
@@ -144,11 +144,11 @@
 </div>
 
 <!-- Row 2: Stats Management + About -->
-<div class="row g-3">
+<div class="row g-3 app-split-page">
 
     <!-- Stats Management -->
-    <div class="col-md-6">
-        <div class="card shadow-sm">
+    <div class="col-md-6 d-flex flex-column">
+        <div class="card shadow-sm app-split-fill">
             <div class="card-header py-2">
                 <span><i class="fas fa-chart-bar me-2 text-info"></i> Stats Management</span>
             </div>
@@ -167,8 +167,8 @@
     </div>
 
     <!-- About -->
-    <div class="col-md-6">
-        <div class="card shadow-sm">
+    <div class="col-md-6 d-flex flex-column">
+        <div class="card shadow-sm app-split-fill">
             <div class="card-header py-2">
                 <span><i class="fas fa-info-circle me-2 text-secondary"></i> About</span>
             </div>
@@ -180,7 +180,7 @@
                     <dd class="col-7 mb-1" id="about-app-version">&mdash;</dd>
                     <dt class="col-5 text-muted fw-normal">Author</dt>
                     <dd class="col-7 mb-1" id="about-app-author">&mdash;</dd>
-                    <dt class="col-5 text-muted fw-normal">Description</dt>
+                    <dt class="col-5 text-muted fw-normal">Tool Description</dt>
                     <dd class="col-7 mb-0" id="about-app-desc">&mdash;</dd>
                 </dl>
             </div>

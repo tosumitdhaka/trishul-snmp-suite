@@ -25,6 +25,9 @@ Server-push message types
 {"type": "trap",                         -- sent when a new trap arrives
  "trap": {timestamp, source, trap_type, varbinds, resolved}}
 
+{"type": "simulator_log",                -- sent on live simulator activity
+ "entry": {time, level, message, request_type, oid_count, ...}}
+
 {"type": "stats",                        -- sent after any stats write
  "data": {simulator:{...}, traps:{...}, walker:{...}, mibs:{...}}}
 

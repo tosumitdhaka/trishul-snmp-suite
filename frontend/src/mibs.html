@@ -1,10 +1,10 @@
-<div class="row h-100">
+<div class="row g-3 app-split-page app-fixed-split-page">
     <!-- LEFT: MIB Library -->
     <div class="col-md-4">
         <!-- MIB Library Card -->
-        <div class="card shadow-sm mb-3 position-relative" id="mib-dropzone">
+        <div class="card shadow-sm mb-3 position-relative app-split-fill" id="mib-dropzone">
             
-            <div id="drop-overlay" class="position-absolute top-0 start-0 w-100 h-100 d-none justify-content-center align-items-center rounded" style="background: rgba(59, 130, 246, 0.95); z-index: 50; border: 2px dashed #fff;">
+            <div id="drop-overlay" class="position-absolute top-0 start-0 w-100 h-100 d-none justify-content-center align-items-center rounded app-drop-overlay">
                 <div class="text-center text-white">
                     <i class="fas fa-file-import fa-3x mb-2"></i>
                     <h5 class="mb-0 fw-bold">Drop MIB files here</h5>
@@ -17,14 +17,14 @@
                     <button type="button" class="btn btn-sm btn-success" onclick="MibsModule.showUploadModal()">
                         <i class="fas fa-upload me-1"></i> Upload
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="MibsModule.reloadMibs()"
+                    <button type="button" class="btn btn-sm btn-outline-secondary btn-icon" onclick="MibsModule.reloadMibs()"
                             title="Reload MIBs" aria-label="Reload MIBs">
                         <i class="fas fa-sync"></i>
                     </button>
                 </div>
             </div>
             <div class="card-body p-2">
-                <div class="d-flex justify-content-around mb-3 p-2 bg-light rounded">
+                <div class="d-flex justify-content-around mb-3 p-2 app-stats-strip">
                     <div class="text-center">
                         <div class="h5 mb-0 text-success" id="mib-count-loaded">0</div>
                         <small class="text-muted">Loaded</small>
@@ -38,7 +38,7 @@
                         <small class="text-muted">Traps</small>
                     </div>
                 </div>
-                <div class="border rounded bg-white" style="max-height: var(--mib-list-max-height); overflow-y: auto;">
+                <div class="app-list-panel app-scroll-panel app-split-fill-region" style="min-height: 280px;">
                     <ul class="list-group list-group-flush" id="mib-list">
                         <li class="list-group-item text-center text-muted small">Loading...</li>
                     </ul>
@@ -47,11 +47,11 @@
         </div>
 
         <!-- Failed MIBs -->
-        <div class="card shadow-sm d-none" id="failed-mibs-card">
-            <div class="card-header" style="background-color: #dc3545; border-bottom-color: rgba(255,255,255,0.2);">
+        <div class="card shadow-sm d-none app-scroll-card" id="failed-mibs-card" style="max-height: 240px;">
+            <div class="card-header danger-header">
                 <span><i class="fas fa-exclamation-triangle me-2"></i> Failed MIBs</span>
             </div>
-            <div class="card-body p-2">
+            <div class="card-body p-2 app-scroll-panel">
                 <ul class="list-group list-group-flush small" id="failed-mib-list"></ul>
             </div>
         </div>
@@ -59,19 +59,18 @@
 
     <!-- RIGHT: Trap Library -->
     <div class="col-md-8">
-        <div class="card shadow-sm h-100">
+        <div class="card shadow-sm h-100 app-split-fill">
             <div class="card-header">
                 <span>
                     <i class="fas fa-bell me-2 text-warning"></i> Trap Library
                     <span class="badge ms-2" id="trap-total-count">0</span>
                 </span>
                 <div class="input-group input-group-sm" style="max-width: 200px;">
-                    <span class="input-group-text" style="background:rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.2); color:#fff;">
+                    <span class="input-group-text">
                         <i class="fas fa-search"></i>
                     </span>
                     <input type="text" class="form-control" id="trap-search"
                            placeholder="Search..."
-                           style="background:rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.2); color:#fff;"
                            oninput="MibsModule.filterTraps ? MibsModule.filterTraps(this.value) : null">
                 </div>
             </div>
@@ -82,7 +81,7 @@
                     Use <a href="#browser" class="alert-link">MIB Browser</a> to explore trap hierarchy.
                     <span class="badge bg-secondary">System</span> traps are built-in.
                 </div>
-                <div class="table-responsive" style="max-height: var(--mib-trap-table-max-height); overflow-y: auto; overflow-x: hidden;">
+                <div class="table-responsive app-scroll-panel app-split-fill-region" style="min-height: 320px; overflow-x: hidden;">
                     <table class="table table-sm table-hover mb-0 mib-trap-table table-dense">
                         <thead class="table-light sticky-top">
                             <tr>

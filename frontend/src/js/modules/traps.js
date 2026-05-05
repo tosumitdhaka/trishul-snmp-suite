@@ -265,7 +265,7 @@ window.TrapsModule = {
                         </div>
                         <div class="modal-body">
                             <input type="text" id="vb-search" class="form-control mb-3" placeholder="Search objects...">
-                            <div style="max-height: 400px; overflow-y: auto;">
+                            <div class="app-scroll-panel" style="max-height: 400px;">
                                 <table class="table table-sm table-hover">
                                     <thead class="table-light sticky-top">
                                         <tr>
@@ -319,7 +319,7 @@ window.TrapsModule = {
                 <td><span class="badge bg-secondary small">${esc(obj.module)}</span></td>
                 <td><span class="small">${esc(obj.syntax)}</span></td>
                 <td>
-                    <button type="button" class="btn btn-xs btn-primary"
+                    <button type="button" class="btn btn-xs btn-primary btn-icon"
                             onclick="TrapsModule.addVarbindFromPickerElement(this)"
                             data-full-name="${esc(obj.full_name)}"
                             data-syntax="${esc(obj.syntax)}">
@@ -390,10 +390,10 @@ window.TrapsModule = {
         
         const id   = `vb-row-${this.vbCount++}`;
         const html = `
-            <div class="card mb-2 border-secondary" id="${id}">
+            <div class="card mb-2" id="${id}">
                 <div class="card-body p-2">
                     <div class="input-group input-group-sm mb-1">
-                        <span class="input-group-text bg-light">OID</span>
+                        <span class="input-group-text app-input-group-text">OID</span>
                         <input type="text" class="form-control vb-oid" value="${esc(oid)}" placeholder="1.3.6... or IF-MIB::ifIndex">
                         <button class="btn btn-outline-danger" type="button" onclick="document.getElementById('${id}').remove()">X</button>
                     </div>
@@ -750,21 +750,23 @@ window.TrapsModule = {
                         <span class="badge ${trapBadgeClass}">${esc(trapType)}</span>
                     </td>
                     <td>
-                        <code class="small" style="cursor: pointer;"
+                        <code class="small cursor-pointer"
                               onclick="TrapsModule.showTrapDetails(${idx})"
                               title="Click to view full JSON">
                             ${esc(varbindsPreview)}
                         </code>
                     </td>
                     <td class="text-center">
-                        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1 me-1"
-                                onclick="TrapsModule.copyTrap(${idx})" title="Copy JSON">
-                            <i class="fas fa-copy"></i>
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-success py-0 px-1"
-                                onclick="TrapsModule.downloadTrap(${idx})" title="Download">
-                            <i class="fas fa-download"></i>
-                        </button>
+                        <div class="trap-action-buttons">
+                            <button type="button" class="btn btn-sm btn-outline-primary btn-icon py-0 px-1"
+                                    onclick="TrapsModule.copyTrap(${idx})" title="Copy JSON">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-success btn-icon py-0 px-1"
+                                    onclick="TrapsModule.downloadTrap(${idx})" title="Download">
+                                <i class="fas fa-download"></i>
+                            </button>
+                        </div>
                     </td>
                 </tr>
             `;
@@ -833,15 +835,15 @@ window.TrapsModule = {
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <pre class="bg-dark text-light p-3 rounded"
-                             style="max-height: 500px; overflow-y: auto;">${escapedJson}</pre>
+                        <pre class="app-code-pane app-scroll-panel p-3 rounded"
+                             style="max-height: 500px;">${escapedJson}</pre>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-sm btn-primary py-1 px-2"
+                        <button type="button" class="btn btn-sm btn-primary"
                                 onclick="TrapsModule.copyModalJson('${modalId}')">
                             <i class="fas fa-copy"></i> Copy
                         </button>
-                        <button type="button" class="btn btn-sm btn-secondary py-1 px-2"
+                        <button type="button" class="btn btn-sm btn-secondary"
                                 data-bs-dismiss="modal">Close</button>
                     </div>
                 </div>

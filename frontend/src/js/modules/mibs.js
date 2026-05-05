@@ -227,14 +227,14 @@ window.MibsModule = {
                 </td>
                 <td class="text-center">
                     <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
+                        <button type="button" class="btn btn-outline-primary btn-sm btn-icon py-0 px-2"
                                 onclick="MibsModule.handleTrapAction(this)"
                                 data-action="details"
                                 data-trap="${payload}"
                                 title="View Details">
                             <i class="fas fa-info-circle"></i>
                         </button>
-                        <button type="button" class="btn btn-success btn-sm py-0 px-2"
+                        <button type="button" class="btn btn-success btn-sm btn-icon py-0 px-2"
                                 onclick="MibsModule.handleTrapAction(this)"
                                 data-action="send"
                                 data-trap="${payload}"

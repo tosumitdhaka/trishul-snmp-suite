@@ -71,3 +71,37 @@ def test_trap_receiver_start_failure_returns_500(monkeypatch):
         start_receiver(TrapStartRequest(port=1162, community="public", resolve_mibs=True))
     assert exc.value.status_code == 500
     assert "address already in use" in exc.value.detail
+
+
+def test_simulator_activity_entry_summarizes_requests():
+    from workers.snmp_simulator import build_activity_entry
+    from pysnmp.proto.api import v2c
+
+    request = [(v2c.ObjectIdentifier((1, 3, 6, 1, 2, 1, 1, 1, 0)), None)]
+    response = [(v2c.ObjectIdentifier((1, 3, 6, 1, 2, 1, 1, 1, 0)), v2c.OctetString("demo"))]
+
+    entry = build_activity_entry("GET", request, response)
+
+    assert entry["level"] == "info"
+    assert entry["request_type"] == "GET"
+    assert "GET served 1 OID" in entry["message"]
+    assert "1.3.6.1.2.1.1.1.0" in entry["message"]
+
+
+def test_mock_controller_emits_simulator_activity_logs(isolated_settings):
+    from workers import snmp_simulator
+    from pysnmp.proto.api import v2c
+
+    snmp_simulator.STATS_FILE = str(isolated_settings.STATS_FILE)
+    emitted = []
+    controller = snmp_simulator.MockController(
+        {(1, 3, 6, 1, 2, 1, 1, 1, 0): v2c.OctetString("demo")},
+        emit_activity=emitted.append,
+    )
+
+    controller.read_variables((v2c.ObjectIdentifier((1, 3, 6, 1, 2, 1, 1, 1, 0)), None))
+
+    assert len(emitted) == 1
+    assert emitted[0]["request_type"] == "GET"
+    assert emitted[0]["oid_count"] == 1
+    assert "1.3.6.1.2.1.1.1.0" in emitted[0]["message"]

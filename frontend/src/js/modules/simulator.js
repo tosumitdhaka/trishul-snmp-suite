@@ -10,8 +10,9 @@ window.SimulatorModule = {
             window.AppState = {};
         }
 
-        const storedLogs = Array.isArray(window.AppState.logs)
-            ? window.AppState.logs
+        const currentStateLogs = Array.isArray(window.AppState.logs) ? window.AppState.logs : [];
+        const storedLogs = currentStateLogs.length > 0
+            ? currentStateLogs
             : this.loadLogsFromStorage();
         window.AppState.logs = storedLogs
             .map(entry => this.normalizeLogEntry(entry))
@@ -65,6 +66,17 @@ window.SimulatorModule = {
                 window.AppState.simulator = e.detail.simulator;
                 self.updateUI(e.detail.simulator);
             }
+        });
+
+        this._on('trishul:simulator-log-updated', function() {
+            const hasActiveFilter = (document.getElementById('log-search')?.value || '').trim()
+                || ((document.getElementById('log-filter')?.value || 'all') !== 'all');
+            if (hasActiveFilter) {
+                self.filterLogs();
+                return;
+            }
+            self.renderLogs(window.AppState.logs || [], true);
+            self.updateLogStats();
         });
 
         // REST re-seed after WS reconnect
@@ -128,11 +140,47 @@ window.SimulatorModule = {
         if (!entry) return null;
 
         if (typeof entry === 'object') {
-            return {
-                time: String(entry.time || new Date().toLocaleTimeString()),
+            const fallbackTime = String(entry.time || '');
+            const normalized = {
+                time: fallbackTime || new Date().toLocaleTimeString(),
                 level: String(entry.level || 'info'),
                 message: String(entry.message || ''),
             };
+
+            if (entry.request_type) {
+                normalized.request_type = String(entry.request_type).toUpperCase();
+            }
+            if (entry.first_requested_oid) {
+                normalized.first_requested_oid = String(entry.first_requested_oid);
+            }
+            if (entry.first_returned_oid) {
+                normalized.first_returned_oid = String(entry.first_returned_oid);
+            }
+            if (entry.timestamp) {
+                normalized.timestamp = String(entry.timestamp);
+            }
+            if (entry.last_event_timestamp) {
+                normalized.last_event_timestamp = String(entry.last_event_timestamp);
+            }
+
+            const oidCount = Number(entry.oid_count);
+            if (Number.isFinite(oidCount) && oidCount >= 0) {
+                normalized.oid_count = oidCount;
+            }
+
+            const requestCount = Number(entry.request_count);
+            if (Number.isFinite(requestCount) && requestCount > 0) {
+                normalized.request_count = requestCount;
+            }
+
+            if (window.TrishulUtils && typeof TrishulUtils.formatClockTime === 'function') {
+                normalized.time = TrishulUtils.formatClockTime(
+                    normalized.last_event_timestamp || normalized.timestamp || fallbackTime,
+                    fallbackTime
+                );
+            }
+
+            return normalized;
         }
 
         if (typeof entry === 'string') {
@@ -142,7 +190,12 @@ window.SimulatorModule = {
             const fallbackText = this.stripHtmlTags(entry).replace(/^\[[^\]]+\]\s*/, '').trim();
 
             return {
-                time: timeMatch ? this.decodeLegacyHtml(timeMatch[1]) : new Date().toLocaleTimeString(),
+                time: window.TrishulUtils && typeof TrishulUtils.formatClockTime === 'function'
+                    ? TrishulUtils.formatClockTime(
+                        timeMatch ? this.decodeLegacyHtml(timeMatch[1]) : '',
+                        this.decodeLegacyHtml(timeMatch ? timeMatch[1] : '')
+                    )
+                    : (timeMatch ? this.decodeLegacyHtml(timeMatch[1]) : new Date().toLocaleTimeString()),
                 level: this.decodeLegacyHtml(levelMatch ? levelMatch[1] : 'info'),
                 message: this.decodeLegacyHtml(textMatch ? textMatch[1] : fallbackText),
             };
@@ -193,6 +246,27 @@ window.SimulatorModule = {
         if (scrollToBottom) {
             area.scrollTop = area.scrollHeight;
         }
+    },
+
+    appendLogEntry: function(entry, scrollToBottom) {
+        const normalized = this.normalizeLogEntry(entry);
+        if (!normalized) return;
+
+        window.AppState.logs.push(normalized);
+        if (window.AppState.logs.length > 500) window.AppState.logs.shift();
+
+        this.saveLogsToStorage();
+
+        const hasActiveFilter = (document.getElementById('log-search')?.value || '').trim()
+            || ((document.getElementById('log-filter')?.value || 'all') !== 'all');
+
+        if (hasActiveFilter) {
+            this.filterLogs();
+            return;
+        }
+
+        this.renderLogs(window.AppState.logs, scrollToBottom);
+        this.updateLogStats();
     },
 
     attachEditorEvents: function() {
@@ -482,20 +556,12 @@ window.SimulatorModule = {
         btnRestart.disabled = !isRunning;
     },
 
-    log: function(msg, type = 'info') {
-        const entry = {
-            time: new Date().toLocaleTimeString(),
+    log: function(msg, type = 'info', time) {
+        this.appendLogEntry({
+            time: time || new Date().toLocaleTimeString(),
             level: type,
             message: String(msg || ''),
-        };
-
-        window.AppState.logs.push(entry);
-        if (window.AppState.logs.length > 500) window.AppState.logs.shift();
-
-        this.saveLogsToStorage();
-        this.renderLogs(window.AppState.logs, true);
-
-        this.updateLogStats();
+        }, true);
     },
 
     clearLog: function() {

@@ -30,7 +30,7 @@ services:
       - APP_NAME=${APP_NAME:-Trishul SNMP Studio}
       - APP_VERSION=${APP_VERSION:-1.3.0}
       - APP_AUTHOR=${APP_AUTHOR:-Sumit Dhaka}
-      - APP_DESCRIPTION=${APP_DESCRIPTION:-Network Management & SNMP Utilities}
+      - APP_DESCRIPTION=${APP_DESCRIPTION:-Professional SNMP Simulation Tool}
       # SNMP Settings
       - SNMP_PORT=${SNMP_PORT:-1061}
       - SNMP_COMMUNITY=${SNMP_COMMUNITY:-public}

@@ -1,4 +1,4 @@
-<div class="row h-100">
+<div class="row g-3 app-split-page app-fixed-split-page">
     <!-- LEFT: Config + History (40%) -->
     <div class="col-lg-4 col-md-5 d-flex flex-column">
         <!-- TOP: Configuration -->
@@ -14,7 +14,7 @@
                         <input type="text" class="form-control" id="walk-target" value="127.0.0.1"
                                placeholder="127.0.0.1" list="recent-targets">
                         <datalist id="recent-targets"></datalist>
-                        <button class="btn btn-outline-secondary" type="button" onclick="WalkerModule.clearTarget()"
+                        <button class="btn btn-outline-secondary btn-icon" type="button" onclick="WalkerModule.clearTarget()"
                                 title="Clear" aria-label="Clear target">
                             <i class="fas fa-times"></i>
                         </button>
@@ -43,7 +43,7 @@
                         <span class="input-group-text" style="min-width: 70px;">OID</span>
                         <input type="text" class="form-control" id="walk-oid" value="IF-MIB::ifTable"
                                placeholder="1.3.6.1.2.1.2.2 or IF-MIB::ifTable">
-                        <button class="btn btn-outline-secondary" type="button" onclick="WalkerModule.browseOid()"
+                        <button class="btn btn-outline-secondary btn-icon" type="button" onclick="WalkerModule.browseOid()"
                                 title="Browse MIBs" aria-label="Browse MIBs">
                             <i class="fas fa-sitemap"></i>
                         </button>
@@ -92,14 +92,14 @@
         </div>
 
         <!-- BOTTOM: History -->
-        <div class="card shadow-sm" style="flex: 1 1 auto; min-height: 250px; max-height: var(--walker-history-max-height); overflow: hidden;">
+        <div class="card shadow-sm app-split-fill" style="min-height: 250px; overflow: hidden;">
             <div class="card-header">
                 <span class="small">
                     <i class="fas fa-history me-2 text-info"></i> Walk History
                 </span>
                 <div class="d-flex align-items-center gap-2">
                     <span class="badge bg-secondary" id="walk-history-count">0 saved</span>
-                    <button type="button" class="btn btn-sm btn-outline-danger"
+                    <button type="button" class="btn btn-sm btn-outline-danger btn-icon"
                             onclick="WalkerModule.clearHistory()"
                             title="Clear History" aria-label="Clear history">
                         <i class="fas fa-trash"></i>
@@ -107,7 +107,7 @@
                 </div>
             </div>
 
-            <div class="card-body p-0 h-100 overflow-auto">
+            <div class="card-body p-0 h-100 overflow-auto app-scroll-panel app-split-fill-region">
                 <div id="walk-history-empty" class="text-center text-muted p-3">
                     <i class="fas fa-history fa-lg mb-2 opacity-25"></i>
                     <div class="small">
@@ -123,8 +123,8 @@
     </div>
 
     <!-- RIGHT: Results (60%) -->
-    <div class="col-lg-8 col-md-7">
-        <div class="card shadow-sm h-100">
+    <div class="col-lg-8 col-md-7 d-flex flex-column">
+        <div class="card shadow-sm h-100 app-split-fill">
             <div class="card-header">
                 <span><i class="fas fa-list-alt me-2 text-success"></i> Current Result</span>
                 <div class="d-flex align-items-center gap-2">
@@ -135,26 +135,26 @@
                     </div>
                     <span class="badge bg-secondary" id="walk-count">0 items</span>
                     <div class="btn-group btn-group-sm">
-                        <button type="button" class="btn btn-outline-secondary" onclick="WalkerModule.clearResults()"
+                        <button type="button" class="btn btn-outline-secondary btn-icon" onclick="WalkerModule.clearResults()"
                                 title="Clear results" aria-label="Clear results">
                             <i class="fas fa-times"></i>
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="WalkerModule.copyToClipboard()"
+                        <button type="button" class="btn btn-outline-secondary btn-icon" onclick="WalkerModule.copyToClipboard()"
                                 title="Copy Output" aria-label="Copy output">
                             <i class="fas fa-copy"></i>
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="WalkerModule.download('json')"
+                        <button type="button" class="btn btn-outline-secondary btn-icon" onclick="WalkerModule.download('json')"
                                 title="Export JSON" aria-label="Export JSON">
                             <i class="fas fa-file-code"></i>
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="WalkerModule.download('csv')"
+                        <button type="button" class="btn btn-outline-secondary btn-icon" onclick="WalkerModule.download('csv')"
                                 title="Export CSV" aria-label="Export CSV">
                             <i class="fas fa-file-csv"></i>
                         </button>
                     </div>
                 </div>
             </div>
-            <div class="card-body p-0" style="height: var(--walker-results-height); overflow: hidden;">
+            <div class="card-body p-0 app-split-fill-region walker-results-body" style="min-height: 320px; overflow: hidden;">
                 <!--
                     Empty-state placeholder: walk-empty class enables flex centering via CSS.
                     WalkerModule.renderResults() should:
@@ -162,10 +162,9 @@
                       - Re-add walk-empty + restore innerHTML when cleared
                 -->
                 <pre id="walk-output"
-                     class="m-0 p-3 border-0 font-monospace small overflow-auto walk-empty"
-                     style="height: 100%;"
+                     class="m-0 p-3 border-0 font-monospace small overflow-auto app-result-pane app-fill-output walker-results-output walk-empty"
                      aria-label="Walk results"
-                     aria-live="polite"><span class="fs-2 mb-3 d-block text-center" style="font-family:inherit;"><i class="fas fa-walking" style="color:#cbd5e1;"></i></span><span class="fw-semibold d-block text-center mb-1" style="font-size:0.9rem; font-family:inherit;">No results yet</span><span class="d-block text-center" style="font-size:0.8rem; font-family:inherit;">Configure a target and click <strong>Run Walk</strong> to fetch OID data.</span></pre>
+                     aria-live="polite"><span class="fs-2 mb-3 d-block text-center empty-state-icon"><i class="fas fa-walking"></i></span><span class="fw-semibold d-block text-center mb-1 empty-state-title">No results yet</span><span class="d-block text-center empty-state-copy">Configure a target and click <strong>Run Walk</strong> to fetch OID data.</span></pre>
             </div>
         </div>
     </div>

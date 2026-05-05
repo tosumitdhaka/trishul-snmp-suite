@@ -5,6 +5,7 @@ import json
 import logging
 import asyncio
 import argparse
+import socket
 from datetime import datetime, timezone
 
 # Add parent directory to path so app modules (core.config, stats_store) are importable
@@ -28,6 +29,64 @@ SYSTEM_MIB_DIR      = "/usr/share/snmp/mibs"
 
 # Single source of truth for stats file path — Option B: use settings
 STATS_FILE = str(settings.STATS_FILE)
+
+
+def _oid_to_text(oid) -> str | None:
+    if oid is None:
+        return None
+    try:
+        return ".".join(str(part) for part in tuple(oid))
+    except Exception:
+        return str(oid)
+
+
+def build_activity_entry(request_type: str, request_var_binds, response_var_binds) -> dict:
+    request_count = len(request_var_binds)
+    first_requested = _oid_to_text(request_var_binds[0][0]) if request_var_binds else None
+    first_returned = _oid_to_text(response_var_binds[0][0]) if response_var_binds else None
+    oid_label = "OID" if request_count == 1 else "OIDs"
+
+    if request_type == "GETNEXT" and first_requested and first_returned and first_requested != first_returned:
+        target = f" from {first_requested} -> {first_returned}"
+    elif first_requested:
+        target = f" for {first_requested}"
+    else:
+        target = ""
+
+    extra = f" (+{request_count - 1} more)" if request_count > 1 else ""
+    now = datetime.now()
+    return {
+        "time": now.strftime("%H:%M:%S"),
+        "level": "info",
+        "message": f"{request_type} served {request_count} {oid_label}{target}{extra}",
+        "request_type": request_type,
+        "oid_count": request_count,
+        "first_requested_oid": first_requested,
+        "first_returned_oid": first_returned,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+class SimulatorActivityEmitter:
+    def __init__(self, ws_port: int):
+        self.ws_port = ws_port
+        self._udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def emit_log(self, entry: dict) -> None:
+        try:
+            payload = json.dumps({
+                "type": "simulator_log",
+                "entry": entry,
+            }).encode("utf-8")
+            self._udp_sock.sendto(payload, ("127.0.0.1", self.ws_port))
+        except Exception as e:
+            logger.debug(f"[WS-UDP] send failed (non-fatal): {e}")
+
+    def close(self) -> None:
+        try:
+            self._udp_sock.close()
+        except Exception:
+            pass
 
 
 class MibDataGenerator:
@@ -70,9 +129,15 @@ class MibDataGenerator:
 
 
 class MockController:
-    def __init__(self, data_dict):
+    def __init__(self, data_dict, emit_activity=None):
         self.db = data_dict
         self.sorted_oids = sorted(self.db.keys())
+        self.emit_activity = emit_activity
+
+    def _emit_activity(self, request_type: str, request_var_binds, response_var_binds) -> None:
+        if not self.emit_activity:
+            return
+        self.emit_activity(build_activity_entry(request_type, request_var_binds, response_var_binds))
 
     def read_variables(self, *var_binds, **kwargs):
         """Handle SNMP GET requests."""
@@ -90,6 +155,7 @@ class MockController:
                 v2c.ObjectIdentifier(oid),
                 self.db[key] if key in self.db else v2c.NoSuchObject()
             ))
+        self._emit_activity("GET", var_binds, rsp)
         return rsp
 
     def read_next_variables(self, *var_binds, **kwargs):
@@ -113,6 +179,7 @@ class MockController:
                 v2c.ObjectIdentifier(next_oid if next_oid else oid),
                 self.db[next_oid] if next_oid else v2c.EndOfMibView()
             ))
+        self._emit_activity("GETNEXT", var_binds, rsp)
         return rsp
 
 
@@ -213,23 +280,30 @@ def compile_and_generate_data(mib_dir, custom_data_path):
 async def run_simulator(port, community, mib_dir, data_path, startup_status_file=None):
     mock_data  = compile_and_generate_data(mib_dir, data_path)
     snmpEngine = engine.SnmpEngine()
+    activity_emitter = SimulatorActivityEmitter(settings.WS_INTERNAL_PORT)
 
-    config.add_transport(snmpEngine, udp.DOMAIN_NAME, udp.UdpTransport().open_server_mode(('0.0.0.0', port)))
-    config.add_v1_system(snmpEngine, 'my-area', community)
-    config.add_vacm_user(snmpEngine, 2, 'my-area', 'noAuthNoPriv', (1, 3, 6), (1, 3, 6))
+    try:
+        config.add_transport(snmpEngine, udp.DOMAIN_NAME, udp.UdpTransport().open_server_mode(('0.0.0.0', port)))
+        config.add_v1_system(snmpEngine, 'my-area', community)
+        config.add_vacm_user(snmpEngine, 2, 'my-area', 'noAuthNoPriv', (1, 3, 6), (1, 3, 6))
 
-    snmpContext = context.SnmpContext(snmpEngine)
-    snmpContext.unregister_context_name(v2c.OctetString(''))
-    snmpContext.register_context_name(v2c.OctetString(''), MockController(mock_data))
+        snmpContext = context.SnmpContext(snmpEngine)
+        snmpContext.unregister_context_name(v2c.OctetString(''))
+        snmpContext.register_context_name(
+            v2c.OctetString(''),
+            MockController(mock_data, emit_activity=activity_emitter.emit_log),
+        )
 
-    cmdrsp.GetCommandResponder(snmpEngine, snmpContext)
-    cmdrsp.NextCommandResponder(snmpEngine, snmpContext)
+        cmdrsp.GetCommandResponder(snmpEngine, snmpContext)
+        cmdrsp.NextCommandResponder(snmpEngine, snmpContext)
 
-    logger.info(f"\u2705 SIMULATOR RUNNING on UDP {port}")
-    write_startup_status(startup_status_file, "ready", f"Simulator listening on UDP {port}.", port=port)
+        logger.info(f"\u2705 SIMULATOR RUNNING on UDP {port}")
+        write_startup_status(startup_status_file, "ready", f"Simulator listening on UDP {port}.", port=port)
 
-    while True:
-        await asyncio.sleep(1)
+        while True:
+            await asyncio.sleep(1)
+    finally:
+        activity_emitter.close()
 
 
 if __name__ == '__main__':

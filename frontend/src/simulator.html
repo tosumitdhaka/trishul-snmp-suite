@@ -1,6 +1,6 @@
-<div class="row">
+<div class="row g-3 app-split-page app-fixed-split-page">
     <!-- LEFT: Status & Config -->
-    <div class="col-lg-4 col-md-5 mb-3 mb-lg-0">
+    <div class="col-lg-4 col-md-5">
         <!-- Status Card -->
         <div class="card mb-3 shadow-sm">
             <div class="card-header">
@@ -19,7 +19,7 @@
                 </div>
 
                 <!-- Runtime Metrics -->
-                <div id="sim-metrics" class="d-none mb-3 p-2 bg-light rounded">
+                <div id="sim-metrics" class="d-none mb-3 p-2 app-surface-muted rounded">
                     <div class="row text-center">
                         <div class="col-4">
                             <div class="small text-muted">Uptime</div>
@@ -43,7 +43,7 @@
                     <button type="button" class="btn btn-sm btn-danger" id="btn-stop" onclick="SimulatorModule.stop()" disabled>
                         <i class="fas fa-stop me-1"></i> Stop
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-restart" onclick="SimulatorModule.restart()" disabled
+                    <button type="button" class="btn btn-sm btn-outline-secondary btn-icon" id="btn-restart" onclick="SimulatorModule.restart()" disabled
                             title="Restart simulator" aria-label="Restart simulator">
                         <i class="fas fa-sync"></i>
                     </button>
@@ -77,12 +77,12 @@
         </div>
 
         <!-- Custom Data Card -->
-        <div class="card shadow-sm">
+        <div class="card shadow-sm app-split-fill">
             <div class="card-header">
                 <span><i class="fas fa-database me-2 text-info"></i> Custom Data</span>
                 <div class="d-flex align-items-center gap-2">
                     <span id="unsaved-indicator" class="badge bg-warning d-none">Unsaved</span>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="SimulatorModule.formatJson()"
+                    <button type="button" class="btn btn-sm btn-outline-secondary btn-icon" onclick="SimulatorModule.formatJson()"
                             title="Format JSON" aria-label="Format JSON">
                         <i class="fas fa-magic"></i>
                     </button>
@@ -92,13 +92,13 @@
                 </div>
             </div>
             <div class="card-body p-0">
-                <div class="p-2 bg-light border-bottom small text-muted">
+                <div class="p-2 app-pane-note border-bottom small text-muted">
                     <i class="fas fa-info-circle"></i> Override OID values (e.g., <code>IF-MIB::ifSpeed.1</code>)
                 </div>
-                <div class="position-relative">
+                <div class="position-relative app-split-fill-region d-flex flex-column">
                     <textarea id="custom-data-editor"
                               class="form-control border-0 font-monospace"
-                              style="resize: none; min-height: 150px; font-size: 0.85rem;"
+                              style="resize: none; height: 100%; flex: 1 1 auto; font-size: 0.85rem;"
                               placeholder='{
   "IF-MIB::ifSpeed.1": 1000,
   "IF-MIB::ifDescr.1": "eth0"
@@ -113,15 +113,15 @@
 
     <!-- RIGHT: Activity Log -->
     <div class="col-lg-8 col-md-7">
-        <div class="card h-100 shadow-sm">
+        <div class="card h-100 shadow-sm app-split-fill">
             <div class="card-header">
                 <span><i class="fas fa-list me-2 text-secondary"></i> Activity Log</span>
                 <div class="btn-group btn-group-sm">
-                    <button type="button" class="btn btn-outline-secondary" onclick="SimulatorModule.clearLog()"
+                    <button type="button" class="btn btn-outline-secondary btn-icon" onclick="SimulatorModule.clearLog()"
                             title="Clear log" aria-label="Clear log">
                         <i class="fas fa-trash"></i>
                     </button>
-                    <button type="button" class="btn btn-outline-secondary" onclick="SimulatorModule.exportLog()"
+                    <button type="button" class="btn btn-outline-secondary btn-icon" onclick="SimulatorModule.exportLog()"
                             title="Export log" aria-label="Export log">
                         <i class="fas fa-download"></i>
                     </button>
@@ -129,7 +129,7 @@
             </div>
             <div class="card-body p-0">
                 <!-- Log Toolbar -->
-                <div class="p-2 border-bottom bg-light">
+                <div class="p-2 border-bottom app-pane-note">
                     <div class="row g-2 align-items-center">
                         <div class="col-md-4 col-sm-6">
                             <div class="input-group input-group-sm">
@@ -156,8 +156,8 @@
                     </div>
                 </div>
                 <!-- Log Area -->
-                <div class="p-2 font-monospace small bg-white"
-                     style="height: var(--sim-log-height); min-height: 300px; overflow-y: auto;"
+                <div class="p-2 font-monospace small app-log-pane app-scroll-panel app-split-fill-region"
+                     style="min-height: 320px;"
                      id="sim-log-area" aria-live="polite" aria-atomic="false">
                     <div class="text-muted p-2">Waiting for events...</div>
                 </div>

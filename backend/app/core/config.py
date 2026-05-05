@@ -45,7 +45,7 @@ class Settings:
     APP_NAME        = os.getenv("APP_NAME",        "Trishul SNMP Studio")
     APP_VERSION     = os.getenv("APP_VERSION",     "1.3.0")
     APP_AUTHOR      = os.getenv("APP_AUTHOR",      "Sumit Dhaka")
-    APP_DESCRIPTION = os.getenv("APP_DESCRIPTION", "Network Management & SNMP Utilities")
+    APP_DESCRIPTION = os.getenv("APP_DESCRIPTION", "Professional SNMP Simulation Tool")
 
     # Security
     SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", "3600"))

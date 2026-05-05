@@ -76,7 +76,7 @@
 <!-- Activity Stats Row -->
 <div class="row mb-3">
     <div class="col-12 mb-2 d-flex justify-content-between align-items-center">
-        <h6 class="mb-0 text-muted fw-bold text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.08em;">
+        <h6 class="mb-0 text-muted fw-bold section-kicker">
             <i class="fas fa-chart-bar me-1"></i> Activity Stats
         </h6>
         <!-- Reset Stats button: intentionally hidden until DELETE /api/stats/ backend
@@ -96,7 +96,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">SNMP Requests</div>
+                        <div class="text-muted mb-0 metric-label">SNMP Requests</div>
                         <h5 class="mb-0 fw-bold" id="act-snmp-requests">—</h5>
                     </div>
                     <div class="bg-success bg-opacity-10 p-2 rounded">
@@ -113,7 +113,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">OIDs Loaded</div>
+                        <div class="text-muted mb-0 metric-label">OIDs Loaded</div>
                         <h5 class="mb-0 fw-bold" id="act-oids-loaded">—</h5>
                     </div>
                     <div class="bg-success bg-opacity-10 p-2 rounded">
@@ -130,7 +130,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">Traps Received</div>
+                        <div class="text-muted mb-0 metric-label">Traps Received</div>
                         <h5 class="mb-0 fw-bold" id="act-traps-recv">—</h5>
                     </div>
                     <div class="bg-warning bg-opacity-10 p-2 rounded">
@@ -147,7 +147,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">Traps Sent</div>
+                        <div class="text-muted mb-0 metric-label">Traps Sent</div>
                         <h5 class="mb-0 fw-bold" id="act-traps-sent">—</h5>
                     </div>
                     <div class="bg-warning bg-opacity-10 p-2 rounded">
@@ -164,7 +164,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">Walks Executed</div>
+                        <div class="text-muted mb-0 metric-label">Walks Executed</div>
                         <h5 class="mb-0 fw-bold" id="act-walks">—</h5>
                     </div>
                     <div class="bg-primary bg-opacity-10 p-2 rounded">
@@ -181,7 +181,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">OIDs Returned</div>
+                        <div class="text-muted mb-0 metric-label">OIDs Returned</div>
                         <h5 class="mb-0 fw-bold" id="act-oids-returned">—</h5>
                     </div>
                     <div class="bg-primary bg-opacity-10 p-2 rounded">
@@ -198,7 +198,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">MIBs Uploaded</div>
+                        <div class="text-muted mb-0 metric-label">MIBs Uploaded</div>
                         <h5 class="mb-0 fw-bold" id="act-mibs-uploaded">—</h5>
                     </div>
                     <div class="bg-secondary bg-opacity-10 p-2 rounded">
@@ -215,7 +215,7 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-muted mb-0" style="font-size: 0.7rem;">Times Reloaded</div>
+                        <div class="text-muted mb-0 metric-label">Times Reloaded</div>
                         <h5 class="mb-0 fw-bold" id="act-mibs-reloaded">—</h5>
                     </div>
                     <div class="bg-secondary bg-opacity-10 p-2 rounded">
@@ -230,7 +230,7 @@
 <!-- Quick Actions -->
 <div class="row">
     <div class="col-12">
-        <h6 class="mb-2 text-muted fw-bold text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.08em;">
+        <h6 class="mb-2 text-muted fw-bold section-kicker">
             <i class="fas fa-bolt me-1"></i> Quick Actions
         </h6>
     </div>
@@ -242,12 +242,12 @@
              onclick="window.location.hash='#simulator'"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.hash='#simulator';}">
             <div class="card-body d-flex align-items-center gap-3 py-2 px-3">
-                <div class="tool-icon bg-success bg-opacity-10 flex-shrink-0" style="margin-bottom:0;">
+                <div class="tool-icon tool-icon-inline bg-success bg-opacity-10 flex-shrink-0">
                     <i class="fas fa-server fa-lg text-success"></i>
                 </div>
                 <div class="text-start">
                     <h6 class="mb-0">SNMP Simulator</h6>
-                    <p class="text-muted mb-0 d-none d-sm-block" style="font-size:0.75rem;">Start/stop SNMP agent</p>
+                    <p class="text-muted mb-0 d-none d-sm-block tool-card-copy">Start/stop SNMP agent</p>
                 </div>
             </div>
         </div>
@@ -260,12 +260,12 @@
              onclick="window.location.hash='#walker'"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.hash='#walker';}">
             <div class="card-body d-flex align-items-center gap-3 py-2 px-3">
-                <div class="tool-icon bg-primary bg-opacity-10 flex-shrink-0" style="margin-bottom:0;">
+                <div class="tool-icon tool-icon-inline bg-primary bg-opacity-10 flex-shrink-0">
                     <i class="fas fa-walking fa-lg text-primary"></i>
                 </div>
                 <div class="text-start">
                     <h6 class="mb-0">Walk &amp; Parse</h6>
-                    <p class="text-muted mb-0 d-none d-sm-block" style="font-size:0.75rem;">Execute SNMP walks</p>
+                    <p class="text-muted mb-0 d-none d-sm-block tool-card-copy">Execute SNMP walks</p>
                 </div>
             </div>
         </div>
@@ -278,12 +278,12 @@
              onclick="window.location.hash='#traps'"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.hash='#traps';}">
             <div class="card-body d-flex align-items-center gap-3 py-2 px-3">
-                <div class="tool-icon bg-warning bg-opacity-10 flex-shrink-0" style="margin-bottom:0;">
+                <div class="tool-icon tool-icon-inline bg-warning bg-opacity-10 flex-shrink-0">
                     <i class="fas fa-bell fa-lg text-warning"></i>
                 </div>
                 <div class="text-start">
                     <h6 class="mb-0">Trap Manager</h6>
-                    <p class="text-muted mb-0 d-none d-sm-block" style="font-size:0.75rem;">Send &amp; receive traps</p>
+                    <p class="text-muted mb-0 d-none d-sm-block tool-card-copy">Send &amp; receive traps</p>
                 </div>
             </div>
         </div>
@@ -296,12 +296,12 @@
              onclick="window.location.hash='#browser'"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.hash='#browser';}">
             <div class="card-body d-flex align-items-center gap-3 py-2 px-3">
-                <div class="tool-icon bg-purple bg-opacity-10 flex-shrink-0" style="margin-bottom:0;">
+                <div class="tool-icon tool-icon-inline bg-purple bg-opacity-10 flex-shrink-0">
                     <i class="fas fa-sitemap fa-lg text-purple"></i>
                 </div>
                 <div class="text-start">
                     <h6 class="mb-0">MIB Browser</h6>
-                    <p class="text-muted mb-0 d-none d-sm-block" style="font-size:0.75rem;">Explore MIB tree</p>
+                    <p class="text-muted mb-0 d-none d-sm-block tool-card-copy">Explore MIB tree</p>
                 </div>
             </div>
         </div>
@@ -314,12 +314,12 @@
              onclick="window.location.hash='#mibs'"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.hash='#mibs';}">
             <div class="card-body d-flex align-items-center gap-3 py-2 px-3">
-                <div class="tool-icon bg-info bg-opacity-10 flex-shrink-0" style="margin-bottom:0;">
+                <div class="tool-icon tool-icon-inline bg-info bg-opacity-10 flex-shrink-0">
                     <i class="fas fa-database fa-lg text-info"></i>
                 </div>
                 <div class="text-start">
                     <h6 class="mb-0">MIB Manager</h6>
-                    <p class="text-muted mb-0 d-none d-sm-block" style="font-size:0.75rem;">Upload &amp; manage MIBs</p>
+                    <p class="text-muted mb-0 d-none d-sm-block tool-card-copy">Upload &amp; manage MIBs</p>
                 </div>
             </div>
         </div>
@@ -332,12 +332,12 @@
              onclick="window.location.hash='#settings'"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.hash='#settings';}">
             <div class="card-body d-flex align-items-center gap-3 py-2 px-3">
-                <div class="tool-icon bg-secondary bg-opacity-10 flex-shrink-0" style="margin-bottom:0;">
+                <div class="tool-icon tool-icon-inline bg-secondary bg-opacity-10 flex-shrink-0">
                     <i class="fas fa-cog fa-lg text-secondary"></i>
                 </div>
                 <div class="text-start">
                     <h6 class="mb-0">Settings</h6>
-                    <p class="text-muted mb-0 d-none d-sm-block" style="font-size:0.75rem;">Auth &amp; preferences</p>
+                    <p class="text-muted mb-0 d-none d-sm-block tool-card-copy">Auth &amp; preferences</p>
                 </div>
             </div>
         </div>

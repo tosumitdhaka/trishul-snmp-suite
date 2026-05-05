@@ -3,8 +3,164 @@ let currentModule = null;
 
 window.AppState = {
     simulator: null,
-    logs: []
+    logs: null
 };
+
+const SIMULATOR_LOG_RETENTION = 500;
+const SIMULATOR_LOG_BATCH_WINDOW_MS = 1200;
+
+function normalizeSimulatorLogEntry(entry) {
+    if (!entry) return null;
+    const fallbackTime = String(entry.time || '');
+    const normalized = {
+        time: fallbackTime || new Date().toLocaleTimeString(),
+        level: String(entry.level || 'info'),
+        message: String(entry.message || ''),
+    };
+
+    if (entry.request_type) {
+        normalized.request_type = String(entry.request_type).toUpperCase();
+    }
+    if (entry.first_requested_oid) {
+        normalized.first_requested_oid = String(entry.first_requested_oid);
+    }
+    if (entry.first_returned_oid) {
+        normalized.first_returned_oid = String(entry.first_returned_oid);
+    }
+    if (entry.timestamp) {
+        normalized.timestamp = String(entry.timestamp);
+    }
+    if (entry.last_event_timestamp) {
+        normalized.last_event_timestamp = String(entry.last_event_timestamp);
+    }
+
+    const oidCount = Number(entry.oid_count);
+    if (Number.isFinite(oidCount) && oidCount >= 0) {
+        normalized.oid_count = oidCount;
+    }
+
+    const requestCount = Number(entry.request_count);
+    if (Number.isFinite(requestCount) && requestCount > 0) {
+        normalized.request_count = requestCount;
+    }
+
+    if (window.TrishulUtils && typeof TrishulUtils.formatClockTime === 'function') {
+        normalized.time = TrishulUtils.formatClockTime(
+            normalized.last_event_timestamp || normalized.timestamp || fallbackTime,
+            fallbackTime
+        );
+    }
+
+    return normalized;
+}
+
+function parseSimulatorLogTimestamp(entry) {
+    const value = entry && (entry.last_event_timestamp || entry.timestamp);
+    const parsed = value ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function formatSimulatorLogBatchMessage(entry) {
+    const requestCount = Number(entry && entry.request_count) || 1;
+    const oidCount = Number(entry && entry.oid_count) || 0;
+    const firstRequested = entry && entry.first_requested_oid;
+    const lastReturned = entry && entry.first_returned_oid;
+    const requestLabel = requestCount === 1 ? 'request' : 'requests';
+    const oidLabel = oidCount === 1 ? 'OID' : 'OIDs';
+    const range = firstRequested && lastReturned && firstRequested !== lastReturned
+        ? ` from ${firstRequested} -> ${lastReturned}`
+        : firstRequested
+            ? ` from ${firstRequested}`
+            : '';
+    return `Walk activity: ${requestCount} GETNEXT ${requestLabel}, ${oidCount} ${oidLabel}${range}`;
+}
+
+function shouldBatchSimulatorLog(previous, next) {
+    if (!previous || !next) return false;
+    if (String(previous.request_type || '') !== 'GETNEXT' || String(next.request_type || '') !== 'GETNEXT') {
+        return false;
+    }
+    if (String(previous.level || 'info') !== 'info' || String(next.level || 'info') !== 'info') {
+        return false;
+    }
+
+    const previousTimestamp = parseSimulatorLogTimestamp(previous);
+    const nextTimestamp = parseSimulatorLogTimestamp(next);
+    if (!Number.isFinite(previousTimestamp) || !Number.isFinite(nextTimestamp)) {
+        return false;
+    }
+
+    return nextTimestamp >= previousTimestamp
+        && (nextTimestamp - previousTimestamp) <= SIMULATOR_LOG_BATCH_WINDOW_MS;
+}
+
+function batchSimulatorLogEntries(previous, next) {
+    const requestCount = (Number(previous.request_count) || 1) + (Number(next.request_count) || 1);
+    const oidCount = (Number(previous.oid_count) || 0) + (Number(next.oid_count) || 0);
+    const firstRequested = previous.first_requested_oid || next.first_requested_oid || null;
+    const lastReturned = next.first_returned_oid || next.first_requested_oid || previous.first_returned_oid || null;
+
+    return normalizeSimulatorLogEntry({
+        ...previous,
+        ...next,
+        time: next.time || previous.time,
+        level: 'info',
+        request_type: 'GETNEXT',
+        request_count: requestCount,
+        oid_count: oidCount,
+        first_requested_oid: firstRequested,
+        first_returned_oid: lastReturned,
+        last_event_timestamp: next.last_event_timestamp || next.timestamp || previous.last_event_timestamp || previous.timestamp,
+        message: formatSimulatorLogBatchMessage({
+            request_count: requestCount,
+            oid_count: oidCount,
+            first_requested_oid: firstRequested,
+            first_returned_oid: lastReturned,
+        }),
+    });
+}
+
+function persistSimulatorLogs(entries) {
+    try {
+        const safeEntries = Array.isArray(entries) ? entries.slice(-SIMULATOR_LOG_RETENTION) : [];
+        localStorage.setItem('trishul_simulator_logs', JSON.stringify(safeEntries));
+    } catch (e) {
+        console.error('Failed to persist simulator logs:', e);
+    }
+}
+
+function appendSimulatorLogEntry(entry) {
+    const normalized = normalizeSimulatorLogEntry(entry);
+    if (!normalized) return null;
+
+    const currentLogs = Array.isArray(window.AppState.logs) ? window.AppState.logs : [];
+    const lastLog = currentLogs[currentLogs.length - 1];
+
+    if (shouldBatchSimulatorLog(lastLog, normalized)) {
+        currentLogs[currentLogs.length - 1] = batchSimulatorLogEntries(lastLog, normalized);
+    } else {
+        currentLogs.push(normalized);
+    }
+
+    if (currentLogs.length > SIMULATOR_LOG_RETENTION) currentLogs.shift();
+
+    window.AppState.logs = currentLogs;
+    persistSimulatorLogs(currentLogs);
+    return currentLogs[currentLogs.length - 1];
+}
+
+function bindGlobalRealtimeListeners() {
+    if (window.__trishulRealtimeListenersBound) return;
+    window.__trishulRealtimeListenersBound = true;
+
+    window.addEventListener('trishul:ws:simulator_log', (e) => {
+        const normalized = appendSimulatorLogEntry(e.detail && e.detail.entry);
+        if (!normalized) return;
+        window.dispatchEvent(new CustomEvent('trishul:simulator-log-updated', {
+            detail: { entry: normalized }
+        }));
+    });
+}
 
 // ==================== Fetch Interceptor (Auth Token Injection) ====================
 
@@ -76,6 +232,9 @@ function showLogin() {
     if (el) {
         el.classList.remove("d-none");
         el.classList.add("d-flex");
+        window.requestAnimationFrame(() => {
+            document.getElementById("login-user")?.focus();
+        });
     }
 }
 
@@ -127,7 +286,7 @@ function showApp() {
         loginScreen.classList.add("d-none");
     }
     if (wrapper) {
-        wrapper.style.display = "flex";
+        wrapper.classList.remove("d-none");
     }
 
     initializeAppLogic();
@@ -159,6 +318,8 @@ function updateUserUI(username) {
 // ==================== Initialize App Logic ====================
 
 function initializeAppLogic() {
+    bindGlobalRealtimeListeners();
+
     const sidebarToggle = document.querySelector('#sidebarToggle');
     if (sidebarToggle) {
         sidebarToggle.addEventListener('click', e => {
@@ -220,7 +381,7 @@ async function updateBackendStatus() {
         if (versionEl) {
             versionEl.textContent      = `v${data.version}`;
             versionEl.title            = `${data.name} v${data.version}`;
-            versionEl.style.color      = "";
+            versionEl.classList.remove("status-text-offline");
         }
 
         if (isFirstLoad) {
@@ -246,7 +407,7 @@ async function updateBackendStatus() {
 
         if (versionEl) {
             versionEl.textContent = "Offline";
-            versionEl.style.color = "#ef4444";
+            versionEl.classList.add("status-text-offline");
             versionEl.title       = "Backend is offline";
         }
     }

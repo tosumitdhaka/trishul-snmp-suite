@@ -5,6 +5,7 @@ window.WalkerModule = {
     walkHistory: [],
     MAX_HISTORY: 20,
     filteredData: null,
+    EMPTY_OUTPUT_HTML: '<span class="fs-2 mb-3 d-block text-center empty-state-icon"><i class="fas fa-walking"></i></span><span class="fw-semibold d-block text-center mb-1 empty-state-title">No results yet</span><span class="d-block text-center empty-state-copy">Configure a target and click <strong>Run Walk</strong> to fetch OID data.</span>',
 
     init: function() { 
         this.toggleOptions();
@@ -66,6 +67,28 @@ window.WalkerModule = {
     clearTarget: function() {
         document.getElementById('walk-target').value = '';
         document.getElementById('walk-target').focus();
+    },
+
+    getOutputClass: function(state) {
+        const base = 'm-0 p-3 border-0 font-monospace small overflow-auto app-result-pane app-fill-output walker-results-output';
+        if (state === 'empty') return `${base} walk-empty`;
+        if (state === 'loading') return `${base} text-muted`;
+        if (state === 'error') return `${base} text-danger fw-bold`;
+        return base;
+    },
+
+    setOutputState: function(state, value) {
+        const output = document.getElementById('walk-output');
+        if (!output) return;
+
+        output.className = this.getOutputClass(state);
+
+        if (state === 'empty') {
+            output.innerHTML = this.EMPTY_OUTPUT_HTML;
+            return;
+        }
+
+        output.textContent = String(value ?? '');
     },
 
     // ==================== Walk History ====================
@@ -236,7 +259,6 @@ window.WalkerModule = {
 
     execute: async function() {
         const btn = document.getElementById("btn-walk-run");
-        const output = document.getElementById("walk-output");
         const countBadge = document.getElementById("walk-count");
         const progressEl = document.getElementById("walk-progress");
         const progressBar = document.getElementById("walk-progress-bar");
@@ -278,8 +300,7 @@ window.WalkerModule = {
         const originalText = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Running...';
         btn.disabled = true;
-        output.textContent = "";
-        output.className = "m-0 p-3 border-0 bg-light text-muted font-monospace small";
+        this.setOutputState('loading', '');
         
         // Show progress
         progressEl.classList.remove('d-none');
@@ -316,15 +337,13 @@ window.WalkerModule = {
                 rawLines: data.rawLines
             }));
             
-            output.className = "m-0 p-3 border-0 bg-white text-dark font-monospace small";
-
             if (data.mode === 'parsed') {
-                output.textContent = JSON.stringify(data.data, null, 2);
+                this.setOutputState('ready', JSON.stringify(data.data, null, 2));
             } else {
                 if (Array.isArray(data.data)) {
-                    output.textContent = data.data.join("\n");
+                    this.setOutputState('ready', data.data.join("\n"));
                 } else {
-                    output.textContent = String(data.data);
+                    this.setOutputState('ready', String(data.data));
                 }
             }
 
@@ -335,8 +354,7 @@ window.WalkerModule = {
             console.error("Walker Error:", e);
             errorText.textContent = this.formatErrorMessage(e.message);
             errorEl.classList.remove('d-none');
-            output.textContent = `Error: ${e.message}`;
-            output.className = "m-0 p-3 border-0 bg-light text-danger fw-bold font-monospace small";
+            this.setOutputState('error', `Error: ${e.message}`);
             countBadge.textContent = "0 items";
             this.lastData = null;
             this.lastDisplayMode = null;
@@ -371,7 +389,6 @@ window.WalkerModule = {
     // ==================== Result Display, Filtering & Clear ====================
 
     clearResults: function() {
-        const output = document.getElementById("walk-output");
         const countBadge = document.getElementById("walk-count");
         const searchInput = document.getElementById("walk-result-search");
 
@@ -382,10 +399,7 @@ window.WalkerModule = {
 
         sessionStorage.removeItem('walkerLastResult');
 
-        if (output) {
-            output.textContent = "No data yet. Run a walk to see results.";
-            output.className = "m-0 p-3 border-0 bg-light text-muted font-monospace small";
-        }
+        this.setOutputState('empty');
         if (countBadge) countBadge.textContent = "0 items";
         if (searchInput) searchInput.value = '';
     },
@@ -429,7 +443,6 @@ window.WalkerModule = {
     },
 
     restoreLastResult: function() {
-        const output = document.getElementById("walk-output");
         const countBadge = document.getElementById("walk-count");
         
         if (!this.lastData) return;
@@ -442,24 +455,21 @@ window.WalkerModule = {
         }
         
         countBadge.textContent = `${count} items`;
-        output.className = "m-0 p-3 border-0 bg-white text-dark font-monospace small";
-        
         if (this.lastDisplayMode === 'parsed') {
-            output.textContent = JSON.stringify(this.lastData, null, 2);
+            this.setOutputState('ready', JSON.stringify(this.lastData, null, 2));
+        } else if (Array.isArray(this.lastData)) {
+            this.setOutputState('ready', this.lastData.join("\n"));
         } else {
-            if (Array.isArray(this.lastData)) {
-                output.textContent = this.lastData.join("\n");
-            } else {
-                output.textContent = String(this.lastData);
-            }
+            this.setOutputState('ready', String(this.lastData));
         }
     },
 
     // ==================== Export & Copy ====================
 
     copyToClipboard: function() {
-        const text = document.getElementById("walk-output").textContent;
-        if (text === "No data yet. Run a walk to see results." || text.startsWith("Error:")) {
+        const output = document.getElementById("walk-output");
+        const text = output ? output.textContent : '';
+        if (!output || output.classList.contains('walk-empty') || text.startsWith("Error:")) {
             TrishulUtils.showNotification("No data to copy", "warning");
             return;
         }

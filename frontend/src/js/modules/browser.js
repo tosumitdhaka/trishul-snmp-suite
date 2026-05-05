@@ -509,10 +509,9 @@ window.BrowserModule = {
             const iconColor = this.getNodeIconColor(node.type);
             
             html += `
-                <div class="list-group-item list-group-item-action p-2 search-result-item" 
+                <div class="list-group-item list-group-item-action p-2 search-result-item cursor-pointer"
                      onclick="BrowserModule.selectNodeFromElement(this)"
-                     data-oid="${esc(node.oid)}"
-                     style="cursor: pointer;">
+                     data-oid="${esc(node.oid)}">
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
                             <div class="fw-bold small">
@@ -644,7 +643,7 @@ window.BrowserModule = {
                         ` : '<span style="width: 18px;"></span>'}
                         <i class="fas fa-book text-primary me-2"></i>
                         <span class="tree-node-name fw-bold">${esc(module.name)}</span>
-                        <span class="badge bg-light text-dark ms-auto" style="font-size: 0.7rem;">${children.length} ${this.currentTypeFilter ? this.getTypeLabel(this.currentTypeFilter) : 'objects'}</span>
+                        <span class="badge badge-subtle ms-auto" style="font-size: 0.7rem;">${children.length} ${this.currentTypeFilter ? this.getTypeLabel(this.currentTypeFilter) : 'objects'}</span>
                     </div>
                     ${hasChildren ? `
                         <div class="tree-children" style="display: none; padding-left: 20px;">
@@ -1058,7 +1057,7 @@ window.BrowserModule = {
                         <td>
                             <div class="d-flex align-items-center">
                                 <code class="flex-grow-1 text-truncate" title="${esc(node.full_name)}">${esc(node.full_name)}</code>
-                                <button type="button" class="btn btn-xs btn-outline-secondary ms-2" 
+                                <button type="button" class="btn btn-xs btn-outline-secondary btn-icon ms-2"
                                         onclick="BrowserModule.copyValue(this.dataset.copy)"
                                         data-copy="${esc(node.full_name)}">
                                     <i class="fas fa-copy"></i>
@@ -1071,7 +1070,7 @@ window.BrowserModule = {
                         <td>
                             <div class="d-flex align-items-center">
                                 <code class="flex-grow-1 text-truncate" title="${esc(node.oid)}">${esc(node.oid)}</code>
-                                <button type="button" class="btn btn-xs btn-outline-secondary ms-2" 
+                                <button type="button" class="btn btn-xs btn-outline-secondary btn-icon ms-2"
                                         onclick="BrowserModule.copyValue(this.dataset.copy)"
                                         data-copy="${esc(node.oid)}">
                                     <i class="fas fa-copy"></i>
@@ -1111,7 +1110,7 @@ window.BrowserModule = {
             ${node.description ? `
                 <div class="mb-3">
                     <label class="fw-bold small text-muted d-block mb-1">Description</label>
-                    <div class="small text-muted p-2 bg-light rounded" style="max-height: 120px; overflow-y: auto; font-size: 0.75rem;">
+                    <div class="small text-muted p-2 app-surface-muted rounded app-scroll-panel" style="max-height: 120px; font-size: 0.75rem;">
                         ${esc(node.description)}
                     </div>
                 </div>
@@ -1120,9 +1119,9 @@ window.BrowserModule = {
             ${isNotification && trapObjects.length > 0 ? `
                 <div class="mb-3">
                     <label class="fw-bold small text-muted d-block mb-1">VarBinds (${trapObjects.length})</label>
-                    <div class="list-group list-group-flush small" style="max-height: 150px; overflow-y: auto;">
+                    <div class="list-group list-group-flush small app-scroll-panel" style="max-height: 150px;">
                         ${trapObjects.map(obj => `
-                            <div class="list-group-item px-2 py-1 border-0 bg-light mb-1 rounded">
+                            <div class="list-group-item px-2 py-1 border-0 app-surface-muted mb-1 rounded">
                                 <code class="small">${esc(obj.name)}</code>
                                 <div class="text-muted" style="font-size: 0.65rem;">${esc(obj.full_name)}</div>
                             </div>

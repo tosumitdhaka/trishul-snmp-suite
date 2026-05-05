@@ -6,6 +6,8 @@
  * module can call TrishulUtils.* without any import ceremony.
  */
 window.TrishulUtils = {
+    THEME_KEY: 'trishul_theme',
+
     escapeHtml: function(value) {
         return String(value ?? '')
             .replace(/&/g, '&amp;')
@@ -60,27 +62,127 @@ window.TrishulUtils = {
         return header + '\n' + body;
     },
 
-    toggleTheme: function() {
-        const htmlEl = document.documentElement;
-        const currentTheme = htmlEl.getAttribute('data-bs-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        
-        htmlEl.setAttribute('data-bs-theme', newTheme);
-        localStorage.setItem('trishul_theme', newTheme);
-        
-        const icon = document.querySelector('#theme-toggle i');
-        if (icon) {
-            icon.className = newTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+    getTheme: function() {
+        try {
+            return localStorage.getItem(this.THEME_KEY) === 'dark' ? 'dark' : 'light';
+        } catch (_) {
+            return document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light';
         }
     },
 
+    applyTheme: function(theme) {
+        const nextTheme = theme === 'dark' ? 'dark' : 'light';
+
+        document.documentElement.setAttribute('data-bs-theme', nextTheme);
+        document.documentElement.style.colorScheme = nextTheme;
+
+        try {
+            localStorage.setItem(this.THEME_KEY, nextTheme);
+        } catch (_) {}
+
+        this.syncThemeToggle(nextTheme);
+        return nextTheme;
+    },
+
+    syncThemeToggle: function(theme) {
+        const activeTheme = theme === 'dark' ? 'dark' : 'light';
+        const nextActionLabel = activeTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        const nextActionText = activeTheme === 'dark' ? 'Light' : 'Dark';
+
+        document.querySelectorAll('[data-theme-toggle]').forEach(function(toggle) {
+            const icon = toggle.querySelector('i');
+            const label = toggle.querySelector('[data-theme-label]');
+
+            toggle.setAttribute('aria-pressed', String(activeTheme === 'dark'));
+            toggle.setAttribute('aria-label', nextActionLabel);
+            toggle.title = nextActionLabel;
+
+            if (icon) {
+                icon.className = activeTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+            }
+            if (label) {
+                label.textContent = nextActionText;
+            }
+        });
+    },
+
+    toggleTheme: function() {
+        const newTheme = this.getTheme() === 'dark' ? 'light' : 'dark';
+        return this.applyTheme(newTheme);
+    },
+
     initTheme: function() {
-        const savedTheme = localStorage.getItem('trishul_theme') || 'light';
-        document.documentElement.setAttribute('data-bs-theme', savedTheme);
-        
-        const icon = document.querySelector('#theme-toggle i');
-        if (icon) {
-            icon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        const savedTheme = this.getTheme();
+        this.applyTheme(savedTheme);
+        return savedTheme;
+    },
+
+    setElementState: function(el, stateClass, value) {
+        if (el) {
+            el.className = stateClass;
+            el.textContent = value;
+        }
+    },
+
+    formatClockTime: function(value, fallback) {
+        var fallbackText = fallback || new Date().toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+
+        if (value == null || value === '') return fallbackText;
+
+        try {
+            var date = null;
+
+            if (value instanceof Date) {
+                date = value;
+            } else if (typeof value === 'number') {
+                date = new Date(value < 1e10 ? value * 1000 : value);
+            } else if (typeof value === 'string') {
+                var trimmed = value.trim();
+                var parsed = Date.parse(trimmed);
+
+                if (!Number.isNaN(parsed)) {
+                    date = new Date(parsed);
+                } else {
+                    var match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*([AP]M))?$/i);
+                    if (match) {
+                        var now = new Date();
+                        var hours = parseInt(match[1], 10);
+                        var minutes = parseInt(match[2], 10);
+                        var seconds = parseInt(match[3] || '0', 10);
+                        var meridiem = match[4] ? match[4].toUpperCase() : '';
+
+                        if (meridiem === 'PM' && hours < 12) hours += 12;
+                        if (meridiem === 'AM' && hours === 12) hours = 0;
+
+                        date = new Date(
+                            now.getFullYear(),
+                            now.getMonth(),
+                            now.getDate(),
+                            hours,
+                            minutes,
+                            seconds
+                        );
+                    }
+                }
+
+                if (!date) return trimmed || fallbackText;
+            } else {
+                return fallbackText;
+            }
+
+            if (Number.isNaN(date.getTime())) return fallbackText;
+
+            return date.toLocaleTimeString([], {
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        } catch (_) {
+            return typeof value === 'string' && value.trim() ? value.trim() : fallbackText;
         }
     },
 

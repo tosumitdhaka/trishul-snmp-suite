@@ -3,7 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
     <title>Trishul SNMP</title>
+
+    <script>
+    (function() {
+        var theme = 'light';
+        try {
+            theme = localStorage.getItem('trishul_theme') === 'dark' ? 'dark' : 'light';
+        } catch (_) {}
+        document.documentElement.setAttribute('data-bs-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+    })();
+    </script>
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="img/trishul-icon.svg">
@@ -25,26 +37,34 @@
     @keyframes ws-pulse  { 0%,100%{opacity:1} 50%{opacity:.4} }
     </style>
 </head>
-<body>
+<body class="app-body">
 
 <!-- Auth Loading State (shown while token is being validated, hides flash) -->
-<div id="auth-loading" class="position-fixed top-0 start-0 w-100 h-100 bg-light d-flex flex-column justify-content-center align-items-center" style="z-index: 10000;">
+<div id="auth-loading" class="auth-shell auth-loading-shell position-fixed top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center">
     <div class="spinner-border text-primary mb-3" role="status" aria-label="Authenticating">
         <span class="visually-hidden">Loading...</span>
     </div>
-    <span class="text-muted small">Authenticating...</span>
+    <span class="auth-loading-label small">Authenticating...</span>
 </div>
 
 <!-- Login Screen -->
-<div id="login-screen" class="position-fixed top-0 start-0 w-100 h-100 bg-light d-none flex-column justify-content-center align-items-center" style="z-index: 9999;">
-    <div class="card shadow-lg border-0" style="width: 380px;">
+<div id="login-screen" class="auth-shell login-shell position-fixed top-0 start-0 w-100 h-100 d-none flex-column justify-content-center align-items-center">
+    <div class="card auth-card shadow-lg border-0">
         <div class="card-body p-4 text-center">
+            <div class="auth-card-controls">
+                <button type="button" class="btn btn-sm btn-outline-secondary theme-toggle theme-toggle-auth"
+                        data-theme-toggle onclick="TrishulUtils.toggleTheme()"
+                        title="Switch to dark mode" aria-label="Switch to dark mode" aria-pressed="false">
+                    <i class="fas fa-moon" aria-hidden="true"></i>
+                    <span class="theme-toggle-label" data-theme-label>Dark</span>
+                </button>
+            </div>
             <!-- Trishul Icon -->
             <div class="mb-3">
-                <img src="img/trishul-icon.svg" alt="Trishul" style="width: 56px; height: 56px;">
+                <img src="img/trishul-icon.svg" alt="Trishul" class="auth-mark">
             </div>
-            <h4 class="mb-1 fw-bold" style="color: #1e293b;">Trishul SNMP Studio</h4>
-            <p class="text-muted small mb-4">Network Management & Monitoring</p>
+            <h4 class="mb-1 fw-bold auth-title">Trishul SNMP Studio</h4>
+            <p class="auth-subtitle small mb-4">Network Management &amp; Monitoring</p>
 
             <form id="login-form" onsubmit="handleLogin(event)">
                 <div class="mb-3 text-start">
@@ -65,68 +85,71 @@
 </div>
 
 <!-- Main Application Wrapper -->
-<div id="wrapper" style="display: none;">
+<div id="wrapper" class="app-shell d-none">
     <!-- Sidebar -->
-    <div class="bg-dark text-white border-end" id="sidebar-wrapper">
-        <div class="sidebar-heading border-bottom bg-dark fw-bold text-truncate">
-            <img src="img/trishul-icon.svg" alt="Trishul" style="width: 26px; height: 26px; vertical-align: middle;">
+    <div class="border-end" id="sidebar-wrapper">
+        <div class="sidebar-heading border-bottom fw-bold text-truncate">
+            <img src="img/trishul-icon.svg" alt="Trishul" class="app-mark-sm">
             <span class="ms-2">Trishul SNMP</span>
         </div>
 
         <div class="list-group list-group-flush flex-grow-1">
-            <a class="list-group-item list-group-item-action bg-dark text-white" href="#dashboard">
+            <a class="list-group-item list-group-item-action" href="#dashboard">
                 <i class="fas fa-tachometer-alt"></i> <span class="ms-2">Dashboard</span>
             </a>
-            <a class="list-group-item list-group-item-action bg-dark text-white" href="#simulator">
+            <a class="list-group-item list-group-item-action" href="#simulator">
                 <i class="fas fa-server"></i> <span class="ms-2">Simulator</span>
             </a>
-            <a class="list-group-item list-group-item-action bg-dark text-white" href="#walker">
+            <a class="list-group-item list-group-item-action" href="#walker">
                 <i class="fas fa-walking"></i> <span class="ms-2">Walk & Parse</span>
             </a>
-            <a class="list-group-item list-group-item-action bg-dark text-white" href="#traps">
+            <a class="list-group-item list-group-item-action" href="#traps">
                 <i class="fas fa-bell"></i> <span class="ms-2">Traps</span>
             </a>
-            <a class="list-group-item list-group-item-action bg-dark text-white" href="#browser">
+            <a class="list-group-item list-group-item-action" href="#browser">
                 <i class="fas fa-sitemap"></i> <span class="ms-2">MIB Browser</span>
             </a>
-            <a class="list-group-item list-group-item-action bg-dark text-white" href="#mibs">
+            <a class="list-group-item list-group-item-action" href="#mibs">
                 <i class="fas fa-database"></i> <span class="ms-2">MIB Manager</span>
             </a>
-            <a class="list-group-item list-group-item-action bg-dark text-white" href="#settings">
+            <a class="list-group-item list-group-item-action" href="#settings">
                 <i class="fas fa-cog"></i> <span class="ms-2">Settings</span>
             </a>
         </div>
 
-        <div class="p-2 text-center text-secondary small border-top border-secondary bg-dark">
+        <div class="app-sidebar-version p-2 text-center small border-top">
             <span id="app-version">Loading...</span>
         </div>
     </div>
 
     <!-- Page Content -->
     <div id="page-content-wrapper" class="w-100">
-        <nav class="navbar navbar-expand-lg navbar-light bg-light border-bottom px-3 py-2">
-            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle" aria-label="Toggle Sidebar">
+        <nav class="navbar navbar-expand-lg app-navbar border-bottom px-3 py-2">
+            <button class="btn btn-outline-secondary btn-sm btn-icon" id="sidebarToggle" aria-label="Toggle Sidebar">
                 <i class="fas fa-bars"></i>
             </button>
-            <span class="navbar-brand ms-3 fw-bold text-secondary d-flex align-items-center">
-                <img src="img/trishul-icon.svg" alt="Trishul" style="width: 20px; height: 20px; margin-right: 6px;">
+            <span class="navbar-brand ms-3 fw-semibold app-navbar-brand d-flex align-items-center">
+                <img src="img/trishul-icon.svg" alt="Trishul" class="app-mark-xs me-2">
                 <span id="page-title">Dashboard</span>
             </span>
 
-            <div class="ms-auto d-flex align-items-center gap-3">
-                <span class="badge bg-secondary" id="backend-status">Connecting...</span>
+            <div class="app-navbar-actions ms-auto d-flex align-items-center gap-3">
+                <span class="badge bg-secondary status-badge" id="backend-status">Connecting...</span>
                 <span id="ws-status-dot" class="ws-dot ws-dot-connecting" title="WS: Connecting…"></span>
 
-                <button class="btn btn-sm btn-outline-secondary border-0" id="theme-toggle" onclick="TrishulUtils.toggleTheme()" title="Toggle Dark Mode">
-                    <i class="fas fa-moon"></i>
+                <button type="button" class="btn btn-sm btn-outline-secondary theme-toggle" id="theme-toggle"
+                        data-theme-toggle onclick="TrishulUtils.toggleTheme()"
+                        title="Switch to dark mode" aria-label="Switch to dark mode" aria-pressed="false">
+                    <i class="fas fa-moon" aria-hidden="true"></i>
+                    <span class="theme-toggle-label" data-theme-label>Dark</span>
                 </button>
 
                 <div class="dropdown">
-                    <a class="nav-link dropdown-toggle text-dark fw-bold" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" style="cursor: pointer;">
+                    <a class="nav-link dropdown-toggle user-menu-toggle fw-semibold" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="fas fa-user-circle text-primary me-1"></i>
                         <span id="nav-user-name">User</span>
                     </a>
-                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-2">
+                    <ul class="dropdown-menu dropdown-menu-end shadow-sm mt-2 app-dropdown-menu">
                         <li>
                             <a class="dropdown-item" href="#settings">
                                 <i class="fas fa-cog me-2 text-muted"></i> Settings
@@ -143,7 +166,7 @@
             </div>
         </nav>
 
-        <div class="container-fluid p-3" id="main-content">
+        <div class="container-fluid p-3 p-lg-4" id="main-content">
             <!-- Dynamic Content -->
         </div>
     </div>
