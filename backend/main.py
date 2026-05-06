@@ -1,8 +1,11 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from core.security import validate_auth
 from core.log_config import setup_logging
@@ -12,6 +15,8 @@ from api.routers import simulator, walker, settings as settings_router, traps, m
 
 setup_logging()
 logger = logging.getLogger(__name__)
+ROOT_DIR = Path(__file__).resolve().parent.parent
+FRONTEND_DIR = ROOT_DIR / "frontend" / "src"
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +79,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=meta.NAME, version=meta.VERSION, lifespan=lifespan)
 
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8080").split(",")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:8080,http://localhost:8000,http://localhost:8900,http://localhost:8980",
+    ).split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,6 +95,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.get("/api/meta")
@@ -117,6 +130,12 @@ app.include_router(settings_router.router,  prefix="/api")   # public: login liv
 # WebSocket endpoint — auth via ?token= query param (not header)
 # Do NOT add validate_auth dependency here — WS handshake doesn't support headers
 app.include_router(ws.router)
+
+
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+else:
+    logger.warning("Frontend assets directory not found: %s", FRONTEND_DIR)
 
 
 if __name__ == "__main__":

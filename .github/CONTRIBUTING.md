@@ -1,4 +1,4 @@
-# Contributing to Trishul-SNMP
+# Contributing to Trishul SNMP Suite
 
 We welcome bug reports, feature work, documentation fixes, and code changes.
 

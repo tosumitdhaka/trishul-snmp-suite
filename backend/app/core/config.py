@@ -42,8 +42,8 @@ class Settings:
     LOG_FILE  = LOG_DIR / "app.log"
 
     # Application metadata
-    APP_NAME        = os.getenv("APP_NAME",        "Trishul SNMP Studio")
-    APP_VERSION     = os.getenv("APP_VERSION",     "1.3.0")
+    APP_NAME        = os.getenv("APP_NAME",        "Trishul SNMP Suite")
+    APP_VERSION     = os.getenv("APP_VERSION",     "1.4.0")
     APP_AUTHOR      = os.getenv("APP_AUTHOR",      "Sumit Dhaka")
     APP_DESCRIPTION = os.getenv("APP_DESCRIPTION", "Professional SNMP Simulation Tool")
 

@@ -11,18 +11,6 @@ jobs:
       contents: read
       packages: write
 
-    strategy:
-      matrix:
-        include:
-          - name: backend
-            context: ./backend
-            dockerfile: ./backend/Dockerfile
-            image: ghcr.io/${{ github.repository_owner }}/trishul-snmp-backend
-          - name: frontend
-            context: ./frontend
-            dockerfile: ./frontend/Dockerfile
-            image: ghcr.io/${{ github.repository_owner }}/trishul-snmp-frontend
-
     steps:
       - uses: actions/checkout@v4
 
@@ -43,13 +31,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push ${{ matrix.name }} image
+      - name: Build and push merged application image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: .
+          file: ./Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ matrix.image }}:latest
-            ${{ matrix.image }}:${{ env.APP_VERSION }}
+            ghcr.io/${{ github.repository_owner }}/trishul-snmp-suite:latest
+            ghcr.io/${{ github.repository_owner }}/trishul-snmp-suite:${{ env.APP_VERSION }}

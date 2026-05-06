@@ -5,7 +5,8 @@ This roadmap groups the stable IDs from [issue_tracker.md](issue_tracker.md) int
 ## Current Baseline
 
 - `IMPR-002` is complete: non-root project docs now live under `docs/`, while `README.md` remains the entry point.
-- `1.3.0` ships Tracks 1 to 3 from the current plan, with hardening work as the release gate.
+- `1.3.0` shipped the hardening, workflow, and targeted feature baseline.
+- `1.3.1` shipped the UI polish and simulator activity improvements.
 
 ## Release 1.3.0
 
@@ -58,15 +59,35 @@ Delivered in `1.3.1`:
 - Responsive shell improvements for login and top-level navigation, including better theme-toggle accessibility
 - A repeatable UI review checklist covering desktop, mobile, light mode, and dark mode
 
-## Deferred To 1.4.0
+## Release 1.4.0
+
+### Track 5: Runtime and Packaging Cutover
+
+Delivered in `1.4.0`:
+
+- Frontend and backend merged into a single runtime image
+- FastAPI now serves the static UI directly
+- Deployment defaults simplified to one primary app port and one container
+- GHCR publishing moved to a single package image
+- Legacy installer flow preserved through a compatibility wrapper
+
+### Track 6: Product Rename and Upgrade Migration
+
+Delivered in `1.4.0`:
+
+- Product renamed to `Trishul SNMP Suite`
+- Canonical package and runtime slug renamed to `trishul-snmp-suite`
+- Installer migration added for legacy containers and volumes
+- Docker, docs, and release metadata aligned to the new name
+
+## Deferred Beyond 1.4.0
 
 **Scope:** `FEAT-002`, `FEAT-004`, `FEAT-005`, `FEAT-006`
 
 Notes:
 
-- `1.3.1` is intentionally a polish release and does not pull scope out of the larger `1.4.0` feature set.
-- `FEAT-002` SNMPv3 support is explicitly deferred out of `1.3.0`.
-- Longer-term feature work stays behind the hardening and workflow baseline established in `1.3.0`.
+- `FEAT-002` SNMPv3 support remains the most prominent deferred feature after the `1.4.0` platform cutover.
+- Longer-term feature work stays behind the merged runtime and rename baseline established in `1.4.0`.
 
 ## Planning Rules
 

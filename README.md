@@ -1,12 +1,12 @@
-# 🔱 Trishul-SNMP
+# 🔱 Trishul SNMP Suite
 
 **Modern SNMP Management Platform**
 
-[![GitHub Stars](https://img.shields.io/github/stars/tosumitdhaka/trishul-snmp?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/tosumitdhaka/trishul-snmp?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp/network)
-[![GitHub Issues](https://img.shields.io/github/issues/tosumitdhaka/trishul-snmp?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp/issues)
-[![License](https://img.shields.io/github/license/tosumitdhaka/trishul-snmp?style=for-the-badge)](LICENSE)
-[![GHCR](https://img.shields.io/badge/GHCR-Packages-blue?style=for-the-badge&logo=github)](https://github.com/tosumitdhaka?tab=packages&repo_name=trishul-snmp)
+[![GitHub Stars](https://img.shields.io/github/stars/tosumitdhaka/trishul-snmp-suite?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp-suite/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/tosumitdhaka/trishul-snmp-suite?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp-suite/network)
+[![GitHub Issues](https://img.shields.io/github/issues/tosumitdhaka/trishul-snmp-suite?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp-suite/issues)
+[![License](https://img.shields.io/github/license/tosumitdhaka/trishul-snmp-suite?style=for-the-badge)](LICENSE)
+[![GHCR](https://img.shields.io/badge/GHCR-Packages-blue?style=for-the-badge&logo=github)](https://github.com/tosumitdhaka?tab=packages&repo_name=trishul-snmp-suite)
 
 A web-based SNMP toolkit for network engineers and administrators. Simulate SNMP agents, send/receive traps, walk devices with MIB resolution, browse MIB trees, and manage MIB files—all from a clean, intuitive interface.
 
@@ -14,7 +14,7 @@ A web-based SNMP toolkit for network engineers and administrators. Simulate SNMP
 
 ---
 
-![Trishul SNMP Studio Demo](./assets/trishul_snmp_demo.gif)
+![Trishul SNMP Suite Demo](./assets/trishul_snmp_demo.gif)
 
 ---
 
@@ -35,9 +35,9 @@ A web-based SNMP toolkit for network engineers and administrators. Simulate SNMP
 
 ---
 
-## 🎯 What Trishul-SNMP Replaces
+## 🎯 What Trishul SNMP Suite Replaces
 
-| Tool | Cost | Trishul-SNMP |
+| Tool | Cost | Trishul SNMP Suite |
 |------|------|--------------|
 | **Net-SNMP CLI tools** | Free | ✅ Web UI with no command memorization |
 | **snmpsim** | Free | ✅ Test SNMP agent responses with web interface |
@@ -54,33 +54,39 @@ A web-based SNMP toolkit for network engineers and administrators. Simulate SNMP
 
 ### One-Command Install
 
-```
-curl -fsSL https://raw.githubusercontent.com/tosumitdhaka/trishul-snmp/main/install-trishul-snmp.sh | bash
+```bash
+curl -fsSL https://raw.githubusercontent.com/tosumitdhaka/trishul-snmp-suite/main/install-trishul-snmp-suite.sh | bash
 ```
 
 ### Access
 
-- **Frontend:** http://localhost:8080
-- **Backend API:** http://localhost:8000/docs
+- **App UI:** http://localhost:8080
+- **API docs:** http://localhost:8080/docs
 - **Default login:** `admin` / `admin123`
 
 ⚠️ **Change password immediately in Settings!**
 
 ### Custom Ports
 
-```
-BACKEND_PORT=9000 FRONTEND_PORT=3000 ./install-trishul-snmp.sh up
+```bash
+APP_PORT=3000 ./install-trishul-snmp-suite.sh up
 ```
 
 ### Test This Checkout Locally
 
-```
-./install-trishul-snmp.sh up-local
+```bash
+./install-trishul-snmp-suite.sh up-local
 ```
 
-This builds backend and frontend images from the current repository and starts the same one-shot deployment flow locally.
+This builds the merged single application image from the current repository and starts the same one-shot deployment flow locally.
 
-**[📖 Detailed Installation Guide →](https://github.com/tosumitdhaka/trishul-snmp/wiki/Installation-Guide)**
+Legacy compatibility still works:
+
+```bash
+FRONTEND_PORT=8980 BACKEND_PORT=8900 ./install-trishul-snmp.sh up-local
+```
+
+**[📖 Detailed Installation Guide →](docs/installation_guide.md)**
 
 ---
 
@@ -97,7 +103,7 @@ Run a configurable SNMP agent on UDP 1061 with custom OID values. Perfect for te
 
 **Use case:** Simulate devices for NMS development and testing.
 
-**[📖 Full Simulator Guide →](https://github.com/tosumitdhaka/trishul-snmp/wiki/SNMP-Simulator-Guide)**
+**[📖 Full Simulator Guide →](docs/snmp_simulator_guide.md)**
 
 ---
 
@@ -112,7 +118,7 @@ Execute SNMP walks against any device with automatic MIB resolution and data exp
 
 **Use case:** Test SNMP agent responses, validate walk implementations.
 
-**[📖 Full Walker Guide →](https://github.com/tosumitdhaka/trishul-snmp/wiki/Walker-Guide)**
+**[📖 Full Walker Guide →](docs/walker_guide.md)**
 
 ---
 
@@ -127,7 +133,7 @@ Send and receive SNMP traps with real-time monitoring and MIB-based trap browsin
 
 **Use case:** Validate trap format/syntax for NMS development.
 
-**[📖 Full Trap Manager Guide →](https://github.com/tosumitdhaka/trishul-snmp/wiki/Trap-Manager-Guide)**
+**[📖 Full Trap Manager Guide →](docs/trap_manager_guide.md)**
 
 ---
 
@@ -143,7 +149,7 @@ Upload, validate, and manage MIB files with automatic dependency resolution.
 
 **Use case:** Validate MIBs before deployment, centralized MIB library.
 
-**[📖 Full MIB Manager Guide →](https://github.com/tosumitdhaka/trishul-snmp/wiki/MIB-Manager-Guide)**
+**[📖 Full MIB Manager Guide →](docs/mib_manager_guide.md)**
 
 ---
 
@@ -161,7 +167,7 @@ Interactive tree explorer for navigating OID hierarchies and understanding MIB s
 
 **Use case:** Explore MIB structures, understand OID relationships, find traps.
 
-**[📖 Full MIB Browser Guide →](https://github.com/tosumitdhaka/trishul-snmp/wiki/MIB-Browser-Guide)**
+**[📖 Full MIB Browser Guide →](docs/mib_browser_guide.md)**
 
 ---
 
@@ -179,55 +185,49 @@ Manage authentication and system preferences.
 ## 🏗️ Architecture
 
 ```
-┌───────────────────────────────────────────────────┐
-│           Web Browser (Port 8080)                 │
-│  Dashboard │ Simulator │ Walker │ Traps │ MIB    │
-└─────────────────────┬───────────────────────────┘
-                      │ HTTP / WebSocket
-                      │
-         ┌────────────▼────────┐
-         │   Nginx (Frontend)      │
-         │   Static Files + Proxy  │
-         └────────────┬────────┘
-                      │ REST API + WebSocket
-                      │
-         ┌────────────▼──────────────────────────┐
-         │   FastAPI Backend (Port 8000)        │
-         │                                      │
-         │  ┌────────────────────────────────┐  │
-         │  │  MIB Service                   │  │
-         │  │  • Parse & validate MIBs       │  │
-         │  │  • Build OID trees             │  │
-         │  │  • Search & filter             │  │
-         │  └────────────────────────────────┘  │
-         │                                      │
-         │  ┌────────────────────────────────┐  │
-         │  │  SNMP Services                 │  │
-         │  │  • Simulator (SVR - UDP 1061)  │  │
-         │  │  • Trap Sender (CLI)           │  │
-         │  │  • Trap Receiver (SVR - 1162)  │  │
-         │  │  • Walker (CLI)                │  │
-         │  └────────────────────────────────┘  │
-         │                                      │
-         │  ┌────────────────────────────────┐  │
-         │  │  Data Storage (Volume)         │  │
-         │  │  /app/data/mibs/               │  │
-         │  └────────────────────────────────┘  │
-         └──────────────┬───────────────────────┘
+┌──────────────────────────────────────────────────┐
+│            Web Browser (App Port 8080)          │
+│ Dashboard │ Simulator │ Walker │ Traps │ MIB    │
+└──────────────────────┬──────────────────────────┘
+                       │ HTTP / WebSocket
+                       │
+        ┌──────────────▼─────────────────────────┐
+        │      Trishul SNMP Suite Container      │
+        │      FastAPI + Static UI + WebSocket   │
+        │                                        │
+        │  ┌──────────────────────────────────┐  │
+        │  │  UI Runtime                      │  │
+        │  │  • index.html                    │  │
+        │  │  • module partials               │  │
+        │  │  • CSS, JS, icons                │  │
+        │  └──────────────────────────────────┘  │
+        │                                        │
+        │  ┌──────────────────────────────────┐  │
+        │  │  API and Services                │  │
+        │  │  • Simulator (UDP 1061)          │  │
+        │  │  • Trap Receiver (UDP 1162)      │  │
+        │  │  • Walker                        │  │
+        │  │  • MIB service and browser       │  │
+        │  └──────────────────────────────────┘  │
+        │                                        │
+        │  ┌──────────────────────────────────┐  │
+        │  │  Persistent Data Volume          │  │
+        │  │  • /app/backend/data             │  │
+        │  └──────────────────────────────────┘  │
+        └───────────────┬────────────────────────┘
                         │ SNMP (UDP)
                         │
-         ┌─────────────┴─────────────┐
-         │                             │
-    ┌────▼─────┐               ┌───────▼────┐
-    │  Test    │               │   Test     │
-    │ Devices  │               │  Receivers │
-    │(Dev/Test)│               │ (Dev/Test) │
-    └──────────┘               └────────────┘
+        ┌───────────────┴───────────────┐
+        │                               │
+   ┌────▼─────┐                   ┌─────▼─────┐
+   │  Test    │                   │   Test    │
+   │ Devices  │                   │ Receivers │
+   └──────────┘                   └───────────┘
 ```
 
 **Stack:** Python 3.11 • FastAPI • pysnmp • pysmi • Bootstrap 5 • Docker
 
-**[📖 Detailed Architecture →](https://github.com/tosumitdhaka/trishul-snmp/wiki/Architecture-Overview)**
+**[📖 Detailed Architecture →](docs/architecture_overview.md)**
 
 ---
 
@@ -257,7 +257,7 @@ Manage authentication and system preferences.
 - ✅ Practice SNMP operations safely
 - ✅ Learn OID hierarchies visually
 
-**[📖 More Use Cases & Examples →](https://github.com/tosumitdhaka/trishul-snmp/wiki)**
+**[📖 More Use Cases & Examples →](docs/index.md)**
 
 ---
 
@@ -288,20 +288,21 @@ Manage authentication and system preferences.
 - 🗺️ [Roadmap](docs/roadmap.md) - Active delivery tracks and deferred scope
 - 🧾 [Issue Tracker](docs/issue_tracker.md) - Stable IDs for bugs, gaps, improvements, and features
 
-### User Guides (Wiki)
-- 📖 [Installation Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/Installation-Guide)
-- 🚀 [First Steps](https://github.com/tosumitdhaka/trishul-snmp/wiki/First-Steps)
-- ❓ [FAQ](https://github.com/tosumitdhaka/trishul-snmp/wiki/FAQ)
-- 🖥️ [SNMP Simulator Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/SNMP-Simulator-Guide)
-- 🚶 [Walker Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/Walker-Guide)
-- 📡 [Trap Manager Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/Trap-Manager-Guide)
-- 📚 [MIB Manager Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/MIB-Manager-Guide)
-- 🌳 [MIB Browser Guide](https://github.com/tosumitdhaka/trishul-snmp/wiki/MIB-Browser-Guide)
+### User Guides
+- 📘 [Docs Home](docs/index.md)
+- 📖 [Installation Guide](docs/installation_guide.md)
+- 🚀 [First Steps](docs/first_steps.md)
+- ❓ [FAQ](docs/faq.md)
+- 🖥️ [SNMP Simulator Guide](docs/snmp_simulator_guide.md)
+- 🚶 [Walker Guide](docs/walker_guide.md)
+- 📡 [Trap Manager Guide](docs/trap_manager_guide.md)
+- 📚 [MIB Manager Guide](docs/mib_manager_guide.md)
+- 🌳 [MIB Browser Guide](docs/mib_browser_guide.md)
 
-### Technical Reference (Wiki)
-- 🏗️ [Architecture Overview](https://github.com/tosumitdhaka/trishul-snmp/wiki/Architecture-Overview)
-- 🔧 [API Reference](https://github.com/tosumitdhaka/trishul-snmp/wiki/API-Reference)
-- 🐛 [Troubleshooting](https://github.com/tosumitdhaka/trishul-snmp/wiki/Troubleshooting)
+### Technical Reference
+- 🏗️ [Architecture Overview](docs/architecture_overview.md)
+- 🔧 [API Reference](docs/api_reference.md)
+- 🐛 [Troubleshooting](docs/troubleshooting.md)
 
 ---
 
@@ -311,10 +312,12 @@ Manage authentication and system preferences.
 
 ### 📝 [Building Trishul-SNMP: A Modern Web-Based SNMP Toolkit](https://dev.to/tosumitdhaka/building-trishul-snmp-a-modern-web-based-snmp-toolkit-to-replace-500-commercial-tools-3d53)
 
+This article was published before the `1.4.0` rename and still uses the previous project name.
+
 **A technical deep dive into building a free, open-source alternative to $500 commercial tools.**
 
 Read about:
-- 🏗️ **Architecture decisions** - Why FastAPI, pysnmp, and Docker host network mode
+- 🏗️ **Architecture decisions** - Why FastAPI, pysnmp, and a container-first deployment model
 - 🔧 **Technical challenges** - MIB parsing, state persistence, performance optimization
 - 💡 **Solutions implemented** - Caching strategies, lazy loading, image optimization
 - 📊 **Lessons learned** - 8 months of development insights
@@ -326,16 +329,16 @@ Read about:
 
 We welcome contributions! 🎉
 
-[![Contributors](https://img.shields.io/github/contributors/tosumitdhaka/trishul-snmp?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp/graphs/contributors)
+[![Contributors](https://img.shields.io/github/contributors/tosumitdhaka/trishul-snmp-suite?style=for-the-badge)](https://github.com/tosumitdhaka/trishul-snmp-suite/graphs/contributors)
 
 **Ways to contribute:**
-- 🐛 [Report bugs](https://github.com/tosumitdhaka/trishul-snmp/issues)
-- 💡 [Suggest features](https://github.com/tosumitdhaka/trishul-snmp/issues)
-- 🔧 [Submit pull requests](https://github.com/tosumitdhaka/trishul-snmp/pulls)
+- 🐛 [Report bugs](https://github.com/tosumitdhaka/trishul-snmp-suite/issues)
+- 💡 [Suggest features](https://github.com/tosumitdhaka/trishul-snmp-suite/issues)
+- 🔧 [Submit pull requests](https://github.com/tosumitdhaka/trishul-snmp-suite/pulls)
 - 📝 [Improve documentation](.github/CONTRIBUTING.md)
 - 🌍 Translate the interface
 - 🎨 Improve UI/UX
-- ⭐ [Star the repo](https://github.com/tosumitdhaka/trishul-snmp)
+- ⭐ [Star the repo](https://github.com/tosumitdhaka/trishul-snmp-suite)
 
 See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md), [docs/github_workflow.md](docs/github_workflow.md), [docs/issue_tracker.md](docs/issue_tracker.md), and [docs/development_setup.md](docs/development_setup.md) for details.
 
@@ -343,13 +346,13 @@ See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md), [docs/github_workflow.md
 
 ## 💶 Support This Project
 
-Trishul-SNMP is **100% free and open-source** (MIT License).
+Trishul SNMP Suite is **100% free and open-source** (MIT License).
 
 **If it helps you:**
-- ⭐ [Star the repo](https://github.com/tosumitdhaka/trishul-snmp) - Helps others discover it
+- ⭐ [Star the repo](https://github.com/tosumitdhaka/trishul-snmp-suite) - Helps others discover it
 - 💰 [Sponsor on GitHub](https://github.com/sponsors/tosumitdhaka) - Support development
 - ☕ [Buy me a coffee](https://buymeacoffee.com/tosumitdhaka) - One-time donation
-- 🐦 [Share on Twitter](https://twitter.com/intent/tweet?text=Check%20out%20Trishul-SNMP) - Spread the word
+- 🐦 [Share on Twitter](https://twitter.com/intent/tweet?text=Check%20out%20Trishul%20SNMP%20Suite) - Spread the word
 - 📝 Write a blog post about your experience
 
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/tosumitdhaka?style=for-the-badge&logo=github)](https://github.com/sponsors/tosumitdhaka)
@@ -361,25 +364,25 @@ Trishul-SNMP is **100% free and open-source** (MIT License).
 
 Planning now lives in [docs/roadmap.md](docs/roadmap.md). Itemized bugs, gaps, improvement scopes, and feature candidates live in [docs/issue_tracker.md](docs/issue_tracker.md).
 
-**1.3.0 scope**
-- Hardening and reliability work across `BUG-001` to `BUG-006`
-- Smoke coverage and contributor workflow updates across `GAP-001` to `GAP-003`
-- Targeted feature work in `FEAT-001`, `FEAT-003`, and `IMPR-001`
+**1.4.0 scope**
+- Single-image runtime with FastAPI-served static UI
+- Rename to `Trishul SNMP Suite` plus single-package GHCR publishing
+- Installer and data migration from legacy split-container deployments
 
-**Deferred to 1.4.0**
+**Still deferred after 1.4.0**
 - `FEAT-002` SNMPv3 support
 - `FEAT-004` to `FEAT-006`
 
 
-[Vote on features →](https://github.com/tosumitdhaka/trishul-snmp/issues)
+[Vote on features →](https://github.com/tosumitdhaka/trishul-snmp-suite/issues)
 
 ---
 
 ## 📊 Project Stats
 
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/tosumitdhaka/trishul-snmp?style=flat-square)
-![GitHub last commit](https://img.shields.io/github/last-commit/tosumitdhaka/trishul-snmp?style=flat-square)
-![GitHub code size](https://img.shields.io/github/languages/code-size/tosumitdhaka/trishul-snmp?style=flat-square)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/tosumitdhaka/trishul-snmp-suite?style=flat-square)
+![GitHub last commit](https://img.shields.io/github/last-commit/tosumitdhaka/trishul-snmp-suite?style=flat-square)
+![GitHub code size](https://img.shields.io/github/languages/code-size/tosumitdhaka/trishul-snmp-suite?style=flat-square)
 
 ---
 
@@ -403,8 +406,8 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## 📞 Community & Support
 
-- 💬 [GitHub Discussions](https://github.com/tosumitdhaka/trishul-snmp/discussions) - Ask questions, share ideas
-- 🐛 [Issues](https://github.com/tosumitdhaka/trishul-snmp/issues) - Report bugs, request features
+- 💬 [GitHub Discussions](https://github.com/tosumitdhaka/trishul-snmp-suite/discussions) - Ask questions, share ideas
+- 🐛 [Issues](https://github.com/tosumitdhaka/trishul-snmp-suite/issues) - Report bugs, request features
 - 📧 Email: [sumitdhaka@zohomail.in](mailto:sumitdhaka@zohomail.in)
 - 💼 LinkedIn: [Sumit Dhaka](https://www.linkedin.com/in/sumit-dhaka-a5a796b3/)
 
@@ -422,9 +425,9 @@ Built with:
 ---
 ## Star This Repo
 
-If trishul-snmp helps you — leave mass star. ⭐
+If Trishul SNMP Suite helps you, leave a star. ⭐
 
-[![Star History Chart](https://api.star-history.com/svg?repos=tosumitdhaka/trishul-snmp&type=Date)](https://star-history.com/#tosumitdhaka/trishul-snmp&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=tosumitdhaka/trishul-snmp-suite&type=Date)](https://star-history.com/#tosumitdhaka/trishul-snmp-suite&Date)
 
 ---
 
@@ -432,13 +435,13 @@ If trishul-snmp helps you — leave mass star. ⭐
 
 **Made with 🔱 by [Sumit Dhaka](https://github.com/tosumitdhaka)**
 
-*Trishul-SNMP - Modern SNMP Management Made Simple*
+*Trishul SNMP Suite - Modern SNMP Management Made Simple*
 
-If this project helps you, please consider [⭐ starring it](https://github.com/tosumitdhaka/trishul-snmp) and [💰 sponsoring](https://github.com/sponsors/tosumitdhaka)!
+If this project helps you, please consider [⭐ starring it](https://github.com/tosumitdhaka/trishul-snmp-suite) and [💰 sponsoring](https://github.com/sponsors/tosumitdhaka)!
 
 [![GitHub](https://img.shields.io/badge/GitHub-tosumitdhaka-181717?style=for-the-badge&logo=github)](https://github.com/tosumitdhaka)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0077B5?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/sumit-dhaka-a5a796b3/)
 
-**[⬆ Back to Top](#-trishul-snmp)**
+**[⬆ Back to Top](#-trishul-snmp-suite)**
 
 </div>

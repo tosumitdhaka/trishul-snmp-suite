@@ -1,34 +1,20 @@
-# docker-compose.yml
-# Part C fixes:
-#   C1: removed deprecated 'version' key (Compose v2 ignores it with a warning)
-#   C2: added healthcheck on backend — frontend waits for FastAPI to be ready
-#       before nginx starts proxying, preventing 502 on first page load
-#   C3: use python urllib for healthcheck — curl not present in python:3.10-slim
-#   C4: increased healthcheck interval 10s->30s — 10s was generating excessive
-#       uvicorn access log noise with no operational benefit post-startup
-# Platform fix:
-#   Multi-arch images are now the default deployment path.
-#   No hard platform pin is set here, so Compose can pull the matching
-#   amd64/arm64 image for the current host automatically.
-
 services:
-  backend:
-    image: ghcr.io/tosumitdhaka/trishul-snmp-backend:latest
-    container_name: trishul-snmp-backend
+  app:
+    image: ghcr.io/tosumitdhaka/trishul-snmp-suite:latest
+    container_name: trishul-snmp-suite
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8080}:8000"
       - "${SNMP_PORT:-1061}:${SNMP_PORT:-1061}/udp"
       - "${TRAP_PORT:-1162}:${TRAP_PORT:-1162}/udp"
     volumes:
-      - ./backend/data:/app/data
-      - ./backend/data/mibs:/usr/share/snmp/mibs/custom
+      - trishul-snmp-suite-data:/app/backend/data
     environment:
       - PYTHONUNBUFFERED=1
       # Application Metadata
-      - APP_NAME=${APP_NAME:-Trishul SNMP Studio}
-      - APP_VERSION=${APP_VERSION:-1.3.0}
+      - APP_NAME=${APP_NAME:-Trishul SNMP Suite}
+      - APP_VERSION=${APP_VERSION:-1.4.0}
       - APP_AUTHOR=${APP_AUTHOR:-Sumit Dhaka}
       - APP_DESCRIPTION=${APP_DESCRIPTION:-Professional SNMP Simulation Tool}
       # SNMP Settings
@@ -38,10 +24,15 @@ services:
       # Security
       - SESSION_TIMEOUT=${SESSION_TIMEOUT:-3600}
       # CORS
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:8000,http://localhost:8900,http://localhost:8980}
       # Auto-Start flags (Part A)
       - AUTO_START_SIMULATOR=${AUTO_START_SIMULATOR:-true}
       - AUTO_START_TRAP_RECEIVER=${AUTO_START_TRAP_RECEIVER:-true}
+      # Remote MIB dependency fetch
+      - MIB_AUTO_FETCH=${MIB_AUTO_FETCH:-false}
+      - MIB_REMOTE_SOURCES=${MIB_REMOTE_SOURCES:-}
+      # WebSocket internal UDP side-channel
+      - WS_INTERNAL_PORT=${WS_INTERNAL_PORT:-19876}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s
@@ -50,12 +41,5 @@ services:
       start_period: 30s
     restart: always
 
-  frontend:
-    image: ghcr.io/tosumitdhaka/trishul-snmp-frontend:latest
-    container_name: trishul-snmp-frontend
-    ports:
-      - "8080:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: always
+volumes:
+  trishul-snmp-suite-data:

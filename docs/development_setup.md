@@ -1,8 +1,8 @@
 # Development Setup
 
-This repo supports two development paths for `1.3.0` and later:
+This repo supports two development paths for `1.4.0` and later:
 
-- Docker-first full-stack development for end-to-end UI and API checks.
+- Docker-first full-stack development using the merged single-image runtime.
 - Native backend development for faster router, service, and test iteration.
 
 ## Prerequisites
@@ -14,18 +14,17 @@ This repo supports two development paths for `1.3.0` and later:
 
 ## Docker Full Stack
 
-Use this path when you need the browser UI, `/api` proxying, and WebSocket behavior exactly as users see it.
+Use this path when you need the browser UI, `/api`, `/api/ws`, and `/docs` exactly as users see them in the merged runtime.
 
 ```bash
 docker compose up -d
-docker compose logs -f backend
-docker compose logs -f frontend
+docker compose logs -f app
 ```
 
 Endpoints:
 
-- Frontend: `http://localhost:8080`
-- Backend API docs: `http://localhost:8000/docs`
+- App UI: `http://localhost:8080`
+- API docs: `http://localhost:8080/docs`
 - Default login: `admin` / `admin123`
 
 Stop the stack with:
@@ -36,18 +35,15 @@ docker compose down
 
 ## Docker Full Stack From Local Source
 
-The checked-in `docker-compose.yml` uses published images by default. For repo-local frontend or backend changes, add a local override file so Compose builds from this checkout instead.
+The checked-in `docker-compose.yml` uses the published image by default. For repo-local changes, add a local override file so Compose builds from this checkout instead.
 
 Create `docker-compose.override.yml` in the repo root:
 
 ```yaml
 services:
-  backend:
-    build: ./backend
-    image: trishul-snmp-backend-local
-  frontend:
-    build: ./frontend
-    image: trishul-snmp-frontend-local
+  app:
+    build: .
+    image: trishul-snmp-suite-local
 ```
 
 Then run:
@@ -60,34 +56,36 @@ Use this mode for:
 
 - Frontend HTML, CSS, or JavaScript changes.
 - End-to-end verification of upload, trap, browser, and WebSocket flows.
-- Any change that depends on the frontend Nginx proxy behavior.
+- Release-facing deployment or packaging changes.
 
 ## One-Shot Local Deploy Script
 
-If you want the existing installer-style workflow but backed by local images from this checkout, use:
+The canonical deployment script for `1.4.0` is:
 
 ```bash
-./install-trishul-snmp.sh up-local
+./install-trishul-snmp-suite.sh up-local
 ```
 
 Useful variants:
 
 ```bash
-./install-trishul-snmp.sh build-local
-./install-trishul-snmp.sh restart-local
-TRISHUL_IMAGE_SOURCE=local ./install-trishul-snmp.sh up
-BACKEND_PORT=9000 FRONTEND_PORT=3000 ./install-trishul-snmp.sh up-local
+./install-trishul-snmp-suite.sh build-local
+./install-trishul-snmp-suite.sh restart-local
+TRISHUL_IMAGE_SOURCE=local ./install-trishul-snmp-suite.sh up
+APP_PORT=8980 ./install-trishul-snmp-suite.sh up-local
+FRONTEND_PORT=8980 BACKEND_PORT=8900 ./install-trishul-snmp-suite.sh up-local
 ```
 
-This path:
+Compatibility notes:
 
-- Builds local backend and frontend images from the repo Dockerfiles.
-- Replaces any existing `trishul-snmp-backend` and `trishul-snmp-frontend` containers.
-- Reuses the existing named data volume for runtime state.
+- `install-trishul-snmp.sh` remains as a wrapper to the new script.
+- `FRONTEND_PORT` is treated as a legacy alias for `APP_PORT`.
+- `BACKEND_PORT` is optional and maps a second host port to the same merged app for transition compatibility.
+- Old containers and the old `trishul-snmp-data` volume are migrated automatically when possible.
 
 ## Native Backend Loop
 
-Use this path when you are iterating on backend code and do not need the full UI on every change.
+Use this path when you are iterating on backend code and do not need the full containerized runtime on every change.
 
 ```bash
 cd backend
@@ -102,9 +100,7 @@ Notes:
 - Tests are scoped by `pytest.ini` to `backend/tests`.
 - Runtime data stays under `backend/data/`.
 - Most config defaults are already in `backend/core/config.py`.
-  Export environment overrides manually if you need non-default ports, timeouts, or metadata while running natively.
-- The browser UI expects `/api` and `/api/ws` to be proxied.
-  For full UI verification, switch back to the Docker full-stack path.
+- The backend now serves the static UI directly from `frontend/src`, so a native backend run can serve the application shell without Nginx.
 
 Useful commands:
 
@@ -116,8 +112,6 @@ python3 -m compileall .
 
 ## Recommended Workflow
 
-For day-to-day work:
-
 1. Use the native backend loop for API, worker, and test changes.
-2. Use Docker full stack before merging any frontend-facing or release-facing change.
+2. Use the Docker full stack or the one-shot local deploy script before merging any UI, deployment, or release-facing change.
 3. Keep tracker IDs and release notes aligned using [github_workflow.md](github_workflow.md) and [release_process.md](release_process.md).
