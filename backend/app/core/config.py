@@ -43,7 +43,7 @@ class Settings:
 
     # Application metadata
     APP_NAME        = os.getenv("APP_NAME",        "Trishul SNMP Suite")
-    APP_VERSION     = os.getenv("APP_VERSION",     "1.4.0")
+    APP_VERSION     = os.getenv("APP_VERSION",     "1.4.1")
     APP_AUTHOR      = os.getenv("APP_AUTHOR",      "Sumit Dhaka")
     APP_DESCRIPTION = os.getenv("APP_DESCRIPTION", "Professional SNMP Simulation Tool")
 

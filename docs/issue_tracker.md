@@ -39,7 +39,7 @@ This document is the repo-level backlog for bugs, gaps, improvements, and featur
 ## Feature Scope
 
 - `FEAT-001` `P1` `Done` Auto-fetch missing MIB dependencies from trusted sources with opt-in controls and caching.
-- `FEAT-002` `P1` `Deferred to 1.4.0` Add SNMPv3 authentication and privacy support.
+- `FEAT-002` `P1` `Deferred beyond 1.4.1` Add SNMPv3 authentication and privacy support.
 - `FEAT-003` `P2` `Done` Export MIB tree and search results to JSON and CSV.
 - `FEAT-004` `P2` `Backlog` Add scheduled SNMP walks and saved jobs.
 - `FEAT-005` `P3` `Backlog` Add device or agent inventory plus reusable connection profiles.

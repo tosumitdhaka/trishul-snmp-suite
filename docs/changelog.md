@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.1] - 2026-05-06
+
+### Fixed
+- **Navigation Shell** - Updated the sidebar branding to `Trishul SNMP Suite`, kept the navbar dashboard title generic, and removed the duplicated app icon from the top bar.
+- **MIB Browser** - Restored click behavior on module rows and cleaned up the search clear-button state so the browser tree controls behave consistently.
+- **Navbar Menu** - Raised the user dropdown above page cards and sticky table headers so the account menu no longer renders behind content.
+
+---
+
 ## [1.4.0] - 2026-05-06
 
 ### Added
@@ -285,6 +294,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.4.1]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.2.5...v1.3.0
 [1.2.5]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.2.4...v1.2.5

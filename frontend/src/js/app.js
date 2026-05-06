@@ -437,7 +437,7 @@ async function loadModule(moduleName) {
     const title     = document.getElementById("page-title");
 
     const titles = {
-        'dashboard': 'Trishul SNMP Suite',
+        'dashboard': 'Dashboard',
         'simulator': 'SNMP Simulator',
         'walker':    'Walk & Parse',
         'traps':     'Trap Manager',

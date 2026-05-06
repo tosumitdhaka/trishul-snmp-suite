@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers the supported `1.4.0` installation paths for Trishul SNMP Suite.
+This guide covers the supported `1.4.1` installation paths for Trishul SNMP Suite.
 
 ## What Gets Installed
 

@@ -7,7 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 DEFAULT_APP_VERSION="$(grep -E '^APP_VERSION=' "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2-)"
-APP_VERSION="${APP_VERSION:-${DEFAULT_APP_VERSION:-1.4.0}}"
+APP_VERSION="${APP_VERSION:-${DEFAULT_APP_VERSION:-1.4.1}}"
 
 GHCR_USER="tosumitdhaka"
 APP_GHCR_IMAGE="ghcr.io/${GHCR_USER}/trishul-snmp-suite:latest"

@@ -2,7 +2,7 @@
 
 ## Does Trishul SNMP Suite support SNMPv3?
 
-Not in `1.4.0`. The current release targets SNMPv1 and SNMPv2c workflows. SNMPv3 remains deferred feature work.
+Not in `1.4.1`. The current release targets SNMPv1 and SNMPv2c workflows. SNMPv3 remains deferred feature work.
 
 ## Do I need internet access to use it?
 
@@ -20,7 +20,7 @@ For native backend runs, data lives under `backend/data/`.
 
 ## Why do I see `APP_PORT`, `FRONTEND_PORT`, and `BACKEND_PORT`?
 
-`APP_PORT` is the real primary port in `1.4.0`.
+`APP_PORT` is the real primary port in `1.4.1`.
 
 `FRONTEND_PORT` is kept as a legacy alias for migration convenience.
 
@@ -28,7 +28,7 @@ For native backend runs, data lives under `backend/data/`.
 
 ## Is the UI still served by Nginx?
 
-No. Since `1.4.0`, FastAPI serves the static UI directly.
+No. Since `1.4.0`, and continuing in `1.4.1`, FastAPI serves the static UI directly.
 
 ## What are the default ports?
 

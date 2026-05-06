@@ -635,7 +635,8 @@ window.BrowserModule = {
             
             html += `
                 <div class="tree-node tree-module" data-oid="${esc(module.oid)}">
-                    <div class="d-flex align-items-center py-2 px-3 tree-node-content border-bottom">
+                    <div class="d-flex align-items-center py-2 px-3 tree-node-content border-bottom"
+                         onclick="BrowserModule.toggleNode(this.parentElement.dataset.oid)">
                         ${hasChildren ? `
                             <i class="fas fa-chevron-right fa-xs me-2 tree-expand-icon" 
                             onclick="event.stopPropagation(); BrowserModule.toggleNode(this.dataset.oid)"

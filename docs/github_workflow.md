@@ -27,7 +27,7 @@ Apply labels from three groups:
 
 - Type: `type:bug`, `type:gap`, `type:improvement`, `type:feature`
 - Priority: `priority:P0`, `priority:P1`, `priority:P2`, `priority:P3`
-- Release: `release:1.4.0` or later milestones
+- Release: `release:1.4.1` or later milestones
 
 For the primary tracker item, also apply a stable tracker label:
 
@@ -40,7 +40,7 @@ If creating one label per tracker ID becomes noisy, keep the release, type, and 
 
 Use release milestones that match the roadmap:
 
-- `v1.4.0`
+- `v1.4.1`
 - `v1.5.0`
 
 Each release-scoped issue should belong to exactly one milestone.

@@ -179,6 +179,8 @@ body {
 .app-navbar {
     background: var(--app-sticky-bg);
     backdrop-filter: blur(12px);
+    position: relative;
+    z-index: 1100;
 }
 
 .app-navbar-brand {
@@ -253,6 +255,7 @@ body {
     background: var(--app-surface-elevated);
     border: 1px solid var(--app-border);
     box-shadow: var(--app-shadow-md);
+    z-index: 1110;
 }
 
 .app-dropdown-menu .dropdown-item {

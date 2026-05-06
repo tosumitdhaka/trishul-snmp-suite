@@ -60,7 +60,7 @@ Use this mode for:
 
 ## One-Shot Local Deploy Script
 
-The canonical deployment script for `1.4.0` is:
+The canonical deployment script for `1.4.1` is:
 
 ```bash
 ./install-trishul-snmp-suite.sh up-local

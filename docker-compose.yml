@@ -14,7 +14,7 @@ services:
       - PYTHONUNBUFFERED=1
       # Application Metadata
       - APP_NAME=${APP_NAME:-Trishul SNMP Suite}
-      - APP_VERSION=${APP_VERSION:-1.4.0}
+      - APP_VERSION=${APP_VERSION:-1.4.1}
       - APP_AUTHOR=${APP_AUTHOR:-Sumit Dhaka}
       - APP_DESCRIPTION=${APP_DESCRIPTION:-Professional SNMP Simulation Tool}
       # SNMP Settings

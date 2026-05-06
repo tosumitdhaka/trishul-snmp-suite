@@ -96,7 +96,7 @@ The log supports:
 
 - Auto-start behavior is managed in Settings.
 - Runtime state is visible in the dashboard and the simulator page.
-- The merged `1.4.0` runtime serves the simulator UI and API from the same app.
+- The merged `1.4.1` runtime serves the simulator UI and API from the same app.
 
 ## Related Docs
 

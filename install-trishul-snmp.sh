@@ -12,5 +12,5 @@ if [ ! -x "$TARGET_SCRIPT" ]; then
 fi
 
 echo "install-trishul-snmp.sh is now a compatibility wrapper."
-echo "Use install-trishul-snmp-suite.sh for the canonical 1.4.0 workflow."
+echo "Use install-trishul-snmp-suite.sh for the canonical 1.4.1 workflow."
 exec "$TARGET_SCRIPT" "$@"
