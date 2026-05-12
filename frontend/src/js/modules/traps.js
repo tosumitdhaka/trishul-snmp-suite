@@ -257,7 +257,7 @@ window.TrapsModule = {
         
         const modalHtml = `
             <div class="modal fade" id="varbindPickerModal" tabindex="-1">
-                <div class="modal-dialog modal-lg">
+                <div class="modal-dialog modal-lg modal-dialog-centered">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title">Select VarBind from MIB</h5>
@@ -828,7 +828,7 @@ window.TrapsModule = {
         modal.id        = modalId;
         const escapedJson = TrishulUtils.escapeHtml(json);
         modal.innerHTML = `
-            <div class="modal-dialog modal-lg">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title">Trap Details</h5>
