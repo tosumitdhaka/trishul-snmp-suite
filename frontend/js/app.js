@@ -308,6 +308,14 @@ function showApp() {
 
 window.logout = async function(callApi = true) {
     if (callApi) {
+        const confirmed = await TrishulUtils.confirmDialog({
+            title: 'Log out?',
+            message: '<p>You will be signed out and returned to the login screen.</p>',
+            confirmLabel: 'Log out',
+            cancelLabel: 'Cancel',
+            variant: 'danger'
+        });
+        if (!confirmed) return;
         try { await fetch('/api/settings/logout', { method: 'POST' }); } catch(e){}
     }
     // Cleanly close WS before clearing token
@@ -323,18 +331,136 @@ function updateUserUI(username) {
     if (el) el.textContent = username;
 }
 
+// ==================== WS Status Dot Accessible Text ====================
+// ws-client.js only swaps the dot's class + title, so we mirror those
+// changes into a visually-hidden label for screen readers.
+
+const WS_DOT_STATE_TEXT = {
+    'ws-dot-connecting':   'WebSocket connecting',
+    'ws-dot-online':       'WebSocket online',
+    'ws-dot-offline':      'WebSocket offline',
+    'ws-dot-unauthorized': 'WebSocket unauthorized'
+};
+
+function updateWsDotText(dotEl) {
+    const label = document.getElementById("ws-status-text");
+    if (!label || !dotEl) return;
+    const state = Array.from(dotEl.classList).find(cls => WS_DOT_STATE_TEXT.hasOwnProperty(cls));
+    label.textContent = state ? WS_DOT_STATE_TEXT[state] : (dotEl.title || 'WebSocket status');
+}
+
+function observeWsDot() {
+    const dot = document.getElementById("ws-status-dot");
+    if (!dot || window.__trishulWsDotObserver) return;
+    updateWsDotText(dot);
+    window.__trishulWsDotObserver = new MutationObserver(() => updateWsDotText(dot));
+    window.__trishulWsDotObserver.observe(dot, { attributes: true, attributeFilter: ['class', 'title'] });
+}
+
+// ==================== Mobile Sidebar Drawer ====================
+
+const SIDEBAR_MOBILE_QUERY = '(max-width: 768px)';
+
+function isMobileViewport() {
+    return window.matchMedia(SIDEBAR_MOBILE_QUERY).matches;
+}
+
+function focusSidebarToggle() {
+    const toggle = document.getElementById("sidebarToggle");
+    if (toggle) toggle.focus();
+}
+
+function closeMobileSidebar({ restoreFocus = true } = {}) {
+    document.body.classList.remove('sb-sidenav-toggled');
+    const backdrop = document.getElementById("app-sidebar-backdrop");
+    if (backdrop) backdrop.remove();
+    document.removeEventListener('keydown', onSidebarKeydown);
+    if (restoreFocus) focusSidebarToggle();
+}
+
+function onSidebarKeydown(e) {
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMobileSidebar();
+        return;
+    }
+    if (e.key === 'Tab') {
+        // Keep Tab/Shift+Tab cycling within the drawer (nav links + toggle)
+        // instead of escaping into content hidden behind the fixed backdrop.
+        const focusables = Array.from(document.querySelectorAll('#sidebar-wrapper .list-group-item'));
+        focusables.push(document.getElementById('sidebarToggle'));
+        const index = focusables.indexOf(document.activeElement);
+        if (index === -1) return;
+        e.preventDefault();
+        let next = e.shiftKey ? index - 1 : index + 1;
+        if (next < 0) next = focusables.length - 1;
+        if (next >= focusables.length) next = 0;
+        focusables[next].focus();
+    }
+}
+
+function openMobileSidebar() {
+    document.body.classList.add('sb-sidenav-toggled');
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'app-sidebar-backdrop';
+    backdrop.className = 'app-sidebar-backdrop';
+    backdrop.addEventListener('click', () => closeMobileSidebar());
+    document.body.appendChild(backdrop);
+
+    document.addEventListener('keydown', onSidebarKeydown);
+
+    const firstLink = document.querySelector('#sidebar-wrapper .list-group-item');
+    if (firstLink) firstLink.focus();
+}
+
+function initMobileSidebar(sidebarToggle) {
+    if (!sidebarToggle) return;
+
+    sidebarToggle.addEventListener('click', e => {
+        e.preventDefault();
+        if (isMobileViewport()) {
+            if (document.body.classList.contains('sb-sidenav-toggled')) {
+                closeMobileSidebar();
+            } else {
+                openMobileSidebar();
+            }
+        } else {
+            document.body.classList.toggle('sb-sidenav-toggled');
+        }
+    });
+
+    // Close the drawer after picking a destination on mobile.
+    document.querySelectorAll('#sidebar-wrapper .list-group-item').forEach(link => {
+        link.addEventListener('click', () => {
+            if (isMobileViewport() && document.body.classList.contains('sb-sidenav-toggled')) {
+                closeMobileSidebar({ restoreFocus: false });
+            }
+        });
+    });
+
+    // Breakpoint crossings must not strand a backdrop or an open drawer.
+    window.matchMedia(SIDEBAR_MOBILE_QUERY).addEventListener('change', e => {
+        if (e.matches) {
+            // Crossing into mobile with the desktop-collapsed class present
+            // would render an open drawer with no backdrop or Escape handler —
+            // strip it for a clean closed state.
+            if (document.body.classList.contains('sb-sidenav-toggled')) {
+                document.body.classList.remove('sb-sidenav-toggled');
+            }
+        } else {
+            closeMobileSidebar({ restoreFocus: false });
+        }
+    });
+}
+
 // ==================== Initialize App Logic ====================
 
 function initializeAppLogic() {
     bindGlobalRealtimeListeners();
 
-    const sidebarToggle = document.querySelector('#sidebarToggle');
-    if (sidebarToggle) {
-        sidebarToggle.addEventListener('click', e => {
-            e.preventDefault();
-            document.body.classList.toggle('sb-sidenav-toggled');
-        });
-    }
+    initMobileSidebar(document.querySelector('#sidebarToggle'));
+    observeWsDot();
 
     // One-shot REST call: populates app version/title on first paint.
     // Subsequent connectivity state comes from WS events — no setInterval needed.
@@ -429,7 +555,12 @@ async function handleRouting() {
 
     document.querySelectorAll('.list-group-item').forEach(el => {
         el.classList.remove('active');
-        if (el.getAttribute('href') === `#${moduleName}`) el.classList.add('active');
+        if (el.getAttribute('href') === `#${moduleName}`) {
+            el.classList.add('active');
+            el.setAttribute('aria-current', 'page');
+        } else {
+            el.removeAttribute('aria-current');
+        }
     });
 
     await loadModule(moduleName);

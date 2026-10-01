@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This guide covers the most common `2.0.2` runtime and operator issues.
+This guide covers the most common `2.0.3` runtime and operator issues.
 
 ## The App Does Not Start
 

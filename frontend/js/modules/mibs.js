@@ -15,6 +15,9 @@ window.MibsModule = {
     _trapCacheValid: false,
     _statusRequestId: 0,
     _trapRequestId: 0,
+    _trapSortKey: 'name',
+    _trapSortDir: 'asc',
+    TRAP_ROW_CAP: 500,
 
     buildListPlaceholder: function(options) {
         return `<li class="list-group-item border-0 bg-transparent">${TrishulUtils.buildPanelPlaceholder({
@@ -38,6 +41,7 @@ window.MibsModule = {
 
         this.bindDomListeners();
         this.initDropzone();
+        this._updateTrapSortHeaders();
 
         if (!this._statusCacheValid) {
             this.loadStatus();
@@ -78,6 +82,14 @@ window.MibsModule = {
 
     bindDomListeners: function() {
         this.bindDomEvent(document.getElementById('trap-search'), 'input', (e) => {
+            const clearBtn = document.getElementById('btn-clear-trap-search');
+            if (clearBtn) {
+                if (e.target.value.length > 0) {
+                    clearBtn.classList.remove('d-none');
+                } else {
+                    clearBtn.classList.add('d-none');
+                }
+            }
             this.filterTraps(e.target.value);
         });
 
@@ -281,6 +293,7 @@ window.MibsModule = {
                             <input type="checkbox"
                                    class="form-check-input mib-selection-checkbox"
                                    data-path="${esc(path)}"
+                                   aria-label="Select ${esc(path)}"
                                    onchange="MibsModule.toggleMibSelection(this)"
                                    ${isDeleting ? 'disabled' : ''}
                                    ${this.isMibSelected(mib) ? 'checked' : ''}>
@@ -777,6 +790,7 @@ window.MibsModule = {
                 title: 'Loading trap catalog',
                 copy: 'Reading notifications from the active bundle.',
             });
+            this._renderTrapTableFooter(null);
         } else if (this.allTraps.length) {
             this.applyTrapSnapshot(this.allTraps);
         }
@@ -797,6 +811,7 @@ window.MibsModule = {
                     title: 'Unable to load trap catalog',
                     copy: 'Refresh the page or inspect the backend logs for details.',
                 });
+                this._renderTrapTableFooter(null);
             }
         }
     },
@@ -806,14 +821,21 @@ window.MibsModule = {
         if (!tbody) return;
         const esc = TrishulUtils.escapeHtml;
 
-        if (traps.length === 0) {
+        const sortedTraps = this.sortTrapCatalog(traps);
+
+        if (sortedTraps.length === 0) {
             tbody.innerHTML = this.buildTablePlaceholderRow({
                 icon: 'fa-bell-slash',
                 title: 'No traps in catalog',
                 copy: 'The active bundle does not currently expose any notification definitions.',
             });
+            this._renderTrapTableFooter(null);
             return;
         }
+
+        const rowCap = Number(this.TRAP_ROW_CAP) || 500;
+        const totalCount = sortedTraps.length;
+        const visibleRows = totalCount > rowCap ? sortedTraps.slice(0, rowCap) : sortedTraps;
 
         const loadedModules  = new Set();
         if (this.currentStatus && this.currentStatus.mibs) {
@@ -822,7 +844,7 @@ window.MibsModule = {
 
         const knownSystemMibs = ['SNMPv2-MIB', 'SNMPv2-SMI', 'SNMP-FRAMEWORK-MIB'];
 
-        tbody.innerHTML = traps.map(trap => {
+        tbody.innerHTML = visibleRows.map(trap => {
             const isSystemMib = knownSystemMibs.includes(trap.module) && !loadedModules.has(trap.module);
             const payload = esc(TrishulUtils.encodeDataAttr(trap));
 
@@ -864,6 +886,66 @@ window.MibsModule = {
                 </td>
             </tr>`;
         }).join('');
+
+        this._renderTrapTableFooter(totalCount > (Number(this.TRAP_ROW_CAP) || 500) ? { shown: visibleRows.length, total: totalCount } : null);
+    },
+
+    sortTrapCatalog: function(traps) {
+        const list = Array.isArray(traps) ? traps : [];
+        const key  = this._trapSortKey;
+        const dir  = this._trapSortDir === 'asc' ? 1 : -1;
+        return list.slice().sort((a, b) => {
+            const left  = key === 'oid' ? String(a.oid  || '') : String(a.name || '');
+            const right = key === 'oid' ? String(b.oid  || '') : String(b.name || '');
+            return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }) * dir;
+        });
+    },
+
+    toggleTrapSort: function(key) {
+        if (this._trapSortKey === key) {
+            this._trapSortDir = this._trapSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            this._trapSortKey = key;
+            this._trapSortDir = 'asc';
+        }
+        this._updateTrapSortHeaders();
+        const query = String(document.getElementById('trap-search')?.value || '').trim();
+        if (query) {
+            this.filterTraps(query);
+        } else {
+            this.renderTraps(this.allTraps);
+        }
+    },
+
+    _updateTrapSortHeaders: function() {
+        const configs = [
+            { key: 'name', thId: 'trap-th-name' },
+            { key: 'oid',  thId: 'trap-th-oid' },
+        ];
+        configs.forEach(config => {
+            const th = document.getElementById(config.thId);
+            if (!th) return;
+            const active = this._trapSortKey === config.key;
+            th.setAttribute('aria-sort', active ? (this._trapSortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+            const icon = th.querySelector('.th-sort-icon');
+            if (icon) {
+                icon.className = 'fas th-sort-icon ' + (active ? (this._trapSortDir === 'asc' ? 'fa-sort-up' : 'fa-sort-down') : 'fa-sort');
+            }
+        });
+    },
+
+    _renderTrapTableFooter: function(meta) {
+        const foot = document.getElementById('trap-table-footer');
+        if (!foot) return;
+        if (!meta) {
+            foot.classList.add('d-none');
+            return;
+        }
+        const summaryEl = foot.querySelector('.trap-table-summary');
+        if (summaryEl) {
+            summaryEl.textContent = `Showing latest ${meta.shown} of ${meta.total.toLocaleString()} — refine your search`;
+        }
+        foot.classList.remove('d-none');
     },
 
     handleTrapAction: function(button) {
@@ -890,6 +972,17 @@ window.MibsModule = {
             return searchStr.includes(query.toLowerCase());
         });
         this.renderTraps(filtered);
+    },
+
+    clearTrapSearch: function() {
+        const searchInput = document.getElementById('trap-search');
+        if (searchInput) {
+            searchInput.value = '';
+            const clearBtn = document.getElementById('btn-clear-trap-search');
+            if (clearBtn) clearBtn.classList.add('d-none');
+            searchInput.focus();
+        }
+        this.filterTraps('');
     },
 
     showTrapDetails: function(trap) {
@@ -1377,11 +1470,20 @@ window.MibsModule = {
             return;
         }
 
-        const preview = normalized.slice(0, 5).join('\n');
-        const overflowText = normalized.length > 5 ? `\n...and ${normalized.length - 5} more` : '';
         const title = normalized.length === 1 ? `Delete ${normalized[0]}?` : `Delete ${normalized.length} MIB files?`;
-        const message = `${title}\n\n${preview}${overflowText}\n\nThis will remove the selected MIB source files and rebuild the active MIB bundle.`;
-        if (!confirm(message)) return;
+        const preview = normalized.slice(0, 5);
+        const overflowText = normalized.length > 5 ? `...and ${normalized.length - 5} more` : '';
+        const message =
+            `<ul>${preview.map(path => `<li>${TrishulUtils.escapeHtml(path)}</li>`).join('')}</ul>` +
+            (overflowText ? `<p class="mb-2">${TrishulUtils.escapeHtml(overflowText)}</p>` : '') +
+            `<p class="mb-0">This will remove the selected MIB source files and rebuild the active MIB bundle.</p>`;
+        const confirmed = await TrishulUtils.confirmDialog({
+            title,
+            message,
+            confirmLabel: 'Delete',
+            variant: 'danger',
+        });
+        if (!confirmed) return;
 
         normalized.forEach(path => this.deletingMibPaths.add(path));
         this.renderMibList();

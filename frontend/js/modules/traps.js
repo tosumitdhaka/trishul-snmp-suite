@@ -6,6 +6,8 @@ window.TrapsModule = {
     allObjects: [],
     receivedTraps: [],
     filteredTraps: [],
+    _trapSortKey: 'time',
+    _trapSortDir: 'desc',
     _modalJson: {},          // keyed by modal id — avoids JSON-in-onclick-attr breakage
     _lastStatus: null,
     _receiverUptime: null,   // uptime_seconds cached from last updateStatusUI call
@@ -17,6 +19,7 @@ window.TrapsModule = {
     _statusFetchSeq: 0,
 
     init: function() {
+        this._updateTrapSortHeaders();
         this.loadPersistedTraps();
 
         // WS updates are best-effort; keep the REST refresh loop active so the
@@ -177,7 +180,51 @@ window.TrapsModule = {
     },
 
     getVisibleTraps: function() {
-        return this.hasActiveTrapFilter() ? this.filteredTraps : this.receivedTraps;
+        const list = this.hasActiveTrapFilter() ? this.filteredTraps : this.receivedTraps;
+        return this.sortTraps(list);
+    },
+
+    sortTraps: function(traps) {
+        const list = Array.isArray(traps) ? traps : [];
+        const key  = this._trapSortKey;
+        const dir  = this._trapSortDir === 'asc' ? 1 : -1;
+        return list.slice().sort((a, b) => {
+            let cmp = 0;
+            if (key === 'source') {
+                cmp = String(a.source || '').localeCompare(String(b.source || ''), undefined, { numeric: true, sensitivity: 'base' });
+            } else {
+                cmp = (new Date(a.timestamp).getTime() || 0) - (new Date(b.timestamp).getTime() || 0);
+            }
+            return cmp * dir;
+        });
+    },
+
+    toggleTrapSort: function(key) {
+        if (this._trapSortKey === key) {
+            this._trapSortDir = this._trapSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            this._trapSortKey = key;
+            this._trapSortDir = key === 'time' ? 'desc' : 'asc';
+        }
+        this._updateTrapSortHeaders();
+        this.renderTraps();
+    },
+
+    _updateTrapSortHeaders: function() {
+        const configs = [
+            { key: 'time',   thId: 'tr-th-time' },
+            { key: 'source', thId: 'tr-th-source' },
+        ];
+        configs.forEach(config => {
+            const th = document.getElementById(config.thId);
+            if (!th) return;
+            const active = this._trapSortKey === config.key;
+            th.setAttribute('aria-sort', active ? (this._trapSortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+            const icon = th.querySelector('.th-sort-icon');
+            if (icon) {
+                icon.className = 'fas th-sort-icon ' + (active ? (this._trapSortDir === 'asc' ? 'fa-sort-up' : 'fa-sort-down') : 'fa-sort');
+            }
+        });
     },
 
     getTrapKey: function(trap) {
@@ -387,15 +434,15 @@ window.TrapsModule = {
         }
         
         const modalHtml = `
-            <div class="modal fade" id="varbindPickerModal" tabindex="-1">
+            <div class="modal fade" id="varbindPickerModal" tabindex="-1" aria-labelledby="varbind-picker-title">
                 <div class="modal-dialog modal-lg modal-dialog-centered">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h5 class="modal-title">Select VarBind from MIB</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            <h5 class="modal-title" id="varbind-picker-title">Select VarBind from MIB</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body">
-                            <input type="text" id="vb-search" class="form-control mb-3" placeholder="Search objects...">
+                            <input type="text" id="vb-search" class="form-control mb-3" placeholder="Search objects..." aria-label="Search MIB objects">
                             <div class="app-scroll-panel app-max-h-400">
                                 <table class="table table-sm table-hover">
                                     <thead class="table-light sticky-top">
@@ -452,6 +499,7 @@ window.TrapsModule = {
                 <td>
                     <button type="button" class="btn btn-xs btn-app-secondary btn-icon"
                             onclick="TrapsModule.addVarbindFromPickerElement(this)"
+                            aria-label="Add varbind"
                             data-object="${esc(TrishulUtils.encodeDataAttr(obj))}">
                         <i class="fas fa-plus"></i>
                     </button>
@@ -598,6 +646,7 @@ window.TrapsModule = {
             input.className = 'form-control vb-val';
             input.value = currentValue;
             input.placeholder = 'Value';
+            input.setAttribute('aria-label', 'VarBind value');
             return input;
         }
 
@@ -718,11 +767,11 @@ window.TrapsModule = {
                 <div class="card-body p-2">
                     <div class="input-group input-group-sm mb-1">
                         <span class="input-group-text app-input-group-text">OID</span>
-                        <input type="text" class="form-control vb-oid" value="${esc(targetOid)}" placeholder="1.3.6... or IF-MIB::ifIndex">
-                        <button class="btn btn-app-danger-outline" type="button" onclick="TrapsModule.removeVarbind('${id}')">X</button>
+                        <input type="text" class="form-control vb-oid" value="${esc(targetOid)}" placeholder="1.3.6... or IF-MIB::ifIndex" aria-label="VarBind OID">
+                        <button class="btn btn-app-danger-outline" type="button" aria-label="Remove varbind" onclick="TrapsModule.removeVarbind('${id}')">X</button>
                     </div>
                     <div class="input-group input-group-sm">
-                        <select class="form-select vb-type app-max-w-120">
+                        <select class="form-select vb-type app-max-w-120" aria-label="VarBind type">
                             <option value="String"     ${resolvedType==='String'    ?'selected':''}>String</option>
                             <option value="Integer"    ${resolvedType==='Integer'   ?'selected':''}>Integer</option>
                             <option value="OID"        ${resolvedType==='OID'       ?'selected':''}>OID</option>
@@ -731,7 +780,7 @@ window.TrapsModule = {
                             <option value="Counter"    ${resolvedType==='Counter'   ?'selected':''}>Counter</option>
                             <option value="Gauge"      ${resolvedType==='Gauge'     ?'selected':''}>Gauge</option>
                         </select>
-                        <input type="text" class="form-control vb-val" value="${esc(value)}" placeholder="Value">
+                        <input type="text" class="form-control vb-val" value="${esc(value)}" placeholder="Value" aria-label="VarBind value">
                     </div>
                     <div class="small app-status-text is-error mt-1 d-none vb-feedback"></div>
                 </div>
@@ -1042,7 +1091,7 @@ window.TrapsModule = {
                 uptime_seconds: 0
             });
             await this.checkStatus();
-            this.showNotification(data.status === 'already_running' ? 'Trap receiver is already running' : 'Trap receiver started', 'success');
+            this.showNotification('Trap receiver started', 'success');
         } catch (e) {
             console.error('Trap receiver start failed:', e);
             this.showNotification(`Trap receiver failed: ${e.message}`, 'error');
@@ -1138,7 +1187,16 @@ window.TrapsModule = {
     filterTraps: function() {
         const searchInput = document.getElementById('tr-search');
         const searchTerm  = searchInput ? searchInput.value.toLowerCase().trim() : '';
-        
+
+        const clearBtn = document.getElementById('btn-clear-tr-search');
+        if (clearBtn) {
+            if (searchInput && searchInput.value.length > 0) {
+                clearBtn.classList.remove('d-none');
+            } else {
+                clearBtn.classList.add('d-none');
+            }
+        }
+
         if (!searchTerm) {
             this.filteredTraps = [];
             this.renderTraps();
@@ -1153,12 +1211,47 @@ window.TrapsModule = {
         this.renderTraps();
     },
 
+    clearTrapSearch: function() {
+        const searchInput = document.getElementById('tr-search');
+        if (searchInput) {
+            searchInput.value = '';
+            const clearBtn = document.getElementById('btn-clear-tr-search');
+            if (clearBtn) clearBtn.classList.add('d-none');
+            searchInput.focus();
+        }
+        this.filterTraps();
+    },
+
+    // Visually hidden live region for assistive tech: announces each trap
+    // arrival without re-reading the whole table. Only writes when the text
+    // actually changes so 1s polling cycles don't re-announce the same value.
+    _updateLiveStatus: function() {
+        const statusEl = document.getElementById('tr-live-status');
+        if (!statusEl) return;
+        let nextText;
+        if (this.receivedTraps.length === 0) {
+            nextText = 'No traps received';
+        } else {
+            const latest = this.receivedTraps[0];
+            const name   = latest.trap_type || 'unknown';
+            const source = latest.source || 'unknown';
+            nextText = this.receivedTraps.length === 1
+                ? `1 trap received, latest: ${name} from ${source}`
+                : `${this.receivedTraps.length} traps received, latest: ${name} from ${source}`;
+        }
+        if (statusEl.textContent !== nextText) {
+            statusEl.textContent = nextText;
+        }
+    },
+
     renderTraps: function() {
         const tbody      = document.getElementById("tr-table-body");
         const countBadge = document.getElementById("tr-count-badge");
         const esc = TrishulUtils.escapeHtml;
         
         if (!tbody) return;
+        
+        this._updateLiveStatus();
         
         const trapsToShow = this.getVisibleTraps();
         
@@ -1177,11 +1270,12 @@ window.TrapsModule = {
                     compact: true,
                 });
             tbody.innerHTML = `<tr><td colspan="5" class="p-0 border-0">${placeholder}</td></tr>`;
-            if (countBadge) countBadge.textContent = '0';
+            if (countBadge && countBadge.textContent !== '0') countBadge.textContent = '0';
             return;
         }
         
-        if (countBadge) countBadge.textContent = trapsToShow.length;
+        const countText = String(trapsToShow.length);
+        if (countBadge && countBadge.textContent !== countText) countBadge.textContent = countText;
         
         tbody.innerHTML = trapsToShow.map((t, idx) => {
             let trapBadgeClass = 'app-badge is-neutral';
@@ -1221,11 +1315,11 @@ window.TrapsModule = {
                     <td class="text-center">
                         <div class="trap-action-buttons">
                             <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
-                                    onclick="TrapsModule.copyTrap(${idx})" title="Copy JSON">
+                                    onclick="TrapsModule.copyTrap(${idx})" title="Copy JSON" aria-label="Copy JSON">
                                 <i class="fas fa-copy"></i>
                             </button>
                             <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
-                                    onclick="TrapsModule.downloadTrap(${idx})" title="Download">
+                                    onclick="TrapsModule.downloadTrap(${idx})" title="Download" aria-label="Download trap">
                                 <i class="fas fa-download"></i>
                             </button>
                         </div>
@@ -1288,13 +1382,15 @@ window.TrapsModule = {
         const modal   = document.createElement('div');
         modal.className = 'modal fade';
         modal.id        = modalId;
+        const titleId   = `${modalId}-title`;
+        modal.setAttribute('aria-labelledby', titleId);
         const escapedJson = TrishulUtils.escapeHtml(json);
         modal.innerHTML = `
             <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">Trap Details</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        <h5 class="modal-title" id="${titleId}">Trap Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
                         <pre class="app-code-pane app-scroll-panel p-3 rounded app-max-h-500">${escapedJson}</pre>
@@ -1390,7 +1486,13 @@ window.TrapsModule = {
     },
 
     clearTraps: async function() {
-        if (!confirm('Clear all received traps? This will also clear persisted data.')) return;
+        const confirmed = await TrishulUtils.confirmDialog({
+            title: 'Clear all received traps?',
+            message: 'This will also clear persisted data.',
+            confirmLabel: 'Clear',
+            variant: 'danger',
+        });
+        if (!confirmed) return;
         
         await fetch('/api/traps/', {method:'DELETE'});
         this.receivedTraps = [];

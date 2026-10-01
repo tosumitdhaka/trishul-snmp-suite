@@ -442,6 +442,148 @@ window.TrishulUtils = {
         document.body.appendChild(banner);
         setTimeout(function() { if (banner.parentNode) banner.remove(); }, duration);
     },
+
+    /**
+     * Show an in-house, dark-mode-aware confirmation dialog and return a
+     * Promise that resolves to true (confirm) or false (cancel/Escape/backdrop).
+     *
+     * Options:
+     *   title         (string, required)  Dialog title.
+     *   message       (string, optional)  Body copy. HTML is allowed and
+     *                                     rendered as-is — callers must escape
+     *                                     any user-provided content first.
+     *   confirmLabel  (string, optional)  Confirm button text. Default "Confirm".
+     *   cancelLabel   (string, optional)  Cancel button text. Default "Cancel".
+     *   variant       (string, optional)  Tone of confirm button + icon:
+     *                                     'danger' (default) | 'primary' |
+     *                                     'success' | 'warning'.
+     *   confirmIcon   (string, optional)  FontAwesome class for a custom
+     *                                     confirm-button icon. Default none.
+     *
+     * Example:
+     *   TrishulUtils.confirmDialog({
+     *       title: 'Delete 3 MIB files?',
+     *       message: '<ul><li>IF-MIB</li><li>SNMPv2-MIB</li></ul>',
+     *       confirmLabel: 'Delete',
+     *       variant: 'danger'
+     *   }).then(function(confirmed) {
+     *       if (!confirmed) return;
+     *       // proceed with deletion
+     *   });
+     */
+    confirmDialog: function(options) {
+        var opts = options || {};
+
+        var title = String(opts.title ?? 'Are you sure?');
+        var messageHtml = opts.message != null ? String(opts.message) : '';
+        var confirmLabel = String(opts.confirmLabel ?? 'Confirm');
+        var cancelLabel = String(opts.cancelLabel ?? 'Cancel');
+        var variant = String(opts.variant || 'danger').toLowerCase();
+        if (['danger', 'primary', 'success', 'warning'].indexOf(variant) === -1) {
+            variant = 'danger';
+        }
+
+        var variantIcons = {
+            danger: 'fa-exclamation-triangle',
+            warning: 'fa-exclamation-circle',
+            success: 'fa-check-circle',
+            primary: 'fa-question-circle'
+        };
+        var variantButtons = {
+            danger: 'btn-app-danger',
+            primary: 'btn-app-primary',
+            success: 'btn-app-success',
+            warning: 'btn-app-primary'
+        };
+        var confirmIconHtml = opts.confirmIcon
+            ? '<i class="fas ' + String(opts.confirmIcon).replace(/[^a-z0-9\- ]/gi, '').trim() + ' me-1"></i>'
+            : '';
+
+        var lastFocus = document.activeElement;
+        var instanceId = 'app-confirm-' + (TrishulUtils._confirmSeq = (TrishulUtils._confirmSeq || 0) + 1);
+        var titleId = instanceId + '-title';
+        var messageId = instanceId + '-message';
+
+        var root = document.createElement('div');
+        root.className = 'app-confirm';
+        root.setAttribute('role', 'dialog');
+        root.setAttribute('aria-modal', 'true');
+        root.setAttribute('aria-labelledby', titleId);
+        if (messageHtml) root.setAttribute('aria-describedby', messageId);
+
+        root.innerHTML =
+            '<div class="app-confirm-backdrop"></div>' +
+            '<div class="app-confirm-dialog" role="document">' +
+                '<div class="app-confirm-icon app-confirm-icon--' + variant + '">' +
+                    '<i class="fas ' + variantIcons[variant] + '" aria-hidden="true"></i>' +
+                '</div>' +
+                '<h2 class="app-confirm-title" id="' + titleId + '"></h2>' +
+                (messageHtml ? '<div class="app-confirm-message" id="' + messageId + '"></div>' : '') +
+                '<div class="app-confirm-actions">' +
+                    '<button type="button" class="btn btn-sm btn-app-secondary-solid app-confirm-cancel"></button>' +
+                    '<button type="button" class="btn btn-sm ' + variantButtons[variant] + ' app-confirm-ok"></button>' +
+                '</div>' +
+            '</div>';
+
+        root.querySelector('#' + titleId).textContent = title;
+        if (messageHtml) {
+            root.querySelector('#' + messageId).innerHTML = messageHtml;
+        }
+        root.querySelector('.app-confirm-cancel').textContent = cancelLabel;
+        var okButton = root.querySelector('.app-confirm-ok');
+        okButton.innerHTML = confirmIconHtml;
+        okButton.appendChild(document.createTextNode(confirmLabel));
+
+        var settled = false;
+
+        function close(result) {
+            if (settled) return;
+            settled = true;
+            document.removeEventListener('keydown', onKeydown, true);
+            root.remove();
+            if (lastFocus && typeof lastFocus.focus === 'function') {
+                lastFocus.focus();
+            }
+            resolve(result);
+        }
+
+        function onKeydown(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                // stopPropagation prevents a bubble-phase handler (e.g. the
+                // sidebar drawer Escape) from also firing on the same keypress.
+                e.stopPropagation();
+                close(false);
+                return;
+            }
+            if (e.key === 'Tab') {
+                // Simple focus trap between Cancel and Confirm.
+                var focusables = [cancelButton, okButton];
+                var index = focusables.indexOf(document.activeElement);
+                e.preventDefault();
+                var next = e.shiftKey ? index - 1 : index + 1;
+                if (next < 0) next = focusables.length - 1;
+                if (next >= focusables.length) next = 0;
+                focusables[next].focus();
+            }
+        }
+
+        var cancelButton = root.querySelector('.app-confirm-cancel');
+        var backdrop = root.querySelector('.app-confirm-backdrop');
+
+        cancelButton.addEventListener('click', function() { close(false); });
+        okButton.addEventListener('click', function() { close(true); });
+        backdrop.addEventListener('click', function() { close(false); });
+        document.addEventListener('keydown', onKeydown, true);
+
+        var resolve;
+        var promise = new Promise(function(res) { resolve = res; });
+
+        document.body.appendChild(root);
+        cancelButton.focus();
+
+        return promise;
+    },
 };
 
 document.addEventListener('DOMContentLoaded', () => {

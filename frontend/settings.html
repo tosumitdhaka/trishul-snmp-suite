@@ -5,63 +5,67 @@
         <div class="card shadow-sm h-100 app-split-fill">
             <div class="card-header py-2">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-user-shield me-2 app-header-icon is-primary"></i> Authentication</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-user-shield me-2 app-header-icon is-primary"></i> Authentication</h2>
                 </div>
             </div>
             <div class="card-body">
                 <p class="text-muted small">Update the current login credentials.</p>
                 <form onsubmit="SettingsModule.updateAuth(event)">
                     <!-- Hidden username field for password manager association -->
-                    <input type="text" name="username" autocomplete="username" class="visually-hidden" aria-hidden="true">
+                    <input type="text" name="username" autocomplete="username" class="visually-hidden" aria-hidden="true" aria-label="Username" tabindex="-1">
 
                     <div class="mb-3 app-surface-muted p-2 rounded border">
-                        <label class="form-label small fw-bold text-muted">Current Password</label>
+                        <div class="form-label small fw-bold text-muted">Current Password</div>
                         <input type="password"
                                class="form-control form-control-sm"
                                id="set-auth-current-pass"
                                name="current-password"
                                placeholder="Required to make changes"
                                required
-                               autocomplete="current-password">
+                               autocomplete="current-password"
+                               aria-label="Current password">
                     </div>
 
                     <hr class="my-2">
 
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Username</label>
+                        <div class="form-label small fw-bold">Username</div>
                         <input type="text"
                                class="form-control form-control-sm bg-body-secondary"
                                id="set-auth-user"
                                name="new-username"
                                required
                                readonly
-                               autocomplete="username">
+                               autocomplete="username"
+                               aria-label="Username">
                         <div class="form-text small text-muted">Username is fixed and cannot be changed here.</div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold d-flex align-items-center gap-2">
+                        <div class="form-label small fw-bold d-flex align-items-center gap-2">
                             New Password
                             <span id="password-strength" class="badge app-badge is-neutral ms-1 d-none"></span>
-                        </label>
+                        </div>
                         <input type="password"
                                class="form-control form-control-sm"
                                id="set-auth-pass"
                                name="new-password"
                                required
-                               autocomplete="new-password">
+                               autocomplete="new-password"
+                               aria-label="New password">
                         <div class="form-text small">At least 6 characters. Mix uppercase, lowercase, numbers, and symbols.</div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Confirm Password</label>
+                        <div class="form-label small fw-bold">Confirm Password</div>
                         <input type="password"
                                class="form-control form-control-sm"
                                id="set-auth-pass-confirm"
                                name="confirm-password"
                                required
-                               autocomplete="new-password">
+                               autocomplete="new-password"
+                               aria-label="Confirm new password">
                     </div>
 
-                    <div id="auth-msg" class="alert d-none small py-2 mb-3"></div>
+                    <div id="auth-msg" class="alert d-none small py-2 mb-3" role="alert"></div>
                     <div class="d-grid">
                         <button type="submit" class="btn btn-sm btn-app-primary">
                             <i class="fas fa-save"></i> Update Credentials
@@ -77,7 +81,7 @@
         <div class="card shadow-sm h-100 app-split-fill">
             <div class="card-header py-2 d-flex justify-content-between align-items-center">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-sliders-h me-2 app-header-icon is-success"></i> Application Settings</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-sliders-h me-2 app-header-icon is-success"></i> Application Settings</h2>
                 </div>
                 <div class="app-card-header-actions">
                     <span id="settings-restart-badge" class="badge app-badge is-warning d-none">
@@ -89,7 +93,7 @@
                 <p class="text-muted small">Auto-start applies on restart. Timeout and remote MIB fetch apply immediately.</p>
 
                 <div class="mb-3">
-                    <label class="form-label small fw-bold">Auto-Start on Boot</label>
+                    <div class="form-label small fw-bold">Auto-Start on Boot</div>
                     <div class="d-flex flex-column gap-2 mt-1">
                         <div class="form-check form-switch mb-0">
                             <input class="form-check-input" type="checkbox" role="switch" id="set-auto-start-sim">
@@ -105,13 +109,14 @@
                 <hr class="my-2">
 
                 <div class="mb-3">
-                    <label class="form-label small fw-bold" for="set-session-timeout">Session Timeout</label>
+                    <div class="form-label small fw-bold">Session Timeout</div>
                     <div class="input-group input-group-sm">
                         <input type="number"
                                class="form-control form-control-sm"
                                id="set-session-timeout"
                                min="60" max="86400" step="60"
-                               placeholder="3600">
+                               placeholder="3600"
+                               aria-label="Session timeout in seconds">
                         <span class="input-group-text">seconds</span>
                     </div>
                     <div class="form-text small">Min 60 s &middot; Max 86400 s (24 h) &middot; Default 3600 s (1 h)</div>
@@ -120,7 +125,7 @@
                 <hr class="my-2">
 
                 <div class="mb-3">
-                    <label class="form-label small fw-bold">Remote MIB Fetch</label>
+                    <div class="form-label small fw-bold">Remote MIB Fetch</div>
                     <div class="form-check form-switch mt-1">
                         <input class="form-check-input" type="checkbox" role="switch" id="set-mib-auto-fetch">
                         <label class="form-check-label small" for="set-mib-auto-fetch">Auto-fetch missing dependencies during upload/reload</label>
@@ -129,16 +134,17 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label small fw-bold" for="set-mib-remote-sources">Approved Remote Sources</label>
+                    <div class="form-label small fw-bold">Approved Remote Sources</div>
                     <textarea class="form-control form-control-sm font-monospace"
                               id="set-mib-remote-sources"
                               rows="4"
                               spellcheck="false"
-                              placeholder="https://example.invalid/mibs/@mib@"></textarea>
+                              placeholder="https://example.invalid/mibs/@mib@"
+                              aria-label="Approved remote MIB sources"></textarea>
                     <div class="form-text small">Optional. Leave blank to use tsmi default sources. Custom entries must include <code>@mib@</code>. Order matters.</div>
                 </div>
 
-                <div id="app-settings-msg" class="alert d-none small py-2 mb-3"></div>
+                <div id="app-settings-msg" class="alert d-none small py-2 mb-3" role="alert"></div>
                 <div class="d-grid">
                     <button class="btn btn-sm btn-app-primary" onclick="SettingsModule.saveAppSettings()">
                         <i class="fas fa-save me-1"></i> Save Settings
@@ -158,7 +164,7 @@
         <div class="card shadow-sm app-split-fill">
             <div class="card-header py-2">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-chart-bar me-2 app-header-icon is-info"></i> Statistics</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-chart-bar me-2 app-header-icon is-info"></i> Statistics</h2>
                 </div>
             </div>
             <div class="card-body">
@@ -180,7 +186,7 @@
         <div class="card shadow-sm app-split-fill">
             <div class="card-header py-2">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-info-circle me-2 app-header-icon is-neutral"></i> About</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-info-circle me-2 app-header-icon is-neutral"></i> About</h2>
                 </div>
             </div>
             <div class="card-body">

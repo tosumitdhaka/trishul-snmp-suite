@@ -4,7 +4,7 @@
         <div class="card shadow-sm">
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-paper-plane me-2 app-header-icon is-success"></i> Send Trap</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-paper-plane me-2 app-header-icon is-success"></i> Send Trap</h2>
                 </div>
             </div>
             <div class="card-body">
@@ -12,19 +12,19 @@
                     <!-- Target Configuration -->
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold">Target IP</label>
+                            <label class="form-label small fw-bold" for="ts-target">Target IP</label>
                             <input type="text" id="ts-target" class="form-control form-control-sm"
                                    value="127.0.0.1" placeholder="127.0.0.1">
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label small fw-bold">Port</label>
+                            <label class="form-label small fw-bold" for="ts-port">Port</label>
                             <input type="number" id="ts-port" class="form-control form-control-sm"
-                                   value="1162" placeholder="162">
+                                   value="1162" placeholder="162" min="1" max="65535">
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label small fw-bold">Community</label>
-                            <input type="text" id="ts-comm" class="form-control form-control-sm"
-                                   value="public" placeholder="public">
+                            <label class="form-label small fw-bold" for="ts-comm">Community</label>
+                            <input type="password" id="ts-comm" class="form-control form-control-sm"
+                                   value="public" placeholder="public" autocomplete="off">
                         </div>
                     </div>
 
@@ -41,7 +41,7 @@
 
                     <!-- Manual OID Input -->
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Notification OID</label>
+                        <label class="form-label small fw-bold" for="ts-oid">Notification OID</label>
                         <div class="input-group input-group-sm">
                             <input type="text" id="ts-oid" class="form-control"
                                    placeholder="IF-MIB::linkDown or 1.3.6..."
@@ -57,7 +57,7 @@
                     <!-- VarBinds Section -->
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label small fw-bold mb-0">VarBinds</label>
+                            <h3 class="h6 form-label small fw-bold mb-0">VarBinds</h3>
                             <div class="d-flex gap-1">
                                 <button type="button" class="btn btn-xs btn-app-primary-outline"
                                         onclick="TrapsModule.showVarBindPicker()">
@@ -77,7 +77,7 @@
                     </div>
 
                     <!-- Validation Error -->
-                    <div id="ts-error" class="alert alert-danger py-2 small d-none mb-3">
+                    <div id="ts-error" class="alert alert-danger py-2 small d-none mb-3" role="alert">
                         <i class="fas fa-exclamation-circle me-1"></i>
                         <span id="ts-error-text"></span>
                     </div>
@@ -104,7 +104,7 @@
             <div class="card-header">
                 <div class="app-card-header-main d-flex align-items-center gap-2 flex-wrap">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span><i class="fas fa-satellite-dish me-2 app-header-icon is-info"></i> Trap Receiver</span>
+                        <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-satellite-dish me-2 app-header-icon is-info"></i> Trap Receiver</h2>
                         <span id="tr-status-badge" class="badge app-status-badge is-stopped">STOPPED</span>
                     </div>
                 </div>
@@ -117,12 +117,12 @@
                     <div class="col-xl-2 col-lg-3 col-md-4 col-sm-4">
                         <label class="form-label small fw-bold" for="tr-port">Port</label>
                         <input type="number" id="tr-port" class="form-control form-control-sm"
-                               value="1162" placeholder="Port">
+                               value="1162" placeholder="Port" min="1" max="65535">
                     </div>
                     <div class="col-xl-2 col-lg-3 col-md-4 col-sm-4">
                         <label class="form-label small fw-bold" for="tr-community">Community</label>
-                        <input type="text" id="tr-community" class="form-control form-control-sm"
-                               value="public" placeholder="Community">
+                        <input type="password" id="tr-community" class="form-control form-control-sm"
+                               value="public" placeholder="Community" autocomplete="off">
                     </div>
                     <div class="col-xl-3 col-lg-4 col-md-4 col-sm-4">
                         <div class="form-check form-switch trap-receiver-switch mb-0">
@@ -150,19 +150,19 @@
         <div class="card shadow-sm mb-3 d-none" id="tr-metrics">
             <div class="card-body py-2">
                 <div class="row text-center small">
-                    <div class="col-3">
+                    <div class="col-6 col-md-3">
                         <div class="text-muted">Total Traps</div>
                         <div class="fw-bold" id="tr-metric-total">0</div>
                     </div>
-                    <div class="col-3">
+                    <div class="col-6 col-md-3">
                         <div class="text-muted">Last Received</div>
                         <div class="fw-bold" id="tr-metric-last">--</div>
                     </div>
-                    <div class="col-3">
+                    <div class="col-6 col-md-3">
                         <div class="text-muted">Top Source</div>
                         <div class="fw-bold small" id="tr-metric-source">--</div>
                     </div>
-                    <div class="col-3">
+                    <div class="col-6 col-md-3">
                         <div class="text-muted">Uptime</div>
                         <div class="fw-bold" id="tr-metric-uptime">--</div>
                     </div>
@@ -174,13 +174,21 @@
         <div class="card shadow-sm app-split-fill">
             <div class="section-header">
                 <div class="app-card-header-main d-flex align-items-center gap-2">
-                    <span><i class="fas fa-list me-2"></i> Received Traps</span>
-                    <span id="tr-count-badge" class="badge badge-soft-light">0</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-list me-2"></i> Received Traps</h2>
+                    <span id="tr-count-badge" class="badge badge-soft-light" aria-live="polite">0</span>
+                    <span id="tr-live-status" class="visually-hidden"></span>
                 </div>
                 <div class="app-card-header-actions">
                     <input type="text" id="tr-search" class="form-control form-control-sm app-toolbar-search"
                            placeholder="Search received traps..."
+                           aria-label="Search received traps"
                            oninput="TrapsModule.filterTraps()">
+                    <button type="button" class="btn btn-app-secondary btn-icon d-none"
+                            onclick="TrapsModule.clearTrapSearch()"
+                            id="btn-clear-tr-search"
+                            title="Clear search">
+                        <i class="fas fa-times"></i>
+                    </button>
                     <button type="button" class="btn btn-sm btn-app-secondary"
                             onclick="TrapsModule.downloadAllTraps()"
                             title="Download all traps" aria-label="Download all traps">
@@ -197,13 +205,24 @@
             <!-- Table -->
             <div class="table-responsive app-scroll-panel app-split-fill-region app-min-h-320">
                 <table class="table table-sm table-hover mb-0 small trap-receiver-table">
+                    <caption class="visually-hidden">Received traps</caption>
                     <thead class="table-light sticky-top">
                         <tr>
-                            <th>Time</th>
-                            <th>Source</th>
-                            <th>Trap Name</th>
-                            <th>VarBinds (JSON)</th>
-                            <th class="text-center">Actions</th>
+                            <th scope="col" id="tr-th-time" aria-sort="descending">
+                                <button type="button" class="th-sort-btn bg-transparent border-0 p-0 text-reset fw-bold"
+                                        data-sort-key="time" onclick="TrapsModule.toggleTrapSort('time')">
+                                    Time <i class="fas fa-sort-down th-sort-icon" aria-hidden="true"></i>
+                                </button>
+                            </th>
+                            <th scope="col" id="tr-th-source" aria-sort="none">
+                                <button type="button" class="th-sort-btn bg-transparent border-0 p-0 text-reset fw-bold"
+                                        data-sort-key="source" onclick="TrapsModule.toggleTrapSort('source')">
+                                    Source <i class="fas fa-sort th-sort-icon" aria-hidden="true"></i>
+                                </button>
+                            </th>
+                            <th scope="col">Trap Name</th>
+                            <th scope="col">VarBinds (JSON)</th>
+                            <th scope="col" class="text-center">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="tr-table-body">

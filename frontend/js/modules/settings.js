@@ -56,9 +56,13 @@ window.SettingsModule = {
             TrishulUtils.setAlertState(msgBox, 'danger', 'Password must be at least 6 characters!');
             return;
         }
-        if (!confirm(`Update credentials for user "${user}"?\n\nYou will be logged out and need to log in again.`)) {
-            return;
-        }
+        const confirmed = await TrishulUtils.confirmDialog({
+            title: `Update credentials for user "${user}"?`,
+            message: 'You will be logged out and need to log in again.',
+            confirmLabel: 'Update',
+            variant: 'primary',
+        });
+        if (!confirmed) return;
 
         const btn          = e.target.querySelector('button[type="submit"]');
         const originalText = btn.innerHTML;
@@ -78,7 +82,13 @@ window.SettingsModule = {
             const data = await res.json();
             if (res.ok) {
                 TrishulUtils.setAlertState(msgBox, 'success', '\u2713 Credentials updated successfully. Logging out...');
-                setTimeout(() => logout(), 2000);
+                // Backend deletes every session on credential update and signals
+                // reauth_required — log out immediately instead of racing the 2s timer.
+                if (data && data.reauth_required) {
+                    logout(false);
+                } else {
+                    setTimeout(() => logout(false), 2000);
+                }
             } else {
                 TrishulUtils.setAlertState(msgBox, 'danger', data.detail || 'Error updating credentials.');
                 btn.disabled       = false;
@@ -200,7 +210,13 @@ window.SettingsModule = {
     },
 
     resetStats: async function() {
-        if (!confirm('Reset all activity stats to zero?\n\nThis cannot be undone.')) return;
+        const confirmed = await TrishulUtils.confirmDialog({
+            title: 'Reset all activity stats to zero?',
+            message: 'This cannot be undone.',
+            confirmLabel: 'Reset',
+            variant: 'danger',
+        });
+        if (!confirmed) return;
         try {
             const res = await fetch('/api/stats/', { method: 'DELETE' });
             if (res.ok) {

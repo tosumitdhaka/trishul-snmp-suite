@@ -4,15 +4,36 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.0.2` UI or runtime behavior.
+`2.0.3` UI or runtime behavior.
 
-The current stable release line is `2.0.2`. The entries below `2.0.2` are
-historical `1.x` releases retained for release history.
+The current stable release line is `2.0.3`. The entries below `2.0.3` are
+historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+
+## [2.0.3] - 2026-09-30
+
+### Added
+- **Accessibility / Landmarks** - Skip link, primary navigation landmark, per-view `h1` headings, and semantic table captions across the operator UI.
+- **Walk & Parse / Results** - Walk output renders as a structured `OID` / `Type` / `Value` table instead of a raw text dump; search, copy, and export operate on the same data.
+- **Tables / Sorting** - Received traps and the trap library are sortable (time/source, name/OID) with keyboard-operable headers and `aria-sort`; the trap library renders a summary footer past 500 rows.
+- **Search / Clear** - All toolbar searches gained a conditional clear button that empties, refocuses, and re-filters.
+- **Motion** - `prefers-reduced-motion` is respected across animations and transitions.
+
+### Changed
+- **Branding** - The sidebar heading and login use a two-tier `Trishul` / `SNMP Suite` lockup; the main page header shows only the page title.
+- **Dialogs** - Native `confirm()` popups are replaced with an in-house, dark-mode-aware confirmation dialog for logout, MIB deletion, history clearing, stats reset, and credential updates.
+- **Security UX** - SNMP community inputs are masked as password fields.
+- **Theming** - Light mode uses light card headers (the navy gradient remains the dark-mode variant); placeholders, warning/success badges, selected tree nodes, and empty states meet AA contrast in both themes.
+
+### Fixed
+- **Accessibility** - Visible keyboard focus indicators on all buttons and inputs; programmatic labels for every form control including JS-rendered rows; labelled modals; `role="alert"` error regions; live-region announcements for walk progress, trap arrivals, and simulator log summaries; accessible names for icon-only controls and the WebSocket status dot.
+- **Usability** - Mobile sidebar drawer closes via backdrop and Escape with focus management; port inputs are bounded to `1-65535`; the walker community field label reads `Community`.
+- **Auth Flow** - Credential updates read the backend's `reauth_required` response and log out immediately, without a redundant second confirmation dialog or a fixed timer.
+- **Realtime** - The WebSocket stats broadcast now uses the `stats` payload key, matching the initial full-state message; the dashboard accepts both shapes.
 
 ## [2.0.2] - 2026-05-26
 

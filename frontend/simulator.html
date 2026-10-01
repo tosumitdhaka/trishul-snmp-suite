@@ -5,7 +5,7 @@
         <div class="card mb-3 shadow-sm">
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-microchip me-2 app-header-icon is-success"></i> Status</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-microchip me-2 app-header-icon is-success"></i> Status</h2>
                 </div>
                 <div class="app-card-header-actions">
                     <span id="sim-badge" class="badge app-status-badge is-pending">Checking...</span>
@@ -17,7 +17,7 @@
                         <i class="fas fa-server fa-lg"></i>
                     </div>
                     <div>
-                        <h6 class="mb-0" id="sim-state-text">Offline</h6>
+                        <h3 class="h6 mb-0" id="sim-state-text">Offline</h3>
                         <small class="text-muted" id="sim-detail-text">Process stopped</small>
                     </div>
                 </div>
@@ -59,7 +59,7 @@
         <div class="card shadow-sm mb-3">
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-cog me-2 app-header-icon is-primary"></i> Configuration</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-cog me-2 app-header-icon is-primary"></i> Configuration</h2>
                 </div>
                 <div class="app-card-header-actions">
                     <span id="config-hint" class="badge app-badge is-warning d-none">Restart required</span>
@@ -69,12 +69,12 @@
                 <div class="row g-2">
                     <div class="col-6">
                         <label class="form-label small" for="sim-config-port">Port</label>
-                        <input type="number" class="form-control form-control-sm" id="sim-config-port" value="1061" aria-label="Simulator port">
+                        <input type="number" class="form-control form-control-sm" id="sim-config-port" value="1061" min="1" max="65535" aria-label="Simulator port">
                         <div class="form-text small text-muted">UDP listen port</div>
                     </div>
                     <div class="col-6">
                         <label class="form-label small" for="sim-config-comm">Community</label>
-                        <input type="text" class="form-control form-control-sm" id="sim-config-comm" value="public" aria-label="SNMP community string">
+                        <input type="password" class="form-control form-control-sm" id="sim-config-comm" value="public" autocomplete="off" aria-label="SNMP community string">
                         <div class="form-text small text-muted">v1/v2c community</div>
                     </div>
                 </div>
@@ -88,7 +88,7 @@
         <div class="card shadow-sm app-split-fill">
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-database me-2 app-header-icon is-info"></i> Custom Data</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-database me-2 app-header-icon is-info"></i> Custom Data</h2>
                 </div>
                 <div class="app-card-header-actions">
                     <span id="unsaved-indicator" class="badge app-badge is-warning d-none">Unsaved</span>
@@ -125,7 +125,7 @@
         <div class="card h-100 shadow-sm app-split-fill">
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-list me-2 app-header-icon is-neutral"></i> Activity Log</span>
+                    <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-list me-2 app-header-icon is-neutral"></i> Activity Log</h2>
                 </div>
                 <div class="app-card-header-actions">
                     <div class="btn-group btn-group-sm">
@@ -148,11 +148,17 @@
                             <div class="input-group input-group-sm app-toolbar-search">
                                 <span class="input-group-text"><i class="fas fa-search"></i></span>
                                 <input type="text" class="form-control" id="log-search"
-                                       placeholder="Search logs..." oninput="SimulatorModule.filterLogs()">
+                                       placeholder="Search logs..." aria-label="Search logs" oninput="SimulatorModule.filterLogs()">
+                                <button type="button" class="btn btn-app-secondary btn-icon d-none"
+                                        onclick="SimulatorModule.clearLogSearch()"
+                                        id="btn-clear-log-search"
+                                        title="Clear search">
+                                    <i class="fas fa-times"></i>
+                                </button>
                             </div>
                         </div>
                         <div class="col-md-3 col-sm-6">
-                            <select class="form-select form-select-sm" id="log-filter" onchange="SimulatorModule.filterLogs()">
+                            <select class="form-select form-select-sm" id="log-filter" aria-label="Filter by log level" onchange="SimulatorModule.filterLogs()">
                                 <option value="all">All Levels</option>
                                 <option value="info">Info</option>
                                 <option value="success">Success</option>
@@ -170,13 +176,14 @@
                 </div>
                 <!-- Log Area -->
                 <div class="p-2 font-monospace small app-log-pane app-scroll-panel app-split-fill-region app-min-h-320"
-                     id="sim-log-area" aria-live="polite" aria-atomic="false">
+                     id="sim-log-area">
                     <div class="app-panel-placeholder is-compact">
                         <span class="app-panel-placeholder-icon"><i class="fas fa-wave-square"></i></span>
                         <span class="app-panel-placeholder-title">Waiting for activity</span>
                         <span class="app-panel-placeholder-copy">Live simulator requests and summaries will appear here.</span>
                     </div>
                 </div>
+                <span class="visually-hidden" aria-live="polite" id="sim-log-summary">0 requests logged</span>
             </div>
         </div>
     </div>

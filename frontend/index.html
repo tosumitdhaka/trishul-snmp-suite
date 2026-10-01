@@ -38,7 +38,7 @@
 </div>
 
 <!-- Login Screen -->
-<div id="login-screen" class="auth-shell login-shell position-fixed top-0 start-0 w-100 h-100 d-none flex-column justify-content-center align-items-center">
+<main id="login-screen" class="auth-shell login-shell position-fixed top-0 start-0 w-100 h-100 d-none flex-column justify-content-center align-items-center">
     <div class="card auth-card shadow-lg border-0">
         <div class="card-body p-4 text-center">
             <div class="auth-card-controls">
@@ -53,37 +53,45 @@
             <div class="mb-3">
                 <img src="img/trishul-icon.svg" alt="Trishul" class="auth-mark">
             </div>
-            <h4 class="mb-1 fw-bold auth-title">Trishul SNMP Suite</h4>
+            <h1 class="h4 mb-1 fw-bold auth-title" aria-label="Trishul SNMP Suite">
+                <span class="app-brand-name">Trishul</span>
+                <span class="app-brand-sub">SNMP Suite</span>
+            </h1>
             <p class="auth-subtitle small mb-4">SNMP Operations Console</p>
 
             <form id="login-form" onsubmit="handleLogin(event)">
                 <div class="mb-3 text-start">
-                    <label class="form-label small fw-bold">Username</label>
+                    <label class="form-label small fw-bold" for="login-user">Username</label>
                     <input type="text" id="login-user" class="form-control form-control-sm" placeholder="admin" required autocomplete="username">
                 </div>
                 <div class="mb-3 text-start">
-                    <label class="form-label small fw-bold">Password</label>
+                    <label class="form-label small fw-bold" for="login-pass">Password</label>
                     <input type="password" id="login-pass" class="form-control form-control-sm" placeholder="••••••" required autocomplete="current-password">
                 </div>
-                <div id="login-error" class="alert alert-danger py-2 small d-none"></div>
+                <div id="login-error" class="alert alert-danger py-2 small d-none" role="alert"></div>
                 <button type="submit" class="btn btn-app-primary btn-sm w-100" id="login-btn">
                     <i class="fas fa-sign-in-alt me-2"></i> Log In
                 </button>
             </form>
         </div>
     </div>
-</div>
+</main>
 
 <!-- Main Application Wrapper -->
 <div id="wrapper" class="app-shell d-none">
+    <a class="app-skip-link" href="#main-content">Skip to main content</a>
     <!-- Sidebar -->
-    <div class="border-end" id="sidebar-wrapper">
+    <aside class="border-end" id="sidebar-wrapper">
         <div class="sidebar-heading border-bottom fw-bold" title="Trishul SNMP Suite">
-            <img src="img/trishul-icon.svg" alt="Trishul" class="app-mark-sm">
-            <span class="ms-2">Trishul SNMP Suite</span>
+            <img src="img/trishul-icon.svg" alt="" aria-hidden="true" class="app-mark-sm">
+            <span class="sidebar-brand-lockup" aria-hidden="true">
+                <span class="app-brand-name">Trishul</span>
+                <span class="app-brand-sub">SNMP Suite</span>
+            </span>
+            <span class="visually-hidden">Trishul SNMP Suite</span>
         </div>
 
-        <div class="list-group list-group-flush flex-grow-1">
+        <nav class="list-group list-group-flush flex-grow-1" aria-label="Primary">
             <a class="list-group-item list-group-item-action" href="#dashboard">
                 <i class="fas fa-tachometer-alt"></i> <span class="ms-2">Dashboard</span>
             </a>
@@ -105,12 +113,12 @@
             <a class="list-group-item list-group-item-action" href="#settings">
                 <i class="fas fa-cog"></i> <span class="ms-2">Settings</span>
             </a>
-        </div>
+        </nav>
 
         <div class="app-sidebar-version p-2 text-center small border-top">
             <span id="app-version">Loading...</span>
         </div>
-    </div>
+    </aside>
 
     <!-- Page Content -->
     <div id="page-content-wrapper" class="w-100">
@@ -118,16 +126,18 @@
             <button class="btn btn-app-secondary btn-sm btn-icon" id="sidebarToggle" aria-label="Toggle Sidebar">
                 <i class="fas fa-bars"></i>
             </button>
-            <span class="navbar-brand ms-3 fw-semibold app-navbar-brand">
-                <span class="app-navbar-brand-group">
-                    <span id="page-title" class="app-navbar-title">Dashboard</span>
+            <div class="navbar-brand ms-3 fw-semibold app-navbar-brand">
+                <div class="app-navbar-brand-group">
+                    <h1 id="page-title" class="app-navbar-title h6 mb-0">Dashboard</h1>
                     <span id="page-subtitle" class="app-navbar-subtitle">Status, counters, and shortcuts</span>
-                </span>
-            </span>
+                </div>
+            </div>
 
             <div class="app-navbar-actions ms-auto d-flex align-items-center gap-3">
                 <span class="badge app-status-badge is-pending status-badge" id="backend-status">Connecting...</span>
-                <span id="ws-status-dot" class="ws-dot ws-dot-connecting" title="WS: Connecting..."></span>
+                <span id="ws-status-dot" class="ws-dot ws-dot-connecting" title="WS: Connecting...">
+                    <span class="visually-hidden" id="ws-status-text">WebSocket connecting</span>
+                </span>
 
                 <button type="button" class="btn btn-sm btn-app-secondary theme-toggle" id="theme-toggle"
                         data-theme-toggle onclick="TrishulUtils.toggleTheme()"
@@ -158,9 +168,9 @@
             </div>
         </nav>
 
-        <div class="container-fluid p-3 p-lg-4" id="main-content">
+        <main class="container-fluid p-3 p-lg-4" id="main-content" tabindex="-1">
             <!-- Dynamic Content -->
-        </div>
+        </main>
     </div>
 </div>
 

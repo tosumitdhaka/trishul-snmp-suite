@@ -526,9 +526,6 @@ window.SimulatorModule = {
             if (data.status === 'started') {
                 this.log(data.message || 'Simulator started successfully', 'success');
                 this.showToast(data.message || 'Simulator started successfully', 'success');
-            } else if (data.status === 'already_running') {
-                this.log(data.message || 'Simulator is already running', 'warning');
-                this.showToast(data.message || 'Simulator is already running', 'warning');
             }
             
             // WS status push will update the UI; this call is a fallback
@@ -762,6 +759,15 @@ window.SimulatorModule = {
 
         if (!area) return;
 
+        const clearBtn = document.getElementById('btn-clear-log-search');
+        if (clearBtn) {
+            if ((searchInput?.value || '').length > 0) {
+                clearBtn.classList.remove('d-none');
+            } else {
+                clearBtn.classList.add('d-none');
+            }
+        }
+
         const searchTerm = (searchInput?.value || '').toLowerCase();
         const level      = filterSelect?.value || 'all';
 
@@ -779,6 +785,17 @@ window.SimulatorModule = {
         this.updateLogStats(filtered.length);
     },
 
+    clearLogSearch: function() {
+        const searchInput = document.getElementById('log-search');
+        if (searchInput) {
+            searchInput.value = '';
+            const clearBtn = document.getElementById('btn-clear-log-search');
+            if (clearBtn) clearBtn.classList.add('d-none');
+            searchInput.focus();
+        }
+        this.filterLogs();
+    },
+
     updateLogStats: function(filteredCount) {
         const stats = document.getElementById('log-stats');
         const total   = window.AppState.logs ? window.AppState.logs.length : 0;
@@ -787,6 +804,15 @@ window.SimulatorModule = {
         if (stats) {
             stats.textContent = `${current} entries${current !== total ? ` (of ${total})` : ''}`;
         }
+
+        this.updateLogSummary();
+    },
+
+    updateLogSummary: function() {
+        const summary = document.getElementById('sim-log-summary');
+        if (!summary) return;
+        const total = window.AppState.logs ? window.AppState.logs.length : 0;
+        summary.textContent = `${total} ${total === 1 ? 'request' : 'requests'} logged`;
     },
 
     readErrorMessage: async function(response, fallback) {

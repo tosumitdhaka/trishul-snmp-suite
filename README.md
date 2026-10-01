@@ -7,25 +7,25 @@
 [![GHCR](https://img.shields.io/badge/GHCR-Packages-blue?style=for-the-badge&logo=github)](https://github.com/tosumitdhaka?tab=packages&repo_name=trishul-snmp-suite)
 
 Trishul SNMP Suite is a bundle-first SNMP lab and operations shell. The current
-`2.0.2` line keeps the FastAPI plus SQLite platform introduced in `2.0.0` and
-adds the current hotfix cleanup around MIB Manager flows, exports, and deployment behavior while
-keeping the familiar page-based operator shell as the release UI.
+`2.0.3` line keeps the FastAPI plus SQLite platform introduced in `2.0.0` and
+delivers a full UI/UX accessibility, consistency, and branding pass across the
+page-based operator shell.
 
 ![Trishul SNMP Suite Demo](./assets/trishul_snmp_demo.gif)
 
-## 2.0.2 Highlights
+## 2.0.3 Highlights
 
 - one FastAPI application in `backend/app`
-- restored release UI in `frontend/` with `Dashboard`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`, `MIB Manager`, and `Settings`
-- one unified `/api/...` surface with no secondary `/api/v2` runtime
-- SQLite-backed state for settings, sessions, bundles, and notification history
-- source-group-aware MIB status and export flows with a deduplicated active runtime view
-- selected-module catalog export from `MIB Sources` plus raw source-file download as `MIB` or zip
-- scoped MIB source filtering by `All`, `Module`, `Imports`, or `Path`
-- bundle, catalog, and runtime services powered by `trishul-smi` and `trishul-snmp`
+- release UI in `frontend/` with `Dashboard`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`, `MIB Manager`, and `Settings`
+- WCAG 2.1 AA accessibility pass: visible keyboard focus, complete form labeling, landmarks and clean heading structure, AA contrast in both themes, live regions for async updates, and reduced-motion support
+- walk results as a structured table with search, copy, and JSON/CSV export
+- sortable trap tables with keyboard-operable headers
+- in-house confirmation dialogs replacing native `confirm()` popups
+- masked SNMP community inputs and bounded port fields
+- two-tier `Trishul` / `SNMP Suite` brand lockup in the sidebar and login
+- mobile drawer with backdrop, Escape handling, and focus management
+- one unified `/api/...` surface with SQLite-backed state for settings, sessions, bundles, and notification history
 - installer defaults to `8980` with optional `BACKEND_PORT` compatibility alias
-- container-first logging to `stdout`/`stderr` with Docker rotation and quieter, event-focused `INFO` logs
-- one current installer for the suite image plus one pinned legacy installer for `1.4.1`
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ curl -LfsS -o install-trishul-snmp-suite.sh \
 ```
 
 If you want to pin the installer to a specific release, replace `main` in the
-URL with a release tag such as `v2.0.2`.
+URL with a release tag such as `v2.0.3`.
 
 From a local checkout, start the published image with:
 
@@ -89,7 +89,7 @@ Examples:
 If you need the pinned merged runtime from the old line:
 
 This section is intentional compatibility guidance for coexistence or rollback,
-not the normal `2.0.2` runtime path.
+not the normal `2.0.3` runtime path.
 
 ```bash
 ./install-trishul-snmp-suite-v1.4.1.sh up
@@ -115,7 +115,7 @@ It also accepts the same `--platform` and `--image` overrides.
 
 ## Runtime Model
 
-The current `2.0.2` path is built around:
+The current `2.0.3` path is built around:
 
 - `backend/app` as the live FastAPI runtime
 - `frontend/` as the authored release shell copied into `frontend/dist`
@@ -176,7 +176,7 @@ For Docker-backed local validation:
 
 ## Roadmap
 
-The current `2.0.2` line delivers the rewritten backend platform, SQLite
+The current `2.0.3` line delivers the rewritten backend platform, SQLite
 persistence, the bundle-first MIB pipeline, and the shipped operator UI with
 the current hotfix cleanup around source filtering, scoped export/download
 flows, and deployment defaults.

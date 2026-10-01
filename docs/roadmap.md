@@ -9,7 +9,7 @@ status and [issue_tracker.md](issue_tracker.md) for slice and backlog tracking.
 
 ## Current Delivery State
 
-`2.0.2` is the current shipped release. The initial `2.0.0` implementation
+`2.0.3` is the current shipped release. The initial `2.0.0` implementation
 slices `S0` through `S13` remain `Done`.
 
 ## Delivered In The 2.0.x Line

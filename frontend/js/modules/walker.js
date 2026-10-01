@@ -6,7 +6,7 @@ window.WalkerModule = {
     walkHistory: [],
     MAX_HISTORY: 20,
     filteredData: null,
-    EMPTY_OUTPUT_HTML: '<span class="fs-2 mb-3 d-block text-center empty-state-icon"><i class="fas fa-walking"></i></span><span class="fw-semibold d-block text-center mb-1 empty-state-title">No results yet</span><span class="d-block text-center empty-state-copy">Configure a target and run a walk.</span>',
+    EMPTY_OUTPUT_HTML: '<span class="fs-2 mb-3 d-block text-center empty-state-icon"><i class="fas fa-walking"></i></span><h3 class="h6 fw-semibold d-block text-center mb-1 empty-state-title lh-base">No results yet</h3><span class="d-block text-center empty-state-copy">Configure a target and run a walk.</span>',
 
     init: function() { 
         this.toggleOptions();
@@ -99,6 +99,7 @@ window.WalkerModule = {
     },
 
     setOutputState: function(state, value) {
+        this._outputState = state;
         const output = document.getElementById('walk-output');
         if (!output) return;
 
@@ -109,7 +110,118 @@ window.WalkerModule = {
             return;
         }
 
+        if (state === 'ready') {
+            this.renderData();
+            return;
+        }
+
         output.textContent = String(value ?? '');
+    },
+
+    // ==================== Result Rendering ====================
+
+    renderData: function() {
+        const output = document.getElementById('walk-output');
+        if (!output) return;
+
+        output.className = this.getOutputClass('ready');
+        output.innerHTML = this.buildResultHtml();
+    },
+
+    buildResultHtml: function() {
+        const data = Array.isArray(this.filteredData) ? this.filteredData : this.lastData;
+
+        if (Array.isArray(data)) {
+            if (data.length === 0) {
+                return Array.isArray(this.filteredData)
+                    ? '<span class="d-block text-center text-muted py-3">No results match your search.</span>'
+                    : '<span class="d-block text-center text-muted py-3">No results to display.</span>';
+            }
+            if (typeof data[0] === 'object' && data[0] !== null && !Array.isArray(data[0])) {
+                return this.buildObjectTable(data);
+            }
+            return this.buildRawLineTable(data);
+        }
+
+        const text = this.lastDisplayMode === 'parsed'
+            ? JSON.stringify(data, null, 2)
+            : String(data ?? '');
+        return `<pre class="m-0">${TrishulUtils.escapeHtml(text)}</pre>`;
+    },
+
+    buildRawLineTable: function(lines) {
+        const esc = TrishulUtils.escapeHtml;
+        const rows = lines.map(line => {
+            const text = String(line);
+            const sep = text.indexOf(' = ');
+            if (sep === -1) return { oid: text, value: '' };
+            return { oid: text.slice(0, sep), value: text.slice(sep + 3) };
+        });
+
+        return `
+            <table class="table table-sm table-hover mb-0 table-dense">
+                <caption class="visually-hidden">Walk results</caption>
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th scope="col">OID</th>
+                        <th scope="col">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map(r => `<tr><td>${esc(r.oid)}</td><td>${esc(r.value)}</td></tr>`).join('')}
+                </tbody>
+            </table>`;
+    },
+
+    buildObjectTable: function(rows) {
+        const esc = TrishulUtils.escapeHtml;
+        const first = rows[0];
+
+        let columns;
+        if (first && ('oid' in first || 'symbolic' in first)) {
+            const hasType = rows.some(r => r.type != null && String(r.type) !== '');
+            columns = [
+                { label: 'OID', get: r => r.symbolic || r.oid },
+                ...(hasType ? [{ label: 'Type', get: r => r.type }] : []),
+                { label: 'Value', get: r => r.value },
+            ];
+        } else if (first && 'metric_name' in first) {
+            columns = [
+                { label: 'Metric', get: r => r.metric_name },
+                { label: 'Value', get: r => r.value },
+                { label: 'Module', get: r => r.mib_module },
+                { label: 'Category', get: r => r.metric_category },
+                { label: 'Agent', get: r => r.agent_host },
+                { label: 'Timestamp', get: r => r.timestamp },
+                { label: 'Labels', get: r => r.labels },
+            ];
+        } else {
+            columns = Object.keys(first || {}).map(k => ({ label: k, get: r => r[k] }));
+        }
+
+        const cell = v => {
+            if (v === null || v === undefined) return '';
+            return esc(typeof v === 'object' ? JSON.stringify(v) : String(v));
+        };
+
+        return `
+            <table class="table table-sm table-hover mb-0 table-dense">
+                <caption class="visually-hidden">Walk results</caption>
+                <thead class="table-light sticky-top">
+                    <tr>
+                        ${columns.map(c => `<th scope="col">${esc(c.label)}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map(r => `<tr>${columns.map(c => `<td>${cell(c.get(r))}</td>`).join('')}</tr>`).join('')}
+                </tbody>
+            </table>`;
+    },
+
+    getOutputText: function(data, mode) {
+        if (data == null) return '';
+        if (mode === 'parsed') return JSON.stringify(data, null, 2);
+        return Array.isArray(data) ? data.join("\n") : String(data);
     },
 
     // ==================== Walk History ====================
@@ -261,15 +373,22 @@ window.WalkerModule = {
     },
 
     clearHistory: function() {
-        if (!confirm('Clear all walk history? This cannot be undone.')) return;
-        
-        this.walkHistory = [];
-        try {
-            localStorage.removeItem('trishul_walker_history');
-        } catch (e) {
-            console.error('Failed to clear walk history:', e);
-        }
-        this.renderHistory();
+        TrishulUtils.confirmDialog({
+            title: 'Clear all walk history?',
+            message: 'This cannot be undone.',
+            confirmLabel: 'Clear',
+            variant: 'danger',
+        }).then((confirmed) => {
+            if (!confirmed) return;
+            
+            this.walkHistory = [];
+            try {
+                localStorage.removeItem('trishul_walker_history');
+            } catch (e) {
+                console.error('Failed to clear walk history:', e);
+            }
+            this.renderHistory();
+        });
     },
 
     // ==================== UI Functions ====================
@@ -356,6 +475,7 @@ window.WalkerModule = {
         // Show progress
         progressEl.classList.remove('d-none');
         progressBar.style.width = '50%';
+        progressBar.setAttribute('aria-valuenow', '50');
         progressText.textContent = `Walking ${oid}...`;
         progressCount.textContent = "0 items";
 
@@ -382,6 +502,7 @@ window.WalkerModule = {
             countBadge.textContent = `${data.count} items`;
             progressCount.textContent = `${data.count} items`;
             progressBar.style.width = '100%';
+            progressBar.setAttribute('aria-valuenow', '100');
             
             sessionStorage.setItem('walkerLastResult', JSON.stringify({
                 data: data.data,
@@ -430,6 +551,7 @@ window.WalkerModule = {
             setTimeout(() => {
                 progressEl.classList.add('d-none');
                 progressBar.style.width = '0%';
+                progressBar.setAttribute('aria-valuenow', '0');
             }, 500);
         }
     },
@@ -469,45 +591,68 @@ window.WalkerModule = {
 
         this.setOutputState('empty');
         if (countBadge) countBadge.textContent = "0 items";
-        if (searchInput) searchInput.value = '';
+        if (searchInput) {
+            searchInput.value = '';
+            const clearBtn = document.getElementById("btn-clear-result-search");
+            if (clearBtn) clearBtn.classList.add('d-none');
+        }
     },
 
     filterResults: function() {
         const searchInput = document.getElementById("walk-result-search");
         const output = document.getElementById("walk-output");
         const searchTerm = searchInput.value.toLowerCase().trim();
-        
+
+        const clearBtn = document.getElementById("btn-clear-result-search");
+        if (clearBtn) {
+            if (searchInput.value.length > 0) {
+                clearBtn.classList.remove('d-none');
+            } else {
+                clearBtn.classList.add('d-none');
+            }
+        }
+
         if (!this.lastData) return;
-        
+
         if (!searchTerm) {
             this.filteredData = null;
-            if (this.lastDisplayMode === 'parsed') {
-                output.textContent = JSON.stringify(this.lastData, null, 2);
-            } else {
-                output.textContent = Array.isArray(this.lastData) ? this.lastData.join("\n") : String(this.lastData);
-            }
+            this.renderData();
             return;
         }
-        
-        if (this.lastDisplayMode === 'parsed' && Array.isArray(this.lastData)) {
-            this.filteredData = this.lastData.filter(item => 
-                JSON.stringify(item).toLowerCase().includes(searchTerm)
-            );
-            output.textContent = JSON.stringify(this.filteredData, null, 2);
-        } else if (Array.isArray(this.lastData)) {
-            this.filteredData = this.lastData.filter(line => 
-                line.toLowerCase().includes(searchTerm)
-            );
-            output.textContent = this.filteredData.join("\n");
+
+        if (Array.isArray(this.lastData)) {
+            this.filteredData = this.lastData.filter(item => {
+                // Raw walk lines are plain strings — match against the raw line
+                // so searches containing quotes/backslashes work correctly.
+                // Parsed/object rows still match against their JSON serialization.
+                if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                    return JSON.stringify(item).toLowerCase().includes(searchTerm);
+                }
+                return String(item).toLowerCase().includes(searchTerm);
+            });
+            this.renderData();
         } else {
             const text = JSON.stringify(this.lastData).toLowerCase();
             if (text.includes(searchTerm)) {
-                output.textContent = this.lastDisplayMode === 'parsed' ? 
-                    JSON.stringify(this.lastData, null, 2) : String(this.lastData);
+                this.filteredData = null;
+                this.renderData();
             } else {
+                this.filteredData = null;
+                output.className = this.getOutputClass('ready');
                 output.textContent = "No results match your search.";
             }
         }
+    },
+
+    clearResultSearch: function() {
+        const searchInput = document.getElementById("walk-result-search");
+        if (searchInput) {
+            searchInput.value = '';
+            const clearBtn = document.getElementById("btn-clear-result-search");
+            if (clearBtn) clearBtn.classList.add('d-none');
+            searchInput.focus();
+        }
+        this.filterResults();
     },
 
     restoreLastResult: function() {
@@ -536,12 +681,20 @@ window.WalkerModule = {
 
     copyToClipboard: function() {
         const output = document.getElementById("walk-output");
-        const text = output ? output.textContent : '';
-        if (!output || output.classList.contains('walk-empty') || text.startsWith("Error:")) {
+        // Bail while a walk is in flight: the pane is in the loading state and
+        // lastData still holds the previous (stale) walk.
+        if (!output || output.classList.contains('walk-empty') || this._outputState === 'loading') {
             TrishulUtils.showNotification("No data to copy", "warning");
             return;
         }
-        
+
+        const data = Array.isArray(this.filteredData) ? this.filteredData : this.lastData;
+        const text = this.getOutputText(data, this.lastDisplayMode);
+        if (!text) {
+            TrishulUtils.showNotification("No data to copy", "warning");
+            return;
+        }
+
         navigator.clipboard.writeText(text).then(() => {
             TrishulUtils.showNotification("Copied", "success");
         }).catch(() => {

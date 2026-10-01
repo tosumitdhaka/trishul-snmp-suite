@@ -7,13 +7,13 @@
             <div id="drop-overlay" class="position-absolute top-0 start-0 w-100 h-100 d-none justify-content-center align-items-center rounded app-drop-overlay">
                 <div class="text-center app-tone-on-dark">
                     <i class="fas fa-file-import fa-3x mb-2"></i>
-                    <h5 class="mb-0 fw-bold">Drop MIB files here</h5>
+                    <h2 class="h5 mb-0 fw-bold">Drop MIB files here</h2>
                 </div>
             </div>
 
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-book me-2 app-header-icon is-primary"></i> MIB Sources</span>
+                    <h2 class="mb-0 fw-semibold text-reset" style="font-size:0.875rem;line-height:inherit"><i class="fas fa-book me-2 app-header-icon is-primary"></i> MIB Sources</h2>
                 </div>
                 <div class="app-card-header-actions">
                     <button type="button" class="btn btn-sm btn-app-primary" onclick="MibsModule.showUploadModal()">
@@ -119,7 +119,7 @@
         <div class="card shadow-sm">
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span><i class="fas fa-download me-2 app-header-icon is-primary"></i> Exports</span>
+                    <h2 class="mb-0 fw-semibold text-reset" style="font-size:0.875rem;line-height:inherit"><i class="fas fa-download me-2 app-header-icon is-primary"></i> Exports</h2>
                 </div>
             </div>
             <div class="card-body py-2">
@@ -161,10 +161,10 @@
         <div class="card shadow-sm flex-fill app-split-fill">
             <div class="card-header">
                 <div class="app-card-header-main">
-                    <span>
+                    <h2 class="mb-0 fw-semibold text-reset" style="font-size:0.875rem;line-height:inherit">
                         <i class="fas fa-bell me-2 app-header-icon is-warning"></i> Trap Library
                         <span class="badge badge-soft-light ms-2" id="trap-total-count">0</span>
-                    </span>
+                    </h2>
                 </div>
                 <div class="app-card-header-actions mib-trap-toolbar">
                     <div class="input-group input-group-sm mib-trap-search">
@@ -172,7 +172,13 @@
                             <i class="fas fa-search"></i>
                         </span>
                         <input type="text" class="form-control" id="trap-search"
-                               placeholder="Search traps...">
+                               placeholder="Search traps..." aria-label="Search traps">
+                        <button type="button" class="btn btn-app-secondary btn-icon d-none"
+                                onclick="MibsModule.clearTrapSearch()"
+                                id="btn-clear-trap-search"
+                                title="Clear search">
+                            <i class="fas fa-times"></i>
+                        </button>
                     </div>
                     <div class="btn-group btn-group-sm catalog-export-buttons" role="group" aria-label="Trap export">
                         <button type="button" class="btn btn-app-secondary catalog-export-btn" onclick="MibsModule.exportTrapCatalog('json')">
@@ -191,13 +197,24 @@
                 </div>
                 <div class="table-responsive app-scroll-panel app-split-fill-region app-min-h-320 app-overflow-hidden-x">
                     <table class="table table-sm table-hover mb-0 mib-trap-table table-dense">
+                        <caption class="visually-hidden">Trap library</caption>
                         <thead class="table-light sticky-top">
                             <tr>
-                                <th>Name</th>
-                                <th>OID</th>
-                                <th class="text-center">Module</th>
-                                <th class="text-center">Objects</th>
-                                <th class="text-center">Actions</th>
+                                <th scope="col" id="trap-th-name" aria-sort="ascending">
+                                    <button type="button" class="th-sort-btn bg-transparent border-0 p-0 text-reset fw-bold"
+                                            data-sort-key="name" onclick="MibsModule.toggleTrapSort('name')">
+                                        Name <i class="fas fa-sort-up th-sort-icon" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th scope="col" id="trap-th-oid" aria-sort="none">
+                                    <button type="button" class="th-sort-btn bg-transparent border-0 p-0 text-reset fw-bold"
+                                            data-sort-key="oid" onclick="MibsModule.toggleTrapSort('oid')">
+                                        OID <i class="fas fa-sort th-sort-icon" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th scope="col" class="text-center">Module</th>
+                                <th scope="col" class="text-center">Objects</th>
+                                <th scope="col" class="text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="trap-table-body">
@@ -211,6 +228,13 @@
                                 </td>
                             </tr>
                         </tbody>
+                        <tfoot id="trap-table-footer" class="d-none">
+                            <tr>
+                                <td colspan="5" class="small text-muted py-2 px-2 border-0">
+                                    <span class="trap-table-summary"></span>
+                                </td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </div>
@@ -219,12 +243,12 @@
 </div>
 
 <!-- Upload Modal -->
-<div class="modal fade" id="uploadModal" tabindex="-1">
+<div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="upload-modal-title">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h6 class="modal-title"><i class="fas fa-upload me-2"></i> Upload MIBs</h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h2 class="modal-title h6 mb-0" id="upload-modal-title"><i class="fas fa-upload me-2"></i> Upload MIBs</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-3">
@@ -235,7 +259,7 @@
                     <div class="form-text small">Stored under <code>data/mibs/&lt;group&gt;/</code>. Use vendor or domain folders such as <code>common</code>, <code>cisco</code>, or <code>juniper</code>.</div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label small fw-bold">Select Files</label>
+                    <label class="form-label small fw-bold" for="mib-upload-input">Select Files</label>
                     <input type="file" class="form-control form-control-sm" id="mib-upload-input" multiple
                            accept=".mib,.txt,.my">
                     <div class="form-text small">Supported formats: .mib, .txt, .my. Validation runs automatically after file selection.</div>
@@ -249,7 +273,7 @@
 
                 <div id="upload-validation-results" class="d-none">
                     <hr>
-                    <h6 class="fw-bold">Validation</h6>
+                    <h3 class="h6 fw-bold">Validation</h3>
                     <div id="validation-list"></div>
                 </div>
                 <div class="alert alert-warning d-none" id="dependency-alert">
@@ -277,16 +301,16 @@
 </div>
 
 <!-- Failed MIBs Modal -->
-<div class="modal fade" id="failedMibsModal" tabindex="-1">
+<div class="modal fade" id="failedMibsModal" tabindex="-1" aria-labelledby="failed-mibs-modal-title">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h6 class="modal-title">
+                <h2 class="modal-title h6 mb-0" id="failed-mibs-modal-title">
                     <i class="fas fa-exclamation-triangle me-2 app-header-icon is-danger"></i>
                     Failed MIBs
                     <span class="badge app-badge is-danger ms-2" id="failed-mib-total-count">0</span>
-                </h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body p-2">
                 <ul class="list-group list-group-flush small" id="failed-mib-list"></ul>
@@ -302,12 +326,12 @@
 </div>
 
 <!-- Trap Details Modal -->
-<div class="modal fade" id="trapDetailsModal" tabindex="-1">
+<div class="modal fade" id="trapDetailsModal" tabindex="-1" aria-labelledby="trap-detail-title">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h6 class="modal-title" id="trap-detail-title">Trap Details</h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h2 class="modal-title h6 mb-0" id="trap-detail-title">Trap Details</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="trap-detail-body"></div>
             <div class="modal-footer py-2">

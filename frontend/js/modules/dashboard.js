@@ -50,7 +50,8 @@ window.DashboardModule = {
 
         // Stats broadcast — sent after any stats write
         this._on('trishul:ws:stats', function (e) {
-            if (e.detail.data) self._applyStats(e.detail.data);
+            const stats = e.detail.stats || e.detail.data;
+            if (stats) self._applyStats(stats);
         });
 
         // Re-seed everything via REST after every WS reconnect
@@ -124,7 +125,13 @@ window.DashboardModule = {
     },
 
     resetStats: async function () {
-        if (!confirm('Reset all activity counters?\n\nThis cannot be undone.')) return;
+        const confirmed = await TrishulUtils.confirmDialog({
+            title: 'Reset all activity counters?',
+            message: 'This cannot be undone.',
+            confirmLabel: 'Reset',
+            variant: 'danger',
+        });
+        if (!confirmed) return;
         try {
             var res = await fetch('/api/stats/', { method: 'DELETE' });
             if (!res.ok) throw new Error('HTTP ' + res.status);

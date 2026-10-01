@@ -160,7 +160,7 @@ def test_realtime_builders_and_broadcast_wrappers_emit_expected_payloads(
     ]
     assert captured[0][0]["mibs"]["traps_available"] == 7
     assert captured[1][0]["simulator"]["running"] is True
-    assert "walker" in captured[2][0]["data"]
+    assert "walker" in captured[2][0]["stats"]
     assert captured[3][0]["mibs"]["total"] == 2
     assert captured[4][0]["trap"]["name"] == "linkDown"
     assert captured[5][0]["entry"]["message"] == "GETBULK"

@@ -1,6 +1,6 @@
 # UI Verification Checklist
 
-Use this checklist for the current `2.0.2` release UI.
+Use this checklist for the current `2.0.3` release UI.
 
 ## Test Matrix
 

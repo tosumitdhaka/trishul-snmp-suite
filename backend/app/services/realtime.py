@@ -173,7 +173,7 @@ async def broadcast_stats(settings: Settings | None = None) -> None:
     await ws_manager.broadcast(
         {
             "type": "stats",
-            "data": await stats_service.get_stats(
+            "stats": await stats_service.get_stats(
                 state=get_state_store(),
                 history_service=EventHistoryService(runtime_settings),
                 runtime_service=get_runtime_service(),
