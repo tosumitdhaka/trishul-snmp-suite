@@ -13,6 +13,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from app.core.config import Settings
 from app.core.logging import emit_backend_log
 from app.services.bundle_state import get_bundle
+from app.services.mib_metadata import enum_values
 from app.services.state_store import (
     StateStore,
     _MIB_AUTO_FETCH_KEY,
@@ -108,24 +109,6 @@ def _input_type_for_syntax(syntax: str | None) -> str:
     return "String"
 
 
-def _enum_values_from_constraints(constraints: Any) -> list[dict[str, Any]]:
-    if not isinstance(constraints, dict) or constraints.get("kind") != "enum":
-        return []
-
-    enum_values: list[dict[str, Any]] = []
-    for item in constraints.get("data") or []:
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            label, value = str(item[0]), item[1]
-        elif isinstance(item, dict):
-            label = str(item.get("name") or item.get("label") or item.get("symbol") or "")
-            value = item.get("value")
-        else:
-            continue
-        if isinstance(value, int):
-            enum_values.append({"label": label or str(value), "value": value})
-    return enum_values
-
-
 def _notification_member_payload(member, *, bundle) -> dict[str, Any]:
     module_name = str(getattr(member, "module", "") or "").strip()
     object_name = str(getattr(member, "object", "") or "").strip()
@@ -160,22 +143,24 @@ def _notification_member_payload(member, *, bundle) -> dict[str, Any]:
             "input_type": _input_type_for_syntax(node.syntax),
         }
     )
-    enum_values = _enum_values_from_constraints(getattr(node, "constraints", None))
-    if enum_values:
-        payload["enum_values"] = enum_values
+    member_enum_values = enum_values(node)
+    if member_enum_values:
+        payload["enum_values"] = member_enum_values
+    payload["constraint"] = getattr(node, "constraints", None)
     return payload
 
 
-def _bundle_summary_details(bundle_service) -> tuple[dict[str, dict[str, Any]], str, str]:
+def _bundle_summary_details(bundle_service) -> tuple[dict[str, dict[str, Any]], str, str, Any]:
     bundle_summary = bundle_service.get_effective_bundle_summary() or {}
     bundle_label = str(bundle_summary.get("label") or bundle_summary.get("bundle_key") or "active-bundle")
     bundle_key = str(bundle_summary.get("bundle_key") or "")
+    bundle_id = bundle_summary.get("id")
     bundle_modules = {
         str(module.get("module_name") or ""): module
         for module in (bundle_summary.get("modules") or [])
         if str(module.get("module_name") or "").strip()
     }
-    return bundle_modules, bundle_label, bundle_key
+    return bundle_modules, bundle_label, bundle_key, bundle_id
 
 
 def _bundle_source_path_for_module(module_name: str, *, bundle_modules, source_svc) -> Path | None:
@@ -362,7 +347,8 @@ def get_status(
 
     bundle = get_bundle()
     uploaded_inventory = source_svc.uploaded_source_inventory()
-    bundle_modules, _, _ = _bundle_summary_details(bundle_service)
+    bundle_modules, _, _, active_bundle_id = _bundle_summary_details(bundle_service)
+    manifest_summary = bundle_service.get_effective_bundle_manifest_summary() or {}
 
     rows_by_module: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
     active_uploaded_paths: set[str] = set()
@@ -404,6 +390,9 @@ def get_status(
                 "source_kind": source_kind,
                 "source_group": source_group,
                 "status": "active",
+                "module_metadata": dict(mod_record.module_metadata)
+                if getattr(mod_record, "module_metadata", None)
+                else None,
             }
             rows_by_module[mod_name] = row_payload
             if deletable and relative_path:
@@ -604,6 +593,10 @@ def get_status(
             managed_source_kinds=MANAGED_UPLOAD_SOURCE_KINDS,
             root_upload_source_group=ROOT_UPLOAD_SOURCE_GROUP,
         ),
+        "producer_version": manifest_summary.get("producer_version"),
+        "recompile_recommended": bool(manifest_summary.get("recompile_recommended")),
+        "missing_capabilities": manifest_summary.get("missing_capabilities") or [],
+        "active_bundle_id": active_bundle_id,
     }
 
 
@@ -775,7 +768,7 @@ def export_catalog(
 
     source_svc = _make_source_service(settings, state, bundle_service)
     uploaded_inventory = source_svc.uploaded_source_inventory()
-    bundle_modules, bundle_label, bundle_key = _bundle_summary_details(bundle_service)
+    bundle_modules, bundle_label, bundle_key, _bundle_id = _bundle_summary_details(bundle_service)
     inventory_entries_by_module: dict[str, list[dict[str, Any]]] = {}
     for entry in uploaded_inventory:
         mib_name = str(entry.get("mib_name") or "").strip()

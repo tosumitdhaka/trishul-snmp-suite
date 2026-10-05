@@ -182,6 +182,65 @@ def test_bundle_detail_and_diff_service_expose_dependency_and_change_data(isolat
     )
 
 
+def test_compile_is_reproducible_and_content_hash_is_stable(isolated_db):
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    service = BundleService(isolated_db["settings"])
+    first = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+    second = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+
+    assert first["bundle"]["content_hash"]
+    assert first["bundle"]["content_hash"] == second["bundle"]["content_hash"]
+
+    first_path = Path(first["bundle"]["storage_path"])
+    second_path = Path(second["bundle"]["storage_path"])
+    assert (first_path / "SNMPv2-MIB.json").read_bytes() == (second_path / "SNMPv2-MIB.json").read_bytes()
+    assert (first_path / "manifest.json").read_bytes() == (second_path / "manifest.json").read_bytes()
+    assert (first_path / "oid_index.json").read_bytes() == (second_path / "oid_index.json").read_bytes()
+
+
+def test_manifest_summary_reports_recompile_recommendation(isolated_db):
+    from app.services.bundles import BundleService
+
+    service = BundleService(isolated_db["settings"])
+
+    old = service._manifest_summary(
+        {
+            "modules": [],
+            "sidecars": {},
+            "producer_version": "0.4.5",
+        }
+    )
+    assert old["producer_version"] == "0.4.5"
+    assert old["recompile_recommended"] is True
+    assert old["missing_capabilities"] == ["enums", "units"]
+
+    new = service._manifest_summary(
+        {
+            "modules": [],
+            "sidecars": {},
+            "producer_version": "0.5.3",
+        }
+    )
+    assert new["recompile_recommended"] is False
+    assert new["missing_capabilities"] == []
+
+    prerelease = service._manifest_summary(
+        {
+            "modules": [],
+            "sidecars": {},
+            "producer_version": "0.5.3-beta1",
+        }
+    )
+    assert prerelease["recompile_recommended"] is False
+    assert prerelease["missing_capabilities"] == []
+
+    unknown = service._manifest_summary({"modules": [], "sidecars": {}})
+    assert unknown["producer_version"] is None
+    assert unknown["recompile_recommended"] is False
+    assert unknown["missing_capabilities"] == []
+
+
 def test_ensure_bootstrap_bundle_compiles_and_activates_bundled_sources(isolated_db):
     from app.services.bundles import BUNDLED_STARTER_MIBS, BundleService
 

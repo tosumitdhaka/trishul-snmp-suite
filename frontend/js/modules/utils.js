@@ -33,6 +33,65 @@ window.TrishulUtils = {
         }
     },
 
+    normalizeEnumValues: function(source) {
+        const rawEntries = Array.isArray(source)
+            ? source
+            : (
+                source
+                && typeof source === 'object'
+                && String(source.kind || '').trim().toLowerCase() === 'enum'
+                && Array.isArray(source.data)
+                    ? source.data
+                    : []
+            );
+
+        const values = [];
+        const seen = new Set();
+        rawEntries.forEach(entry => {
+            let label = '';
+            let rawValue = null;
+
+            if (Array.isArray(entry) && entry.length >= 2) {
+                label = String(entry[0] ?? '').trim();
+                rawValue = entry[1];
+            } else if (entry && typeof entry === 'object') {
+                label = String(entry.label || entry.name || entry.symbol || '').trim();
+                rawValue = entry.value;
+            }
+
+            const numericValue = Number(rawValue);
+            if (!Number.isInteger(numericValue)) return;
+
+            if (!label) {
+                label = String(numericValue);
+            }
+
+            const key = `${label}|${numericValue}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            values.push({ label, value: numericValue });
+        });
+
+        return values;
+    },
+
+    formatValue: function(value, options) {
+        const opts = options || {};
+        const enumLabel = String(opts.enumLabel || '').trim();
+        const units = String(opts.units || '').trim();
+        const raw = value == null ? '' : String(value);
+        const esc = this.escapeHtml;
+
+        let html = esc(raw);
+        if (enumLabel) {
+            html += ` <span class="badge app-badge is-info app-value-enum-badge">${esc(enumLabel)}</span>`;
+        }
+        if (units) {
+            html += ` <span class="app-value-units text-muted">${esc(units)}</span>`;
+        }
+        return html;
+    },
+
     downloadText: function(filename, content, mimeType) {
         var blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
         var url = URL.createObjectURL(blob);

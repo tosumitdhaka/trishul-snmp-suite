@@ -22,6 +22,7 @@ class BundleSet(Base):
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     manifest_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     oid_index_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

@@ -18,6 +18,7 @@ window.MibsModule = {
     _trapSortKey: 'name',
     _trapSortDir: 'asc',
     TRAP_ROW_CAP: 500,
+    RECOMPILE_BANNER_DISMISS_KEY: 'trishul_recompile_banner_dismissed',
 
     buildListPlaceholder: function(options) {
         return `<li class="list-group-item border-0 bg-transparent">${TrishulUtils.buildPanelPlaceholder({
@@ -210,6 +211,26 @@ window.MibsModule = {
 
         this.renderMibList();
         this.renderFailedMibs(failedModules);
+        this.updateRecompileBanner(data);
+    },
+
+    updateRecompileBanner: function(data) {
+        const banner = document.getElementById('mib-recompile-banner');
+        if (!banner) return;
+        const recommended = Boolean(data && data.recompile_recommended);
+        const dismissed = localStorage.getItem(this.RECOMPILE_BANNER_DISMISS_KEY) === '1';
+        banner.classList.toggle('d-none', !recommended || dismissed);
+    },
+
+    dismissRecompileBanner: function() {
+        localStorage.setItem(this.RECOMPILE_BANNER_DISMISS_KEY, '1');
+        const banner = document.getElementById('mib-recompile-banner');
+        if (banner) banner.classList.add('d-none');
+    },
+
+    recompileFromBanner: async function() {
+        localStorage.removeItem(this.RECOMPILE_BANNER_DISMISS_KEY);
+        await this.reloadMibs();
     },
 
     loadStatus: async function() {
@@ -335,6 +356,13 @@ window.MibsModule = {
                         ` : ''}
                     </div>
                 <div class="d-flex align-items-center gap-1">
+                    ${mib.module_metadata ? `
+                        <button type="button" class="btn btn-sm btn-app-secondary btn-icon mib-side-action"
+                                onclick="MibsModule.toggleModuleMetadata(this, '${esc(mib.name)}')"
+                                title="Module metadata" aria-label="Module metadata">
+                            <i class="fas fa-clock-rotate-left"></i>
+                        </button>
+                    ` : ''}
                     ${canDownloadRaw ? `
                         <button type="button" class="btn btn-sm btn-app-secondary btn-icon mib-side-action"
                                 onclick="MibsModule.downloadMib(this.dataset.path)"
@@ -356,6 +384,7 @@ window.MibsModule = {
                     ` : ''}
                 </div>
                 </div>
+                <div class="mib-module-meta-panel d-none"></div>
             </li>
         `;
         }).join('');
@@ -675,6 +704,52 @@ window.MibsModule = {
             return '<span class="badge app-badge is-danger ms-2">Failed</span>';
         }
         return '';
+    },
+
+    toggleModuleMetadata: function(button, moduleName) {
+        const mib = (this.allMibs || []).find(item => item && item.name === moduleName);
+        const panel = button ? button.closest('.mib-list-item')?.querySelector('.mib-module-meta-panel') : null;
+        if (!mib || !panel) return;
+        if (panel.classList.contains('d-none')) {
+            panel.innerHTML = this.buildModuleMetadataCard(mib.module_metadata);
+            panel.classList.remove('d-none');
+        } else {
+            panel.classList.add('d-none');
+        }
+    },
+
+    buildModuleMetadataCard: function(metadata) {
+        const esc = TrishulUtils.escapeHtml;
+        const revisions = Array.isArray(metadata && metadata.revisions) ? metadata.revisions : [];
+        return `
+            <div class="app-surface-muted border rounded p-2 mt-2 small mib-module-meta-card">
+                ${metadata.organization ? `
+                    <div class="mb-1"><span class="text-muted fw-bold">Organization:</span> ${esc(metadata.organization)}</div>
+                ` : ''}
+                ${metadata.lastupdated ? `
+                    <div class="mb-1"><span class="text-muted fw-bold">Last updated:</span> ${esc(metadata.lastupdated)}</div>
+                ` : ''}
+                ${metadata.contactinfo ? `
+                    <div class="mb-1 text-muted app-break-word"><span class="fw-bold">Contact:</span> ${esc(metadata.contactinfo)}</div>
+                ` : ''}
+                ${revisions.length > 0 ? `
+                    <div class="mt-1">
+                        <div class="text-muted fw-bold mb-1">Revisions</div>
+                        <ul class="list-unstyled mb-0 app-scroll-panel app-max-h-150">
+                            ${revisions.map(rev => `
+                                <li class="mb-1">
+                                    <code class="small">${esc(rev.date || '')}</code>
+                                    ${rev.description ? `<div class="text-muted app-fs-75">${esc(rev.description)}</div>` : ''}
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                ${metadata.description ? `
+                    <div class="mt-1 text-muted app-fs-75">${esc(metadata.description)}</div>
+                ` : ''}
+            </div>
+        `;
     },
 
     renderFailedMibs: function(errors) {

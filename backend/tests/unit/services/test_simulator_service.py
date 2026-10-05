@@ -100,15 +100,30 @@ def test_bundle_objects_are_empty_without_an_active_bundle(isolated_db):
     assert _bundle_objects(isolated_db["settings"]) == []
 
 
-def test_default_value_for_syntax_uses_constraints_and_type_rules():
+def test_default_value_for_syntax_uses_node_enum_metadata_and_type_rules():
+    from types import SimpleNamespace
+
     from app.services.simulator_service import _default_value_for_syntax
 
-    enum_constraints = {"kind": "enum", "data": [["up", 1], ["down", 2], ["testing", 3]]}
-    result = _default_value_for_syntax("INTEGER", "anyStatusObject", index=1, constraints=enum_constraints)
+    old_enum_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "enum", "data": [["up", 1], ["down", 2], ["testing", 3]]},
+    )
+    result = _default_value_for_syntax("INTEGER", "anyStatusObject", index=1, node=old_enum_node)
     assert result == {"type": "integer", "value": 1}
 
-    size_constraints = {"kind": "size", "data": [[0, 255]]}
-    result = _default_value_for_syntax("DisplayString", "sysDescr", index=0, constraints=size_constraints)
+    new_enum_node = SimpleNamespace(
+        enums={"up": 1, "down": 2, "testing": 3},
+        constraints=None,
+    )
+    result = _default_value_for_syntax("INTEGER", "anyStatusObject", index=1, node=new_enum_node)
+    assert result == {"type": "integer", "value": 1}
+
+    size_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "size", "data": [[0, 255]]},
+    )
+    result = _default_value_for_syntax("DisplayString", "sysDescr", index=0, node=size_node)
     assert result["type"] == "octet-string"
 
     assert _default_value_for_syntax("Counter32", "ifInOctets", index=1)["type"] == "counter32"
@@ -153,7 +168,7 @@ def test_runtime_objects_from_custom_data_and_load_custom_data_cover_coercion_pa
     custom_data_path.write_text("{invalid json\n")
     assert load_custom_data(settings) == {}
 
-    objects = _runtime_objects_from_custom_data(
+    objects, warnings = _runtime_objects_from_custom_data(
         {
             " IF-MIB::ifDescr.0 ": "edge-router",
             "IF-MIB::ifHCInOctets.0": "42",
@@ -163,6 +178,7 @@ def test_runtime_objects_from_custom_data_and_load_custom_data_cover_coercion_pa
         },
         bundle=_Bundle(),
     )
+    assert warnings == []
     by_target = {item["target"]: item["value"] for item in objects}
 
     assert by_target["IF-MIB::ifDescr.0"] == {"type": "octet-string", "value": "edge-router"}
@@ -170,15 +186,142 @@ def test_runtime_objects_from_custom_data_and_load_custom_data_cover_coercion_pa
     assert by_target["1.3.6.1.2.1.1.6.0"] == {"type": "octet-string", "value": "lab-a"}
     assert by_target["1.3.6.1.2.1.1.5.0"] == {"type": "octet-string", "value": "fallback-name"}
 
-    assert _coerce_custom_value("oid", ".1.3.6.1.2.1.1", "OBJECT IDENTIFIER") == {
+    oid_spec, oid_error = _coerce_custom_value("oid", ".1.3.6.1.2.1.1", "OBJECT IDENTIFIER")
+    assert oid_error is None
+    assert oid_spec == {
         "type": "object-identifier",
         "value": "1.3.6.1.2.1.1",
     }
-    assert _coerce_custom_value("ip", "127.0.0.1", "IpAddress") == {
+    ip_spec, ip_error = _coerce_custom_value("ip", "127.0.0.1", "IpAddress")
+    assert ip_error is None
+    assert ip_spec == {
         "type": "ip-address",
         "value": "127.0.0.1",
     }
-    assert _coerce_custom_value("counter", "not-a-number", "Counter32") is None
+    bad_spec, bad_error = _coerce_custom_value("counter", "not-a-number", "Counter32")
+    assert bad_spec is None
+    assert "cannot be coerced" in bad_error
+
+
+def test_default_value_for_syntax_draws_random_values_inside_declared_range():
+    from types import SimpleNamespace
+
+    from app.services.simulator_service import _default_value_for_syntax
+
+    ranged_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "range", "data": [[10, 20]]},
+    )
+    for _ in range(25):
+        result = _default_value_for_syntax("INTEGER", "scopedCounter", index=0, node=ranged_node)
+        assert result["type"] == "integer"
+        assert 10 <= result["value"] <= 20
+
+    sized_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "size", "data": [[0, 4]]},
+    )
+    result = _default_value_for_syntax("DisplayString", "ifAlias", index=1, node=sized_node)
+    assert result["type"] == "octet-string"
+    assert len(result["value"]) <= 4
+
+
+def test_custom_value_validation_errors_are_explicit():
+    from types import SimpleNamespace
+
+    from app.services.simulator_service import (
+        SimulatorError,
+        _coerce_custom_value,
+        _runtime_objects_from_custom_data,
+    )
+
+    ranged_node = SimpleNamespace(
+        syntax="INTEGER",
+        constraints={"kind": "range", "data": [[0, 100]]},
+    )
+    spec, error = _coerce_custom_value(
+        "IF-MIB::node.0",
+        "500",
+        "INTEGER",
+        constraints=ranged_node.constraints,
+    )
+    assert spec is None
+    assert "outside the declared range 0..100" in error
+
+    sized_node = SimpleNamespace(
+        syntax="DisplayString",
+        constraints={"kind": "size", "data": [[0, 4]]},
+    )
+    spec, error = _coerce_custom_value(
+        "IF-MIB::name.0",
+        "toolong",
+        "DisplayString",
+        constraints=sized_node.constraints,
+    )
+    assert spec is None
+    assert "outside the declared size 0..4" in error
+
+    in_range_spec, in_range_error = _coerce_custom_value(
+        "IF-MIB::node.0",
+        "50",
+        "INTEGER",
+        constraints=ranged_node.constraints,
+    )
+    assert in_range_error is None
+    assert in_range_spec == {"type": "gauge32", "value": 50}
+
+    class _Bundle:
+        def resolve_node(self, module, symbol):
+            del module, symbol
+            return ranged_node
+
+    # Startup path: invalid values warn-and-skip instead of blocking boot.
+    skipped_objects, warnings = _runtime_objects_from_custom_data(
+        {"IF-MIB::node.0": "500"},
+        bundle=_Bundle(),
+    )
+    assert skipped_objects == []
+    assert len(warnings) == 1
+    assert "outside the declared range" in warnings[0]
+
+    # Save/update path: the same value is rejected explicitly.
+    with pytest.raises(SimulatorError, match="outside the declared range"):
+        _runtime_objects_from_custom_data(
+            {"IF-MIB::node.0": "500"},
+            bundle=_Bundle(),
+            reject_invalid=True,
+        )
+
+
+def test_default_value_for_syntax_resolves_type_level_constraints():
+    from types import SimpleNamespace
+
+    from app.services.simulator_service import _default_value_for_syntax
+
+    class _TypeRecord:
+        constraints = {"kind": "range", "data": [[5, 8]]}
+
+    class _Bundle:
+        def resolve_type(self, module, type_name):
+            del module
+            assert type_name == "NarrowGauge"
+            return _TypeRecord()
+
+    node = SimpleNamespace(
+        module="STUB-MIB",
+        syntax="NarrowGauge",
+        enums=None,
+        constraints=None,
+    )
+    for _ in range(25):
+        result = _default_value_for_syntax(
+            "NarrowGauge",
+            "narrowThing",
+            index=0,
+            node=node,
+            bundle=_Bundle(),
+        )
+        assert 5 <= result["value"] <= 8
 
 
 def test_get_status_start_and_stop_persist_state_and_broadcast(isolated_db, monkeypatch):
@@ -218,10 +361,13 @@ def test_get_status_start_and_stop_persist_state_and_broadcast(isolated_db, monk
     monkeypatch.setattr(
         simulator_service,
         "_runtime_objects_from_custom_data",
-        lambda payload, bundle=None: [
-            {"target": "1.3.6.1.2.1.1.1.0", "value": {"type": "octet-string", "value": "override"}},
-            {"target": "1.3.6.1.2.1.1.5.0", "value": {"type": "octet-string", "value": "agent-name"}},
-        ],
+        lambda payload, bundle=None, **kwargs: (
+            [
+                {"target": "1.3.6.1.2.1.1.1.0", "value": {"type": "octet-string", "value": "override"}},
+                {"target": "1.3.6.1.2.1.1.5.0", "value": {"type": "octet-string", "value": "agent-name"}},
+            ],
+            [],
+        ),
     )
 
     async def fake_broadcast_status(*, settings):
@@ -336,10 +482,13 @@ def test_save_custom_data_persists_payload_and_refreshes_runtime(isolated_db, mo
     monkeypatch.setattr(
         simulator_service,
         "_runtime_objects_from_custom_data",
-        lambda custom_payload, bundle=None: [
-            {"target": "1.3.6.1.2.1.1.1.0", "value": {"type": "octet-string", "value": "override"}},
-            {"target": "1.3.6.1.2.1.1.5.0", "value": {"type": "octet-string", "value": "agent-name"}},
-        ],
+        lambda custom_payload, bundle=None, **kwargs: (
+            [
+                {"target": "1.3.6.1.2.1.1.1.0", "value": {"type": "octet-string", "value": "override"}},
+                {"target": "1.3.6.1.2.1.1.5.0", "value": {"type": "octet-string", "value": "agent-name"}},
+            ],
+            [],
+        ),
     )
 
     async def fake_broadcast_stats(*, settings):
@@ -429,7 +578,7 @@ def test_simulator_service_translates_runtime_errors_for_lifecycle_and_logs(isol
             )
         )
 
-    monkeypatch.setattr(simulator_service, "_runtime_objects_from_custom_data", lambda payload, bundle=None: [])
+    monkeypatch.setattr(simulator_service, "_runtime_objects_from_custom_data", lambda payload, bundle=None, **kwargs: ([], []))
     with pytest.raises(SimulatorError, match="save failed"):
         asyncio.run(
             simulator_service.save_custom_data(

@@ -45,6 +45,7 @@ These topic guides describe the current `2.0.3` release UI.
 - [Release Process](release_process.md)
 - [Changelog](changelog.md)
 - [Roadmap](roadmap.md)
+- [MIB Schema Integration Plan](mib_schema_integration_plan.md)
 - [Issue Tracker](issue_tracker.md)
 - [GitHub Workflow](github_workflow.md)
 

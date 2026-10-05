@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import hashlib
 import json
 import logging
 import re
@@ -37,6 +38,42 @@ BUNDLED_STARTER_MIBS = (
 )
 logger = logging.getLogger(__name__)
 _LOG_PREVIEW_LIMIT = 10
+
+# Producer version at which enum/units metadata entered the MIB JSON IR.
+# Bundles compiled by older producers lack these capabilities.
+CAPABILITY_FLOOR = "0.5.2"
+PRODUCER_CAPABILITIES = {"enums": "0.5.2", "units": "0.5.2"}
+
+
+def _producer_version_below(version: Any, floor: str) -> bool:
+    """True when *version* is a parseable producer version strictly below *floor*."""
+    if not isinstance(version, str):
+        return False
+
+    def _parts(value: str) -> list[int]:
+        parts: list[int] = []
+        for chunk in value.split("."):
+            digits = ""
+            for char in chunk:
+                if char.isdigit():
+                    digits += char
+                else:
+                    break
+            if not digits:
+                break
+            parts.append(int(digits))
+        return parts
+
+    return _parts(version) < _parts(floor)
+
+
+def _missing_capabilities(producer_version: Any) -> list[str]:
+    """Capabilities (sorted) that a producer below ``producer_version`` lacks."""
+    return sorted(
+        name
+        for name, floor in PRODUCER_CAPABILITIES.items()
+        if _producer_version_below(producer_version, floor)
+    )
 
 
 def _preview_items(items: list[str], *, limit: int = _LOG_PREVIEW_LIMIT) -> str:
@@ -107,6 +144,18 @@ class BundleService:
             if bundle is None:
                 return None
             return self._bundle_summary(bundle)
+
+    def get_effective_bundle_manifest_summary(self) -> dict[str, Any] | None:
+        """Manifest summary for the effective bundle, or None when unavailable."""
+        with self.session_factory() as session:
+            bundle = self._select_active_bundle(session) or self._select_latest_bundle(session)
+            if bundle is None:
+                return None
+            try:
+                manifest = self._load_manifest(bundle)
+            except BundleServiceError:
+                return None
+            return self._manifest_summary(manifest)
 
     def bundled_mib_names(self) -> list[str]:
         return self._bundled_mib_names()
@@ -193,6 +242,7 @@ class BundleService:
                 cache_dir=self.settings.tsmi_cache_dir,
                 emit_manifest=True,
                 emit_oid_index=True,
+                reproducible=True,
                 **({} if not normalized_sources else {"sources": normalized_sources}),
             )
             compiler = MibCompiler(config)
@@ -288,6 +338,7 @@ class BundleService:
                     )
                 )
 
+            bundle_set.content_hash = self._compute_content_hash(bundle_dir, manifest)
             compile_run.bundle_set_id = bundle_set.id
             compile_run.manifest_path = str(manifest_path)
             compile_run.oid_index_path = str(oid_index_path)
@@ -499,6 +550,18 @@ class BundleService:
             )
         return json.loads(manifest_path.read_text())
 
+    def _compute_content_hash(self, bundle_dir: Path, manifest: dict[str, Any]) -> str:
+        """SHA-256 over the sorted manifest-declared module files."""
+        hasher = hashlib.sha256()
+        module_files = sorted(
+            str(entry.get("file") or "")
+            for entry in manifest.get("modules", [])
+            if str(entry.get("file") or "").strip()
+        )
+        for filename in module_files:
+            hasher.update(Path(bundle_dir, filename).read_bytes())
+        return hasher.hexdigest()
+
     def _load_module_payloads(self, bundle: BundleSet) -> dict[str, dict[str, Any]]:
         payloads: dict[str, dict[str, Any]] = {}
         for module in bundle.modules:
@@ -511,13 +574,17 @@ class BundleService:
         return payloads
 
     def _manifest_summary(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        producer_version = manifest.get("producer_version")
+        missing_capabilities = _missing_capabilities(producer_version)
         return {
             "schema_version": manifest.get("schema_version"),
-            "producer_version": manifest.get("producer_version"),
+            "producer_version": producer_version,
             "generated_by": manifest.get("generated_by"),
             "generated_at": manifest.get("generated_at"),
             "modules": [entry.get("module") for entry in manifest.get("modules", [])],
             "sidecars": manifest.get("sidecars", {}),
+            "recompile_recommended": bool(missing_capabilities),
+            "missing_capabilities": missing_capabilities,
         }
 
     def _dependency_graph(
@@ -883,6 +950,7 @@ class BundleService:
             "storage_path": bundle.storage_path,
             "manifest_path": bundle.manifest_path,
             "oid_index_path": bundle.oid_index_path,
+            "content_hash": bundle.content_hash,
             "module_count": len(bundle.modules),
             "modules": [
                 {

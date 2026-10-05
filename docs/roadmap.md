@@ -56,6 +56,7 @@ Initial targets:
 - direct runtime tools such as `GET`, `GETNEXT`, `GETBULK`, inform send, and payload decode
 - richer dashboard and settings diagnostics through the current stats, runtime, and settings services
 - API and page refinements on the existing unified `/api/...` surface where they simplify the current UI
+- MIB schema integration for `2.1.0` — enums, units, constraint validation, reproducible bundles, index-aware walking — sequenced in the [MIB Schema Integration Plan](mib_schema_integration_plan.md)
 
 ## Deferred Beyond 2.0.x
 

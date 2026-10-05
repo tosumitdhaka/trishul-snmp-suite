@@ -7,6 +7,8 @@ from trishul_snmp.errors import UnknownOidError, UnknownSymbolError
 from trishul_snmp.mib.models import MibNode
 from trishul_snmp.mib.registry import oid_to_string, parse_oid
 
+from app.services.mib_metadata import enum_map, enum_values
+
 
 def _normalize_optional_filter(value: str | None) -> str | None:
     normalized = str(value or "").strip()
@@ -57,6 +59,8 @@ def _node_to_record(node: MibNode) -> dict[str, Any]:
             for m in (node.members or [])
         ],
         "constraints": node.constraints,
+        "enums": enum_map(node),
+        "units": node.units,
     }
 
 
@@ -318,20 +322,10 @@ def _member_entry(member, bundle: MibBundle) -> dict[str, Any]:
             entry["oid"] = oid_to_string(node.oid) if node.oid else ""
             entry["syntax"] = node.syntax or ""
             entry["input_type"] = _input_type_for_syntax(node.syntax)
-            if node.constraints and isinstance(node.constraints, dict) and node.constraints.get("kind") == "enum":
-                enum_vals = []
-                for item in node.constraints.get("data") or []:
-                    if isinstance(item, (list, tuple)) and len(item) == 2:
-                        label, val = str(item[0]), item[1]
-                    elif isinstance(item, dict):
-                        label = str(item.get("name") or item.get("label") or item.get("symbol") or "")
-                        val = item.get("value")
-                    else:
-                        continue
-                    if isinstance(val, int):
-                        enum_vals.append({"label": label or str(val), "value": val})
-                if enum_vals:
-                    entry["enum_values"] = enum_vals
+            entry["constraint"] = node.constraints
+            enum_vals = enum_values(node)
+            if enum_vals:
+                entry["enum_values"] = enum_vals
     except Exception:
         pass
     return entry

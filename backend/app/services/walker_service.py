@@ -1,6 +1,7 @@
 """SNMP walk execution and result formatting service."""
 from __future__ import annotations
 
+import logging
 import re
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -20,7 +21,36 @@ class WalkerError(RuntimeError):
     pass
 
 
-def _extract_value(entry: dict[str, Any]) -> Any:
+logger = logging.getLogger(__name__)
+
+_INTEGER_INDEX_SYNTAX_MARKERS = (
+    "integer",
+    "interfaceindex",
+    "rowstatus",
+    "truthvalue",
+    "counter",
+    "gauge",
+    "timeticks",
+)
+
+# Conservative whitelist of octet-string-style index syntaxes. Any syntax that
+# is neither clearly integer nor clearly string (e.g. an integer TC like
+# InetAddressType) is not decoded — the heuristic fallback applies instead.
+_STRING_INDEX_SYNTAX_MARKERS = (
+    "octetstring",
+    "displaystring",
+    "snmpadminstring",
+    "physaddress",
+    "macaddress",
+    "datandtime",
+    "printablestring",
+    "ia5string",
+    "utf8string",
+    "string",
+)
+
+
+def _raw_value(entry: dict[str, Any]) -> Any:
     v = entry.get("value")
     if isinstance(v, dict):
         if "value" in v:
@@ -30,16 +60,33 @@ def _extract_value(entry: dict[str, Any]) -> Any:
     return entry.get("display_value")
 
 
+def _extract_value(entry: dict[str, Any]) -> Any:
+    if entry.get("display_value") is not None:
+        return entry.get("display_value")
+    return _raw_value(entry)
+
+
 def _walk_item(entry: dict[str, Any], *, use_mibs: bool) -> dict[str, Any]:
-    value = _extract_value(entry)
+    # Raw value in the payload; enum_label/units ride along as enrichment so
+    # the UI can render the badge next to the raw value instead of duplicating
+    # the label already embedded in display_value.
+    value = _raw_value(entry)
     if use_mibs:
         return {
             "oid": entry["oid"],
             "symbolic": entry.get("symbolic") or entry["oid"],
             "type": entry.get("value_type"),
             "value": value,
+            "enum_label": entry.get("enum_label"),
+            "units": entry.get("units"),
         }
-    return {"oid": entry["oid"], "type": entry.get("value_type"), "value": value}
+    return {
+        "oid": entry["oid"],
+        "type": entry.get("value_type"),
+        "value": value,
+        "enum_label": entry.get("enum_label"),
+        "units": entry.get("units"),
+    }
 
 
 def _walk_line(entry: dict[str, Any], *, use_mibs: bool) -> str:
@@ -76,6 +123,107 @@ def _metric_value(value_type: str, value: Any) -> int | float | None:
     return int(numeric) if float(numeric).is_integer() else numeric
 
 
+def _is_integer_index_syntax(syntax: str) -> bool:
+    normalized = syntax.lower().replace("-", "").replace(" ", "")
+    return any(marker in normalized for marker in _INTEGER_INDEX_SYNTAX_MARKERS)
+
+
+def _is_string_index_syntax(syntax: str) -> bool:
+    normalized = syntax.lower().replace("-", "").replace(" ", "")
+    return any(marker in normalized for marker in _STRING_INDEX_SYNTAX_MARKERS)
+
+
+def _resolve_index_columns(root_oid: str) -> tuple[tuple[int, ...], list[dict[str, str]]] | None:
+    """Resolve the walk root to a column node and read its row's index columns.
+
+    Returns ``(column_oid, columns)`` where each column is a
+    ``{"name", "syntax"}`` descriptor from the row's ``index`` list, or None
+    when the root is not a resolvable column (heuristic fallback applies).
+    """
+    from app.services.bundle_state import get_bundle
+
+    bundle = get_bundle()
+    if bundle is None:
+        return None
+    try:
+        if "::" in str(root_oid or ""):
+            column_oid = bundle.resolve(str(root_oid).strip())
+        else:
+            match = bundle.lookup(str(root_oid).strip())
+            column_oid = match.oid
+        match = bundle.lookup(column_oid)
+        root_node = bundle.resolve_node(match.module, match.symbol)
+    except Exception:
+        return None
+    if root_node is None or root_node.nodetype != "column" or len(root_node.oid) < 2:
+        return None
+    row_oid = root_node.oid[:-1]
+    try:
+        row_match = bundle.lookup(row_oid)
+        row_node = bundle.resolve_node(row_match.module, row_match.symbol)
+    except Exception:
+        return None
+    if row_node is None or not row_node.index:
+        return None
+    columns: list[dict[str, str]] = []
+    for index_name in row_node.index:
+        try:
+            index_node = bundle.resolve_node(row_match.module, index_name)
+        except Exception:
+            index_node = None
+        if index_node is None:
+            return None
+        columns.append({
+            "name": str(index_name),
+            "syntax": (index_node.syntax or "").split("(")[0].strip(),
+        })
+    return tuple(column_oid), columns
+
+
+def _decode_instance_index(
+    oid_str: str,
+    column_oid: tuple[int, ...],
+    index_columns: list[dict[str, str]],
+) -> str | None:
+    """Decode a varbind OID suffix into an instance index key.
+
+    Integer index columns consume one sub-identifier each; octet-string index
+    columns consume the remaining sub-identifiers as bytes (trailing position).
+    Returns None when the suffix cannot be decoded against the index list.
+    """
+    try:
+        parts = [int(part) for part in oid_str.strip().lstrip(".").split(".") if part]
+    except ValueError:
+        return None
+    if len(parts) <= len(column_oid) or parts[: len(column_oid)] != list(column_oid):
+        return None
+    suffix = parts[len(column_oid):]
+    decoded: list[str] = []
+    position = 0
+    for column in index_columns:
+        syntax = str(column.get("syntax") or "").strip()
+        if _is_integer_index_syntax(syntax):
+            if position >= len(suffix):
+                return None
+            decoded.append(str(suffix[position]))
+            position += 1
+        elif not _is_string_index_syntax(syntax):
+            return None
+        else:
+            remaining = suffix[position:]
+            position = len(suffix)
+            if not remaining:
+                decoded.append("")
+            else:
+                try:
+                    decoded.append(bytes(remaining).decode("utf-8", errors="replace"))
+                except (ValueError, TypeError):
+                    return None
+    if position != len(suffix):
+        return None
+    return ".".join(decoded)
+
+
 def _walk_compat_items(
     varbinds: list[dict[str, Any]],
     *,
@@ -86,6 +234,11 @@ def _walk_compat_items(
     category = root_oid.split("::", 1)[1] if "::" in root_oid else root_oid
     timestamp = int(datetime.now(timezone.utc).timestamp())
     rows: OrderedDict[str, dict[str, Any]] = OrderedDict()
+    index_context = _resolve_index_columns(root_oid) if use_mibs else None
+    if index_context is not None:
+        column_oid, index_columns = index_context
+    else:
+        column_oid, index_columns = None, []
     for entry in varbinds:
         symbolic = str(entry.get("symbolic") or "").strip()
         oid = str(entry.get("oid") or "").strip()
@@ -106,8 +259,18 @@ def _walk_compat_items(
                 object_name = remainder or oid
                 index = parts[-1]
         object_name = object_name.strip() or remainder or oid
+        if index_columns and column_oid is not None and oid:
+            decoded_index = _decode_instance_index(oid, column_oid, index_columns)
+            if decoded_index is None:
+                logger.info(
+                    "Index-aware instance decoding skipped for %s (root=%s); using heuristic",
+                    oid,
+                    root_oid,
+                )
+            else:
+                index = decoded_index
         index = index.strip() or "0"
-        value = _extract_value(entry)
+        value = _raw_value(entry)
         value_type = str(entry.get("value_type") or "").strip().lower()
         row = rows.setdefault(index, {"index": index, "labels": {}, "metrics": {}})
         if _value_is_metric(object_name, value_type, value):

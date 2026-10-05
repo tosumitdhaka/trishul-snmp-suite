@@ -135,6 +135,55 @@ def test_format_trap_event_accepts_runtime_event_payload(isolated_db):
     assert payload["varbinds"][0]["name"] == "SNMPv2-MIB::sysUpTime.0"
 
 
+def test_format_trap_event_varbinds_carry_raw_values_with_enum_metadata(isolated_db):
+    from app.services.bundle_state import get_bundle
+    from app.services.traps_service import _format_trap_event
+
+    _activate_trap_bundle(isolated_db)
+
+    base_event = {
+        "event_id": 11,
+        "recorded_at": "2026-05-13T06:06:00+00:00",
+        "source_address": {"host": "127.0.0.1", "port": 51589},
+        "notification_oid": "1.3.6.1.6.3.1.1.5.3",
+        "pdu_type": "snmpv2-trap",
+        "varbinds": [
+            {
+                "oid": "1.3.6.1.2.1.2.2.1.7.1",
+                "symbolic": "IF-MIB::ifAdminStatus.1",
+                "value": {"type": "integer", "display": "1", "value": 1},
+                "display_value": "up(1)",
+                "enum_label": "up",
+                "units": None,
+            }
+        ],
+    }
+
+    resolved = _format_trap_event(
+        {**base_event, "resolve_mibs": True},
+        resolve_mibs=True,
+        bundle=get_bundle(),
+    )
+    row = resolved["varbinds"][0]
+    assert row["name"] == "IF-MIB::ifAdminStatus.1"
+    assert row["value"] == "1"
+    assert row["display_value"] == "up(1)"
+    assert row["enum_label"] == "up"
+    assert row["units"] is None
+
+    raw = _format_trap_event(
+        {**base_event, "resolve_mibs": False},
+        resolve_mibs=False,
+        bundle=get_bundle(),
+    )
+    raw_row = raw["varbinds"][0]
+    assert raw_row["name"] == "1.3.6.1.2.1.2.2.1.7.1"
+    assert raw_row["value"] == "1"
+    assert raw_row["display_value"] == "up(1)"
+    assert raw_row["enum_label"] == "up"
+    assert raw_row["units"] is None
+
+
 def test_listener_status_start_stop_and_send_trap_cover_service_flow(isolated_db, monkeypatch):
     from app.services import traps_service
     from app.services.state_store import (

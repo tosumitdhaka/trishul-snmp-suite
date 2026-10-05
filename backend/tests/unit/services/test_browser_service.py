@@ -137,6 +137,66 @@ def test_module_tree_oid_tree_and_node_breadcrumbs_cover_browser_navigation(isol
     ) == {"root": None, "children": [], "total_descendants": 0}
 
 
+def test_node_to_record_emits_enums_and_units(isolated_db):
+    from app.services.browser_service import _node_to_record
+
+    bundle = _activate_browser_bundle(isolated_db)
+
+    record = _node_to_record(bundle.resolve_node("IF-MIB", "ifOperStatus"))
+    assert record["enums"] == {
+        "up": 1,
+        "down": 2,
+        "testing": 3,
+        "unknown": 4,
+        "dormant": 5,
+        "notPresent": 6,
+        "lowerLayerDown": 7,
+    }
+    assert record["units"] is None
+
+    class _StubNode:
+        oid = (1, 3, 6, 1, 4, 1, 9)
+        object_type = "OBJECT-TYPE"
+        nodetype = None
+        name = "stubGauge"
+        module = "STUB-MIB"
+        syntax = "Gauge32"
+        max_access = "read-only"
+        status = "current"
+        description = ""
+        index = None
+        members = None
+        constraints = None
+        enums = None
+        units = "bits/second"
+
+    stub_record = _node_to_record(_StubNode())
+    assert stub_record["enums"] is None
+    assert stub_record["units"] == "bits/second"
+    assert stub_record["name"] == "stubGauge"
+    assert stub_record["constraints"] is None
+
+    class _OldEnumNode:
+        oid = (1, 3, 6, 1, 4, 1, 10)
+        object_type = "OBJECT-TYPE"
+        nodetype = "column"
+        name = "oldStatus"
+        module = "OLD-MIB"
+        syntax = "INTEGER"
+        max_access = "read-write"
+        status = "current"
+        description = ""
+        index = None
+        members = None
+        enums = None
+        units = None
+        constraints = {"kind": "enum", "data": [["up", 1], ["down", 2]]}
+
+    old_record = _node_to_record(_OldEnumNode())
+    assert old_record["enums"] == {"up": 1, "down": 2}
+    assert old_record["constraints"] == {"kind": "enum", "data": [["up", 1], ["down", 2]]}
+
+
 def test_input_type_mapping_and_trap_catalog_cover_trap_sender_metadata(isolated_db):
     from app.services import browser_service
     from app.services.browser_service import _input_type_for_syntax

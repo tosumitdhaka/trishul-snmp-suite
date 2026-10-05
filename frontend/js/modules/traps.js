@@ -587,57 +587,45 @@ window.TrapsModule = {
         }
     },
 
-    normalizeEnumValues: function(source) {
-        const rawEntries = Array.isArray(source)
-            ? source
-            : (
-                source
-                && typeof source === 'object'
-                && String(source.kind || '').trim().toLowerCase() === 'enum'
-                && Array.isArray(source.data)
-                    ? source.data
-                    : []
-            );
-
-        const values = [];
-        const seen = new Set();
-        rawEntries.forEach(entry => {
-            let label = '';
-            let rawValue = null;
-
-            if (Array.isArray(entry) && entry.length >= 2) {
-                label = String(entry[0] ?? '').trim();
-                rawValue = entry[1];
-            } else if (entry && typeof entry === 'object') {
-                label = String(entry.label || entry.name || entry.symbol || '').trim();
-                rawValue = entry.value;
-            }
-
-            const numericValue = Number(rawValue);
-            if (!Number.isInteger(numericValue)) return;
-
-            if (!label) {
-                label = String(numericValue);
-            }
-
-            const key = `${label}|${numericValue}`;
-            if (seen.has(key)) return;
-            seen.add(key);
-            values.push({ label, value: numericValue });
-        });
-
-        return values;
+    enumValuesForRow: function(row) {
+        return TrishulUtils.normalizeEnumValues(TrishulUtils.decodeDataAttr(row?.dataset?.enumValues || '', []));
     },
 
-    enumValuesForRow: function(row) {
-        return this.normalizeEnumValues(TrishulUtils.decodeDataAttr(row?.dataset?.enumValues || '', []));
+    constraintForRow: function(row) {
+        return TrishulUtils.decodeDataAttr(row?.dataset?.constraint || '', null);
+    },
+
+    formatConstraintHint: function(constraint) {
+        const data = Array.isArray(constraint?.data) ? constraint.data : [];
+        const parts = data
+            .map(pair => Array.isArray(pair) && pair.length >= 2 ? `${pair[0]}..${pair[1]}` : '')
+            .filter(Boolean);
+        return parts.join(', ');
+    },
+
+    isIntegerInRange: function(value, constraint) {
+        const intValue = parseInt(value, 10);
+        if (Number.isNaN(intValue)) return false;
+        return (Array.isArray(constraint?.data) ? constraint.data : []).some(pair =>
+            Array.isArray(pair) && pair.length >= 2 && intValue >= pair[0] && intValue <= pair[1]
+        );
+    },
+
+    isStringWithinSize: function(value, constraint) {
+        const text = String(value ?? '');
+        // Count UTF-8 bytes so non-ASCII strings fail pre-submit consistently
+        // with the backend's byte-based size validation.
+        const length = new TextEncoder().encode(text).length;
+        return (Array.isArray(constraint?.data) ? constraint.data : []).some(pair =>
+            Array.isArray(pair) && pair.length >= 2 && length >= pair[0] && length <= pair[1]
+        );
     },
 
     shouldUseEnumValueControl: function(type, enumValues) {
         return String(type || '').trim() === 'Integer' && Array.isArray(enumValues) && enumValues.length > 0;
     },
 
-    buildVarbindValueControl: function(type, value, enumValues) {
+    buildVarbindValueControl: function(type, value, enumValues, constraint) {
         const currentValue = value == null ? '' : String(value);
 
         if (!this.shouldUseEnumValueControl(type, enumValues)) {
@@ -683,6 +671,26 @@ window.TrapsModule = {
         return select;
     },
 
+    renderConstraintHint: function(row, type, constraint) {
+        row.querySelectorAll('.vb-constraint-hint').forEach(el => el.remove());
+        const applicable = constraint && (
+            (type === 'Integer' && constraint.kind === 'range')
+            || (type === 'String' && constraint.kind === 'size')
+        );
+        const hint = applicable ? this.formatConstraintHint(constraint) : '';
+        if (!hint) return;
+        const hintEl = document.createElement('div');
+        hintEl.className = 'small text-muted mt-1 vb-constraint-hint';
+        hintEl.textContent = type === 'Integer' ? `Range: ${hint}` : `Length: ${hint}`;
+        const valueInput = row.querySelector('.vb-val');
+        const inputGroup = valueInput ? valueInput.closest('.input-group') : null;
+        if (inputGroup) {
+            inputGroup.insertAdjacentElement('afterend', hintEl);
+        } else if (valueInput) {
+            valueInput.insertAdjacentElement('afterend', hintEl);
+        }
+    },
+
     attachVarbindFieldListeners: function(row) {
         if (!row) return;
         const validate = () => this.validateVarbindRow(row);
@@ -723,7 +731,8 @@ window.TrapsModule = {
         const nextControl = this.buildVarbindValueControl(
             typeInput.value,
             nextValue,
-            this.enumValuesForRow(row)
+            this.enumValuesForRow(row),
+            this.constraintForRow(row)
         );
 
         if (valueControl) {
@@ -732,6 +741,7 @@ window.TrapsModule = {
             typeInput.insertAdjacentElement('afterend', nextControl);
         }
 
+        this.renderConstraintHint(row, typeInput.value, this.constraintForRow(row));
         this.attachVarbindFieldListeners(row);
     },
 
@@ -745,6 +755,7 @@ window.TrapsModule = {
         let value = val == null ? '' : String(val);
         let resolvedType = String(type || '').trim();
         let enumValues = [];
+        let constraint = null;
 
         if (oid && typeof oid === 'object' && !Array.isArray(oid)) {
             targetOid = String(oid.full_name || oid.oid || '').trim();
@@ -754,7 +765,8 @@ window.TrapsModule = {
             if (val == null && oid.value != null) {
                 value = String(oid.value);
             }
-            enumValues = this.normalizeEnumValues(oid.enum_values || oid.constraints);
+            enumValues = TrishulUtils.normalizeEnumValues(oid.enum_values);
+            constraint = oid.constraint || null;
         }
 
         if (!resolvedType) {
@@ -763,7 +775,7 @@ window.TrapsModule = {
         
         const id   = `vb-row-${this.vbCount++}`;
         const html = `
-            <div class="card mb-2" id="${id}" data-enum-values="${esc(TrishulUtils.encodeDataAttr(enumValues))}">
+            <div class="card mb-2" id="${id}" data-enum-values="${esc(TrishulUtils.encodeDataAttr(enumValues))}" data-constraint="${esc(TrishulUtils.encodeDataAttr(constraint))}">
                 <div class="card-body p-2">
                     <div class="input-group input-group-sm mb-1">
                         <span class="input-group-text app-input-group-text">OID</span>
@@ -832,6 +844,7 @@ window.TrapsModule = {
         const oid = oidInput ? oidInput.value.trim() : '';
         const type = typeInput ? typeInput.value : 'String';
         const value = valueInput ? valueInput.value.trim() : '';
+        const constraint = this.constraintForRow(row);
         const hasAnyContent = Boolean(oid || value);
 
         let message = '';
@@ -854,6 +867,10 @@ window.TrapsModule = {
             message = 'OID values must be dotted numeric with at least two arcs or MODULE::symbol.';
         } else if (type === 'IpAddress' && !/^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(value)) {
             message = 'IP address values must be valid IPv4 addresses.';
+        } else if (type === 'Integer' && constraint && constraint.kind === 'range' && !this.isIntegerInRange(value, constraint)) {
+            message = `Integer values must be within range: ${this.formatConstraintHint(constraint)}.`;
+        } else if (type === 'String' && constraint && constraint.kind === 'size' && !this.isStringWithinSize(value, constraint)) {
+            message = `String length must be within: ${this.formatConstraintHint(constraint)}.`;
         }
 
         const invalid = Boolean(message);
@@ -1289,12 +1306,6 @@ window.TrapsModule = {
                 trapBadgeClass = 'app-badge is-warning';
             }
             
-            const simplifiedVarbinds = this.simplifyVarbinds(t.varbinds, t.resolved);
-            const varbindsJson       = JSON.stringify(simplifiedVarbinds, null, 2);
-            const varbindsPreview    = varbindsJson.length > 100 
-                ? varbindsJson.substring(0, 100) + '...' 
-                : varbindsJson;
-            
             // NOTE: All buttons MUST have type="button" explicitly.
             // Default <button> type is "submit" which would trigger the Send Trap
             // <form onsubmit=...> and navigate the SPA back to the dashboard.
@@ -1306,11 +1317,11 @@ window.TrapsModule = {
                         <span class="badge ${trapBadgeClass}">${esc(trapType)}</span>
                     </td>
                     <td>
-                        <code class="small cursor-pointer"
+                        <div class="cursor-pointer"
                               onclick="TrapsModule.showTrapDetails(${idx})"
-                              title="Click to view full JSON">
-                            ${esc(varbindsPreview)}
-                        </code>
+                              title="Click to view full details">
+                            ${this.renderVarbindRows(t.varbinds, t.resolved)}
+                        </div>
                     </td>
                     <td class="text-center">
                         <div class="trap-action-buttons">
@@ -1349,6 +1360,59 @@ window.TrapsModule = {
         }
         
         return simplified;
+    },
+
+    renderVarbindRows: function(varbinds, resolved) {
+        const esc = TrishulUtils.escapeHtml;
+        const rows = Array.isArray(varbinds) ? varbinds : [];
+        const visible = rows.filter(vb => {
+            if (vb.oid && vb.oid.includes('1.3.6.1.6.3.1.1.4.1.0')) return false;
+            if (vb.name && vb.name.includes('snmpTrapOID')) return false;
+            return true;
+        });
+        if (visible.length === 0) {
+            return '<span class="text-muted">--</span>';
+        }
+        return `<div class="app-trap-varbinds">${visible.map(vb => {
+            const key = (resolved && vb.resolved && vb.name && vb.name !== vb.oid)
+                ? vb.name
+                : (vb.name || vb.oid || '');
+            const valueHtml = TrishulUtils.formatValue(vb.value, {
+                enumLabel: vb.enum_label,
+                units: vb.units,
+            });
+            return `<div class="app-truncate-line app-trap-varbind-row">${esc(key)} = ${valueHtml}</div>`;
+        }).join('')}</div>`;
+    },
+
+    renderDetailVarbindTable: function(varbinds, resolved) {
+        const esc = TrishulUtils.escapeHtml;
+        const rows = Array.isArray(varbinds) ? varbinds : [];
+        if (rows.length === 0) {
+            return '<div class="text-muted small">No varbinds recorded.</div>';
+        }
+        return `
+            <div class="mb-2">
+                <div class="text-muted fw-bold small mb-2">VarBinds</div>
+                <table class="table table-sm table-hover mb-0 small">
+                    <thead class="table-light">
+                        <tr><th scope="col">Name</th><th scope="col">Value</th></tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(vb => {
+                            const key = (resolved && vb.resolved && vb.name && vb.name !== vb.oid)
+                                ? vb.name
+                                : (vb.name || vb.oid || '');
+                            const valueHtml = TrishulUtils.formatValue(vb.value, {
+                                enumLabel: vb.enum_label,
+                                units: vb.units,
+                            });
+                            return `<tr><td><code class="small">${esc(key)}</code></td><td>${valueHtml}</td></tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
     },
 
     // ==================== Trap Detail Modal ====================
@@ -1393,6 +1457,8 @@ window.TrapsModule = {
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
+                        ${this.renderDetailVarbindTable(trap.varbinds, trap.resolved)}
+                        <hr>
                         <pre class="app-code-pane app-scroll-panel p-3 rounded app-max-h-500">${escapedJson}</pre>
                     </div>
                     <div class="modal-footer">

@@ -183,7 +183,11 @@ window.WalkerModule = {
             columns = [
                 { label: 'OID', get: r => r.symbolic || r.oid },
                 ...(hasType ? [{ label: 'Type', get: r => r.type }] : []),
-                { label: 'Value', get: r => r.value },
+                {
+                    label: 'Value',
+                    html: true,
+                    get: r => TrishulUtils.formatValue(r.value, { enumLabel: r.enum_label, units: r.units }),
+                },
             ];
         } else if (first && 'metric_name' in first) {
             columns = [
@@ -199,7 +203,9 @@ window.WalkerModule = {
             columns = Object.keys(first || {}).map(k => ({ label: k, get: r => r[k] }));
         }
 
-        const cell = v => {
+        const cell = (r, c) => {
+            if (c.html) return c.get(r) || '';
+            const v = c.get(r);
             if (v === null || v === undefined) return '';
             return esc(typeof v === 'object' ? JSON.stringify(v) : String(v));
         };
@@ -213,7 +219,7 @@ window.WalkerModule = {
                     </tr>
                 </thead>
                 <tbody>
-                    ${rows.map(r => `<tr>${columns.map(c => `<td>${cell(c.get(r))}</td>`).join('')}</tr>`).join('')}
+                    ${rows.map(r => `<tr>${columns.map(c => `<td>${cell(r, c)}</td>`).join('')}</tr>`).join('')}
                 </tbody>
             </table>`;
     },

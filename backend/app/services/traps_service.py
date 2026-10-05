@@ -236,6 +236,9 @@ def _format_trap_event(
         symbolic = vb.get("symbolic") or vb.get("oid") or ""
         display = symbolic if effective_resolve_mibs else (vb.get("oid") or symbolic)
         raw_val = vb.get("value")
+        # Raw value rides in ``value``; the enum label and units suffix render
+        # the enrichment next to it, and display_value stays available for
+        # text/detail contexts without duplicating the label in the row value.
         value = raw_val.get("display") if isinstance(raw_val, dict) and "display" in raw_val else (
             raw_val.get("value") if isinstance(raw_val, dict) else vb.get("display_value")
         )
@@ -244,6 +247,9 @@ def _format_trap_event(
             "name": display,
             "resolved": bool(effective_resolve_mibs and symbolic and symbolic != vb.get("oid")),
             "value": value,
+            "display_value": vb.get("display_value"),
+            "enum_label": vb.get("enum_label"),
+            "units": vb.get("units"),
         })
 
     # time_str: HH:MM:SS extracted from ISO timestamp, for display in the UI table

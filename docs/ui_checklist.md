@@ -36,6 +36,13 @@ Use this checklist for the current `2.0.3` release UI.
 - `MIB Manager`: status counters, trap catalog, export actions, upload dialog, validation, and reload actions all behave correctly
 - `Settings`: auth form, app settings, stats actions, and metadata panels all remain usable
 
+## 2.1.0 UI Elements
+
+- `Walk & Parse`: parsed rows render the raw value with an enum badge and muted units suffix next to it (no duplicated `up(1)` label in the value column); line mode still shows display strings
+- `Traps`: received-trap varbind rows and the detail modal show the enum badge / units suffix next to the raw value; the varbind picker offers enum dropdowns; Integer rows with a range constraint show a min/max hint below the input, String rows with a size constraint show a length hint and validate before send
+- `MIB Browser`: the detail pane shows the Enumerations table (label ↔ value) and a Units row; typing a numeric OID prefix resolves instantly from the local oid-index (e.g. `1.3.6.1.2.1.2` → `ifTable`)
+- `MIB Manager`: the recompile banner appears when the active bundle was produced by an older MIB compiler and dismisses via the close button; module rows expand a revision-history card (organization, contact info, revisions)
+
 ## Sign-Off
 
 - record any regressions with page, viewport, and screenshot

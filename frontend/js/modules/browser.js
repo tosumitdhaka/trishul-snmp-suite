@@ -7,6 +7,9 @@ window.BrowserModule = {
     isSearchActive: false,
     currentSearchResults: [],
     nodeCache: {},
+    _oidIndex: null,
+    _oidIndexBundleId: null,
+    _activeBundleId: null,
 
     STATE_KEY: 'browserState',
 
@@ -86,6 +89,7 @@ window.BrowserModule = {
         // Load modules first, then tree
         await this.loadModules();
         this.loadTree();
+        this.loadOidIndex();
         
         // Check if coming from Walker/Trap Sender
         const searchOid = sessionStorage.getItem('browserSearchOid');
@@ -588,6 +592,70 @@ window.BrowserModule = {
         this.searchTimeout = setTimeout(() => this.search(), 500);
     },
     
+    loadOidIndex: async function() {
+        if (this._oidIndex && this._oidIndexBundleId) return;
+        try {
+            if (this._activeBundleId == null) {
+                const statusRes = await fetch('/api/mibs/status');
+                const status = await statusRes.json();
+                this._activeBundleId = status.active_bundle_id || null;
+            }
+            const bundleId = this._activeBundleId;
+            if (!bundleId) {
+                this._oidIndex = null;
+                this._oidIndexBundleId = null;
+                return;
+            }
+            if (this._oidIndexBundleId === bundleId && this._oidIndex) {
+                return;
+            }
+            const res = await fetch(`/api/bundles/${bundleId}/oid-index`);
+            if (!res.ok) {
+                this._oidIndex = null;
+                this._oidIndexBundleId = null;
+                return;
+            }
+            this._oidIndex = await res.json();
+            this._oidIndexBundleId = bundleId;
+        } catch (e) {
+            console.error('Failed to load OID index', e);
+            this._oidIndex = null;
+            this._oidIndexBundleId = null;
+        }
+    },
+
+    tryOidIndexSearch: function(query, container, countBadge) {
+        if (!this._oidIndex || !this._oidIndex.oids) return false;
+        const trimmed = String(query || '').trim();
+        if (!/^[\d.]+$/.test(trimmed)) return false;
+
+        const oids = this._oidIndex.oids;
+        let bestKey = null;
+        let bestLength = -1;
+        Object.keys(oids).forEach(key => {
+            if ((trimmed === key || trimmed.startsWith(key + '.')) && key.length > bestLength) {
+                bestKey = key;
+                bestLength = key.length;
+            }
+        });
+        if (!bestKey) return false;
+
+        const entry = oids[bestKey];
+        const node = {
+            name: entry.object,
+            full_name: `${entry.module}::${entry.object}`,
+            module: entry.module,
+            oid: bestKey,
+            type: entry.object_type || entry.class || 'Node',
+            description: '',
+        };
+        this.currentSearchResults = [node];
+        this.cacheNode(node);
+        if (countBadge) countBadge.textContent = 1;
+        this.renderSearchResults([node], container);
+        return true;
+    },
+
     search: async function() {
         const query = document.getElementById('browser-search-input').value.trim();
         const container = document.getElementById('browser-tree-container');
@@ -600,6 +668,14 @@ window.BrowserModule = {
         this.syncFiltersFromUi();
         this.saveState();
         this.isSearchActive = true;
+
+        if (!this._oidIndex || !this._oidIndexBundleId) {
+            await this.loadOidIndex();
+        }
+        if (this.tryOidIndexSearch(query, container, countBadge)) {
+            return;
+        }
+
         container.innerHTML = this.buildTreePlaceholder({
             state: 'loading',
             title: 'Searching catalog',
@@ -1257,6 +1333,12 @@ window.BrowserModule = {
                             <td><code class="small">${esc(node.syntax)}</code></td>
                         </tr>
                     ` : ''}
+                    ${node.units ? `
+                        <tr>
+                            <td class="text-muted fw-bold">Units</td>
+                            <td><code class="small">${esc(node.units)}</code></td>
+                        </tr>
+                    ` : ''}
                     ${node.access ? `
                         <tr>
                             <td class="text-muted fw-bold">Access</td>
@@ -1277,6 +1359,27 @@ window.BrowserModule = {
                     <label class="fw-bold small text-muted d-block mb-1">Description</label>
                     <div class="small text-muted p-2 app-surface-muted rounded app-scroll-panel app-max-h-120 app-fs-75">
                         ${esc(node.description)}
+                    </div>
+                </div>
+            ` : ''}
+            
+            ${node.enums && Object.keys(node.enums).length > 0 ? `
+                <div class="mb-3">
+                    <label class="fw-bold small text-muted d-block mb-1">Enumerations</label>
+                    <div class="app-scroll-panel app-max-h-150">
+                        <table class="table table-sm table-hover mb-0 app-browser-enum-table">
+                            <thead class="table-light">
+                                <tr><th scope="col" class="small">Label</th><th scope="col" class="small">Value</th></tr>
+                            </thead>
+                            <tbody>
+                                ${Object.entries(node.enums).map(([label, value]) => `
+                                    <tr>
+                                        <td><code class="small">${esc(label)}</code></td>
+                                        <td class="small">${esc(String(value))}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             ` : ''}

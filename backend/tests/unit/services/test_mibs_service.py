@@ -18,6 +18,81 @@ def _activate_mibs_bundle(isolated_db):
     return bundle_service
 
 
+def test_notification_member_enum_values_consolidate_old_and_new_node_shapes(isolated_db):
+    from types import SimpleNamespace
+
+    from app.services import mibs_service
+    from app.services.bundle_state import get_bundle
+
+    bundle_service = _activate_mibs_bundle(isolated_db)
+    del bundle_service
+
+    member = SimpleNamespace(module="IF-MIB", object="ifAdminStatus")
+
+    new_payload = mibs_service._notification_member_payload(member, bundle=get_bundle())
+    assert new_payload["enum_values"] == [
+        {"label": "up", "value": 1},
+        {"label": "down", "value": 2},
+        {"label": "testing", "value": 3},
+    ]
+    assert new_payload["constraint"] == {
+        "kind": "enum",
+        "data": [["up", 1], ["down", 2], ["testing", 3]],
+    }
+
+    class _OldNode:
+        oid = (1, 3, 6, 1, 2, 1, 2, 2, 1, 7)
+        object_type = "OBJECT-TYPE"
+        nodetype = "column"
+        syntax = "INTEGER"
+        max_access = "read-write"
+        status = "current"
+        description = "The desired state of the interface."
+        index = None
+        members = None
+        enums = None
+        units = None
+        constraints = {"kind": "enum", "data": [["up", 1], ["down", 2], ["testing", 3]]}
+
+    class _OldBundle:
+        def resolve_node(self, module, symbol):
+            del module, symbol
+            return _OldNode()
+
+    old_payload = mibs_service._notification_member_payload(member, bundle=_OldBundle())
+    assert old_payload["enum_values"] == new_payload["enum_values"]
+    assert old_payload["constraint"] == new_payload["constraint"]
+    assert old_payload["oid"] == new_payload["oid"] == "1.3.6.1.2.1.2.2.1.7"
+    assert old_payload["syntax"] == new_payload["syntax"] == "INTEGER"
+    assert old_payload["input_type"] == new_payload["input_type"] == "Integer"
+
+
+def test_status_module_rows_carry_module_metadata(isolated_db):
+    from app.services import mibs_service
+    from app.services.bundles import BundleCompileRequest, BundleService
+    from app.services.state_store import StateStore
+
+    settings = isolated_db["settings"]
+    state = StateStore(isolated_db["session_factory"])
+    bundle_service = BundleService(settings)
+    bundle_service.compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+
+    status = mibs_service.get_status(
+        settings=settings,
+        state=state,
+        bundle_service=bundle_service,
+    )
+    if_mib = next(item for item in status["mibs"] if item["name"] == "IF-MIB")
+    assert if_mib["module_metadata"] is not None
+    assert if_mib["module_metadata"]["lastupdated"]
+    assert if_mib["module_metadata"]["organization"]
+    assert len(if_mib["module_metadata"]["revisions"]) >= 1
+    assert if_mib["module_metadata"]["revisions"][0]["date"]
+    assert status["active_bundle_id"] is not None
+
+
 def test_validate_upload_batch_surfaces_missing_dependencies(isolated_db):
     from app.services import mibs_service
     from app.services.bundles import BundleService
@@ -319,6 +394,29 @@ END
     assert result["dependency_fetch"]["using_default_sources"] is True
     assert result["dependency_fetch"]["resolved"] == ["MISSING-DEP-MIB"]
     assert (settings.data_dir / "mibs" / "auto-fetched" / "MISSING-DEP-MIB.mib").exists()
+
+
+def test_status_surfaces_active_bundle_producer_capabilities(isolated_db):
+    from app.services import mibs_service
+    from app.services.bundles import BundleCompileRequest, BundleService
+    from app.services.state_store import StateStore
+
+    settings = isolated_db["settings"]
+    state = StateStore(isolated_db["session_factory"])
+    bundle_service = BundleService(settings)
+
+    bundle_service.compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+
+    status = mibs_service.get_status(
+        settings=settings,
+        state=state,
+        bundle_service=bundle_service,
+    )
+    assert status["producer_version"] == "0.5.3"
+    assert status["recompile_recommended"] is False
+    assert status["missing_capabilities"] == []
 
 
 def test_reload_without_uploaded_mibs_reverts_to_bundled_starter_bundle(isolated_db):

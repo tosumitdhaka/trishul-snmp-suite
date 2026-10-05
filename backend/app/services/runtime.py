@@ -17,6 +17,7 @@ from app.core.logging import emit_backend_log
 from app.db.session import create_session_factory
 from app.models import BundleSet
 from app.services.history import EventHistoryService, EventHistoryServiceError
+from app.services.mib_metadata import constraint_violation, effective_constraints
 from app.services.realtime import (
     broadcast_stats,
     broadcast_trap_event,
@@ -1215,14 +1216,54 @@ class RuntimeService:
             value = spec.get("value")
             if not isinstance(value, dict):
                 raise RuntimeServiceError("Each object entry must include a JSON object value payload")
+            oid = self._coerce_oid(target, bundle=bundle)
+            parsed_value = self._parse_value_spec(value, bundle=bundle)
+            self._validate_object_constraints(oid=oid, value=parsed_value, bundle=bundle)
             parsed.append(
                 RuntimeObjectSpec(
                     target=target,
-                    oid=self._coerce_oid(target, bundle=bundle),
-                    value=self._parse_value_spec(value, bundle=bundle),
+                    oid=oid,
+                    value=parsed_value,
                 )
             )
         return parsed
+
+    def _validate_object_constraints(
+        self,
+        *,
+        oid: tuple[int, ...] | None,
+        value: SnmpValueType,
+        bundle: MibBundle | None,
+    ) -> None:
+        """Reject integer/string values outside the node's declared constraints."""
+        if bundle is None or oid is None:
+            return
+        constraints, name = self._constraints_for_oid(oid, bundle)
+        if constraints is None:
+            return
+        if isinstance(value, (IntegerValue, Counter32Value, Counter64Value, Gauge32Value, TimeTicksValue)):
+            candidate = value.value
+        elif isinstance(value, OctetStringValue):
+            candidate = value.value
+        else:
+            return
+        message = constraint_violation(candidate, constraints)
+        if message is not None:
+            raise RuntimeServiceError(f"{name}: {message}")
+
+    def _constraints_for_oid(
+        self,
+        oid: tuple[int, ...],
+        bundle: MibBundle,
+    ) -> tuple[dict[str, Any] | None, str]:
+        try:
+            match = bundle.lookup(oid)
+            node = bundle.resolve_node(match.module, match.symbol)
+        except Exception:
+            return None, self._oid_to_str(oid) or "unknown object"
+        if node is None:
+            return None, self._oid_to_str(oid) or "unknown object"
+        return effective_constraints(node, bundle=bundle), f"{match.module}::{match.symbol}"
 
     def _parse_runtime_rules(
         self,
@@ -1526,6 +1567,8 @@ class RuntimeService:
             "value": self._serialize_value(varbind.value),
             "symbolic": varbind.display_name or (match.symbolic if match is not None else None),
             "display_value": varbind.display_value or varbind.value.to_display_string(),
+            "enum_label": varbind.enum_label,
+            "units": varbind.units,
             "match": None
             if match is None
             else {

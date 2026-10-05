@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi import HTTPException
 
@@ -12,6 +14,38 @@ def _login_token() -> str:
     return settings_module.login(
         settings_module.LoginBody(username="admin", password="admin123")
     )["token"]
+
+
+def test_bundle_oid_index_route_streams_sidecar_and_404s_when_missing(isolated_db):
+    from app.api.routes import browser as browser_module
+    from app.models import BundleSet
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    token = _login_token()
+    service = BundleService(isolated_db["settings"])
+    result = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+    bundle_set_id = result["bundle"]["id"]
+
+    response = browser_module.bundle_oid_index(bundle_set_id=bundle_set_id, x_auth_token=token)
+    assert response.media_type == "application/json"
+    payload = json.loads(response.body)
+    assert isinstance(payload.get("oids"), dict)
+    assert "1.3.6.1.2.1.1" in payload["oids"]
+
+    with pytest.raises(HTTPException) as excinfo:
+        browser_module.bundle_oid_index(bundle_set_id=999999, x_auth_token=token)
+    assert excinfo.value.status_code == 404
+
+    with isolated_db["session_factory"]() as session:
+        bundle = session.get(BundleSet, bundle_set_id)
+        bundle.oid_index_path = str(
+            isolated_db["settings"].data_dir / "missing" / "oid_index.json"
+        )
+        session.commit()
+
+    with pytest.raises(HTTPException) as excinfo:
+        browser_module.bundle_oid_index(bundle_set_id=bundle_set_id, x_auth_token=token)
+    assert excinfo.value.status_code == 404
 
 
 def test_browser_routes_return_empty_catalog_shapes_when_no_bundle(isolated_db):

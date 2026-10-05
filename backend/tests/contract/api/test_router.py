@@ -40,6 +40,7 @@ def test_create_app_registers_current_api_routes(isolated_db):
         "walk",
         "traps",
         "mibs",
+        "bundles",
         "healthz",
         "ws",
     }

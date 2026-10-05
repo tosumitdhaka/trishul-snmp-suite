@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, Query
-
-from fastapi import HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import Response
 
 from app.services import browser_service
 from app.services.bundle_state import get_bundle
@@ -17,7 +17,37 @@ def _require_authenticated_user(token):
     except SessionServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+
+def _ctx():
+    from app.core.config import get_settings
+    from app.services.bundles import BundleService
+    from app.services.state_store import get_state_store
+
+    settings = get_settings()
+    return settings, get_state_store(), BundleService(settings)
+
 router = APIRouter()
+
+
+@router.get("/bundles/{bundle_set_id}/oid-index")
+def bundle_oid_index(
+    bundle_set_id: int,
+    x_auth_token: str | None = Header(default=None),
+) -> Response:
+    """Stream a bundle set's oid_index.json sidecar from disk."""
+    _require_authenticated_user(x_auth_token)
+    _settings, _state, bundle_service = _ctx()
+    from app.models import BundleSet
+
+    with bundle_service.session_factory() as session:
+        bundle = session.get(BundleSet, bundle_set_id)
+    oid_index_path = bundle.oid_index_path if bundle is not None else None
+    if not oid_index_path or not Path(oid_index_path).exists():
+        raise HTTPException(status_code=404, detail="Bundle set oid-index sidecar not found.")
+    return Response(
+        content=Path(oid_index_path).read_bytes(),
+        media_type="application/json",
+    )
 
 
 @router.get("/mibs/browse/modules")

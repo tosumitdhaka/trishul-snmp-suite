@@ -40,6 +40,10 @@ def test_mib_routes_report_empty_catalog_shapes_when_no_bundle(isolated_db):
         "failed_modules": [],
         "source_inventory": [],
         "source_groups": [],
+        "producer_version": None,
+        "recompile_recommended": False,
+        "missing_capabilities": [],
+        "active_bundle_id": None,
     }
     assert mibs_module.get_mib_objects(x_auth_token=token) == {"objects": []}
     assert mibs_module.get_mib_traps(x_auth_token=token) == {"traps": []}

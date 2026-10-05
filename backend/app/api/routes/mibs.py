@@ -102,6 +102,7 @@ def get_mib_objects(
             "syntax": node.syntax or "",
             "type": node.nodetype or node.object_type or "",
             "input_type": _input_type(node.syntax),
+            "constraint": node.constraints,
         }
         for node in bundle.iter_objects()
         if node.object_type not in ("NOTIFICATION-TYPE", "TRAP-TYPE")

@@ -9,7 +9,9 @@
 Trishul SNMP Suite is a bundle-first SNMP lab and operations shell. The current
 `2.0.3` line keeps the FastAPI plus SQLite platform introduced in `2.0.0` and
 delivers a full UI/UX accessibility, consistency, and branding pass across the
-page-based operator shell.
+page-based operator shell. The SNMP/SMI engine runs entirely on the pure-Python
+`trishul-smi` + `trishul-snmp` stack — no pysnmp, net-snmp, or other third-party
+SNMP dependency remains.
 
 ![Trishul SNMP Suite Demo](./assets/trishul_snmp_demo.gif)
 
