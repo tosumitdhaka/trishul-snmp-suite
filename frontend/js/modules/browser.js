@@ -10,13 +10,23 @@ window.BrowserModule = {
     _oidIndex: null,
     _oidIndexBundleId: null,
     _activeBundleId: null,
+    _windowListeners: [],
+    _mibsBroadcastTimer: null,
+    _searchRequestId: 0,
+    _bundleSummary: null,
+    _currentDetailData: null,
 
     STATE_KEY: 'browserState',
+
+    // BRW-23: bundle-scoped dismissal for the "bundle predates enum/units
+    // metadata" notice — same shape as the MIB Manager banner (MGR-14).
+    RECOMPILE_NOTICE_KEY: 'trishul_browser_recompile_notice_dismissed',
 
     // UI type labels the server path emits (mirrors browser_service._ui_type).
     UI_NODE_TYPES: [
         'Module', 'Node', 'MibTable', 'MibTableRow', 'MibTableColumn',
         'MibScalar', 'NotificationType', 'ObjectGroup', 'ModuleCompliance',
+        'ModuleIdentity',
     ],
 
     // Raw SMI type tokens (as stored in the oid-index sidecar) → UI type
@@ -27,7 +37,7 @@ window.BrowserModule = {
         'TRAP-TYPE': 'NotificationType',
         'OBJECT-GROUP': 'ObjectGroup',
         'MODULE-COMPLIANCE': 'ModuleCompliance',
-        'MODULE-IDENTITY': 'ModuleCompliance',
+        'MODULE-IDENTITY': 'ModuleIdentity',
         'SCALAR': 'MibScalar',
         'TABLE': 'MibTable',
         'ROW': 'MibTableRow',
@@ -80,16 +90,20 @@ window.BrowserModule = {
 
     setNodeExpanded: function(nodeEl, expanded) {
         const childrenEl = nodeEl?.querySelector(':scope > .tree-children');
-        const icon = nodeEl?.querySelector(':scope > .tree-node-content > .tree-expand-icon');
+        const toggleBtn = nodeEl?.querySelector(':scope > .tree-node-content > .tree-expand-icon');
 
         if (childrenEl) {
             childrenEl.classList.toggle('is-expanded', !!expanded);
             childrenEl.classList.toggle('is-collapsed', !expanded);
         }
 
-        if (icon) {
+        if (toggleBtn) {
+            // BRW-13: the expand control is a button wrapping the chevron —
+            // flip the glyph inside it and keep its expanded state announced.
+            const icon = toggleBtn.querySelector('i') || toggleBtn;
             icon.classList.toggle('fa-chevron-down', !!expanded);
             icon.classList.toggle('fa-chevron-right', !expanded);
+            toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
         }
     },
 
@@ -109,16 +123,29 @@ window.BrowserModule = {
         this._oidIndex = null;
         this._oidIndexBundleId = null;
         this._activeBundleId = null;
+        // BRW-23: detail-panel notice state is bundle-scoped as well.
+        this._bundleSummary = null;
+        this._currentDetailData = null;
         this.setButtonStates();
 
         // Restore state if exists
         this.restoreState();
         this.applyViewLayout();
-        
+
+        // MGR-12: bundle mutations broadcast over WS (from any client/tab) —
+        // drop bundle-scoped caches and refresh the visible tree.
+        this.bindWindowEvent('trishul:ws:mibs', () => this.handleMibsBroadcast());
+
         // Load modules first, then tree
         await this.loadModules();
+        // BRW-19: apply the restored filter/search UI only after the module
+        // options exist, so the select values and the filter state agree.
+        this.applyRestoredUiState();
         this.loadTree();
         this.loadOidIndex();
+        // BRW-23: one status fetch per page entry powers the detail-panel
+        // "bundle predates enum/units metadata" notice.
+        this.loadBundleSummary();
         
         // Check if coming from Walker/Trap Sender
         const searchOid = sessionStorage.getItem('browserSearchOid');
@@ -153,8 +180,136 @@ window.BrowserModule = {
         if (this.searchTimeout) {
             clearTimeout(this.searchTimeout);
         }
+        if (this._mibsBroadcastTimer) {
+            clearTimeout(this._mibsBroadcastTimer);
+            this._mibsBroadcastTimer = null;
+        }
+        this._windowListeners.forEach(([type, handler]) => {
+            window.removeEventListener(type, handler);
+        });
+        this._windowListeners = [];
+        // Invalidate any in-flight search so stale responses can't render
+        // after the page is gone.
+        this._searchRequestId += 1;
         // Save state before leaving
         this.saveState();
+    },
+
+    bindWindowEvent: function(type, handler) {
+        window.addEventListener(type, handler);
+        this._windowListeners.push([type, handler]);
+    },
+
+    // MGR-12: the active bundle changed elsewhere (other tab or client).
+    // Every bundle-scoped cache must go; if the tree is on screen, reload it.
+    handleMibsBroadcast: function() {
+        this._oidIndex = null;
+        this._oidIndexBundleId = null;
+        this._activeBundleId = null;
+        this.nodeCache = {};
+        // BRW-23: the detail-panel notice follows the (possibly new)
+        // bundle's manifest, so refresh the status snapshot too.
+        this._bundleSummary = null;
+        this.loadBundleSummary();
+        if (!document.getElementById('browser-tree-container')) return;
+        if (this.isSearchActive) return;
+        // Coalesce broadcast bursts into a single reload so a flurry of bundle
+        // pushes (e.g. during a recompile) does not fan out into N loadTree calls.
+        if (this._mibsBroadcastTimer) {
+            clearTimeout(this._mibsBroadcastTimer);
+        }
+        this._mibsBroadcastTimer = setTimeout(() => {
+            this._mibsBroadcastTimer = null;
+            this.loadTree();
+        }, 250);
+    },
+
+    // BRW-27: fetch the lightweight bundle summary once per page entry — a
+    // manifest-only read, unlike the full /api/mibs/status source-inventory
+    // scan. It feeds the detail-panel recompile notice (BRW-23) and keeps
+    // the last-seen bundle id fresh for the oid-index validation (BRW-08).
+    loadBundleSummary: async function() {
+        try {
+            const res = await fetch('/api/mibs/bundle-summary');
+            if (!res.ok) return null;
+            const data = await res.json();
+            this._bundleSummary = data || null;
+            if (this._bundleSummary) {
+                this.noteActiveBundleId(this._bundleSummary);
+            }
+            // The snapshot can arrive after a node detail is already on
+            // screen — re-render it when the notice state changed in either
+            // direction (newly due, or no longer due after a bundle switch).
+            if (
+                this._currentDetailData
+                && (this.shouldShowRecompileNotice() || document.getElementById('browser-recompile-notice'))
+            ) {
+                this.renderDetails(this._currentDetailData);
+            }
+            return this._bundleSummary;
+        } catch (_error) {
+            return null;
+        }
+    },
+
+    shouldShowRecompileNotice: function() {
+        const snapshot = this._bundleSummary;
+        if (!snapshot || !snapshot.recompile_recommended) return false;
+        return !this.isRecompileNoticeDismissed(snapshot.active_bundle_id);
+    },
+
+    isRecompileNoticeDismissed: function(bundleId) {
+        if (bundleId == null) return false;
+        try {
+            const raw = localStorage.getItem(this.RECOMPILE_NOTICE_KEY);
+            if (!raw) return false;
+            const state = JSON.parse(raw);
+            return Boolean(
+                state
+                && state.dismissed === true
+                && String(state.bundle_id) === String(bundleId)
+            );
+        } catch (_error) {
+            return false;
+        }
+    },
+
+    dismissRecompileNotice: function() {
+        const bundleId = this._bundleSummary && this._bundleSummary.active_bundle_id != null
+            ? this._bundleSummary.active_bundle_id
+            : null;
+        try {
+            localStorage.setItem(this.RECOMPILE_NOTICE_KEY, JSON.stringify({
+                bundle_id: bundleId,
+                dismissed: true,
+            }));
+        } catch (_error) {
+            // Storage unavailable — the notice simply returns next visit.
+        }
+        const notice = document.getElementById('browser-recompile-notice');
+        if (notice) notice.remove();
+    },
+
+    recompileNoticeMissingText: function() {
+        const missing = Array.isArray(this._bundleSummary && this._bundleSummary.missing_capabilities)
+            ? this._bundleSummary.missing_capabilities.filter(Boolean)
+            : [];
+        return missing.length ? missing.join('/') : 'enum/units';
+    },
+
+    buildRecompileNotice: function() {
+        const esc = TrishulUtils.escapeHtml;
+        return `
+            <div class="alert alert-warning small d-flex align-items-start gap-2 mb-3 py-2" id="browser-recompile-notice" role="status">
+                <i class="fas fa-circle-info mt-1" aria-hidden="true"></i>
+                <div class="flex-grow-1">
+                    This bundle predates ${esc(this.recompileNoticeMissingText())} metadata —
+                    <a href="#mibs">recompile it in MIB Manager</a>.
+                </div>
+                <button type="button" class="btn-close" aria-label="Dismiss the recompile notice"
+                        onclick="BrowserModule.dismissRecompileNotice()"></button>
+            </div>
+        `;
     },
 
     saveState: function() {
@@ -223,42 +378,55 @@ window.BrowserModule = {
             }).filter(Boolean);
             this.pendingSelectedOid = state.selectedOid;
             this.pendingSelectedModule = state.selectedModule || null;
-            
-            // Restore UI elements (will be set after DOM loads)
-            setTimeout(() => {
-                if (state.currentModule) {
-                    const moduleSelect = document.getElementById('browser-module-filter');
-                    if (moduleSelect) moduleSelect.value = state.currentModule;
-                }
-                
-                if (state.currentTypeFilter) {
-                    const typeSelect = document.getElementById('browser-type-filter');
-                    if (typeSelect) typeSelect.value = state.currentTypeFilter;
-                }
-                
-                if (state.searchQuery) {
-                    const searchInput = document.getElementById('browser-search-input');
-                    const clearBtn = document.getElementById('btn-clear-search');
-                    
-                    if (searchInput) {
-                        searchInput.value = state.searchQuery;
-                        
-                        // BUG FIX: was style.display = 'block' — overridden by d-none class
-                        if (clearBtn && state.searchQuery.length > 0) {
-                            clearBtn.classList.remove('d-none');
-                        }
-                        
-                        if (state.searchQuery.length >= 2) {
-                            this.search();
-                        }
-                    }
-                }
-                
-                this.setButtonStates();
-            }, 100);
-            
+
+            // BRW-19: filter/search UI values are applied by
+            // applyRestoredUiState() once the module options exist — applying
+            // them against a not-yet-populated select used to leave the UI
+            // showing "All Modules" while the tree was actually filtered.
+            this._restoredUi = {
+                moduleFilter: this.currentModule,
+                typeFilter: this.currentTypeFilter,
+                searchQuery: String(state.searchQuery || ''),
+            };
+
         } catch (e) {
             console.error('Failed to restore state:', e);
+        }
+    },
+
+    applyRestoredUiState: function() {
+        const restored = this._restoredUi;
+        if (!restored) return;
+        this._restoredUi = null;
+
+        const moduleSelect = document.getElementById('browser-module-filter');
+        if (moduleSelect && restored.moduleFilter) {
+            moduleSelect.value = restored.moduleFilter;
+            if (moduleSelect.value !== restored.moduleFilter) {
+                // Module no longer exists in the catalog — clear the filter
+                // so the UI and the tree state agree.
+                this.currentModule = null;
+            }
+        }
+
+        const typeSelect = document.getElementById('browser-type-filter');
+        if (typeSelect && restored.typeFilter) {
+            typeSelect.value = restored.typeFilter;
+        }
+
+        if (restored.searchQuery) {
+            const searchInput = document.getElementById('browser-search-input');
+            const clearBtn = document.getElementById('btn-clear-search');
+            if (searchInput) {
+                searchInput.value = restored.searchQuery;
+                if (clearBtn) clearBtn.classList.remove('d-none');
+            }
+        }
+
+        this.setButtonStates();
+
+        if (restored.searchQuery.trim().length >= 2) {
+            this.search();
         }
     },
 
@@ -590,18 +758,30 @@ window.BrowserModule = {
         }
     },
     
+    // BRW-21: the tree count badge means different things per view — keep the
+    // number but announce what it counts via title/aria-label.
+    setTreeCount: function(count, meaning) {
+        const badge = document.getElementById('browser-tree-count');
+        if (!badge) return;
+        badge.textContent = count;
+        badge.title = meaning;
+        badge.setAttribute('aria-label', `${meaning}: ${count}`);
+    },
+
     clearSearch: function() {
         document.getElementById('browser-search-input').value = '';
         // BUG FIX: was style.display = 'none'
         document.getElementById('btn-clear-search').classList.add('d-none');
         this.isSearchActive = false;
         this.loadTree();
+        // BRW-21: match the MIBs page — clear returns focus to the input.
+        document.getElementById('browser-search-input').focus();
     },
-    
+
     debounceSearch: function() {
         const searchInput = document.getElementById('browser-search-input');
         const query = searchInput.value.trim();
-        
+
         // BUG FIX: was style.display = 'block'/'none'
         const clearBtn = document.getElementById('btn-clear-search');
         if (query.length > 0) {
@@ -609,9 +789,9 @@ window.BrowserModule = {
         } else {
             clearBtn.classList.add('d-none');
         }
-        
+
         clearTimeout(this.searchTimeout);
-        
+
         if (query.length < 2) {
             if (this.isSearchActive) {
                 this.isSearchActive = false;
@@ -619,8 +799,10 @@ window.BrowserModule = {
             }
             return;
         }
-        
-        this.searchTimeout = setTimeout(() => this.search(), 500);
+
+        // BRW-21: 300ms debounce (was 500) for snappier feedback, still
+        // protecting the server from per-keystroke searches.
+        this.searchTimeout = setTimeout(() => this.search(), 300);
     },
     
     // BRW-08: observe the active bundle id from payloads the browser already
@@ -705,7 +887,7 @@ window.BrowserModule = {
         return 'Node';
     },
 
-    tryOidIndexSearch: function(query, container, countBadge) {
+    tryOidIndexSearch: function(query, container) {
         if (!this._oidIndex || !this._oidIndex.oids) return false;
         // BRW-09: the index carries no module/type metadata, so an OID
         // search under an active module or type filter must use the server
@@ -736,7 +918,7 @@ window.BrowserModule = {
         };
         this.currentSearchResults = [node];
         this.cacheNode(node);
-        if (countBadge) countBadge.textContent = 1;
+        this.setTreeCount(1, 'Search results');
         this.renderSearchResults([node], container);
         return true;
     },
@@ -744,15 +926,23 @@ window.BrowserModule = {
     search: async function() {
         const query = document.getElementById('browser-search-input').value.trim();
         const container = document.getElementById('browser-tree-container');
-        const countBadge = document.getElementById('browser-tree-count');
-        
+
         if (query.length < 2) {
             return;
         }
-        
+
+        // BRW-10: overlapping searches must resolve in order — a slow early
+        // response can never overwrite the results of a newer one.
+        const requestId = ++this._searchRequestId;
+
         this.syncFiltersFromUi();
         this.saveState();
         this.isSearchActive = true;
+
+        // BRW-25: the local oid-index fast path ignores module/type filters, so
+        // when a filter is active skip the index (its download and its
+        // placeholder) entirely and go straight to the server search.
+        const filterActive = Boolean(this.currentModule) || Boolean(this.currentTypeFilter);
 
         // BRW-24: give immediate feedback while the oid-index validates or
         // downloads instead of a silent pause on the first numeric search.
@@ -760,15 +950,16 @@ window.BrowserModule = {
         // last observed bundle id (BRW-08 defense in depth).
         const indexReady = this._oidIndex && this._oidIndexBundleId != null
             && (this._activeBundleId == null || this._oidIndexBundleId === this._activeBundleId);
-        if (!indexReady) {
+        if (!filterActive && !indexReady) {
             container.innerHTML = this.buildTreePlaceholder({
                 state: 'loading',
                 title: 'Searching catalog',
                 copy: 'Preparing the OID index for fast numeric lookups.',
             });
             await this.loadOidIndex();
+            if (requestId !== this._searchRequestId) return;
         }
-        if (this.tryOidIndexSearch(query, container, countBadge)) {
+        if (!filterActive && this.tryOidIndexSearch(query, container)) {
             return;
         }
 
@@ -777,7 +968,7 @@ window.BrowserModule = {
             title: 'Searching catalog',
             copy: 'Matching objects, notifications, and descriptions.',
         });
-        
+
         try {
             const params = new URLSearchParams();
             params.set('query', query);
@@ -793,11 +984,12 @@ window.BrowserModule = {
                 throw new Error(`HTTP ${res.status}: ${res.statusText}`);
             }
             const data = await res.json();
+            if (requestId !== this._searchRequestId) return;
             this.currentSearchResults = data.results || [];
             this.cacheNodesRecursive(this.currentSearchResults);
-            
-            countBadge.textContent = data.count;
-            
+
+            this.setTreeCount(data.count, 'Search results');
+
             if (data.results.length === 0) {
                 container.innerHTML = this.buildTreePlaceholder({
                     icon: 'fa-search',
@@ -806,16 +998,17 @@ window.BrowserModule = {
                 });
                 return;
             }
-            
+
             this.renderSearchResults(data.results, container);
-            
+
             if (this.pendingSelectedOid) {
                 setTimeout(() => {
                     this.restoreSelectedNode();
                 }, 100);
             }
-            
+
         } catch (e) {
+            if (requestId !== this._searchRequestId) return;
             console.error('Search failed:', e);
             container.innerHTML = `<div class="alert alert-danger m-2 small">Search failed: ${TrishulUtils.escapeHtml(e.message)}</div>`;
         }
@@ -863,7 +1056,6 @@ window.BrowserModule = {
         }
         
         const container = document.getElementById('browser-tree-container');
-        const countBadge = document.getElementById('browser-tree-count');
         this.currentSearchResults = [];
         
         container.innerHTML = this.buildTreePlaceholder({
@@ -901,13 +1093,13 @@ window.BrowserModule = {
                             copy: 'Upload or activate MIB sources before browsing the tree.',
                             actionHtml: '<a href="#mibs" class="btn btn-sm btn-app-primary"><i class="fas fa-upload me-1"></i>Open MIB Manager</a>',
                         });
-                    countBadge.textContent = '0';
+                    this.setTreeCount('0', 'Objects in view');
                     return;
                 }
                 
                 this.cacheNodesRecursive(data.modules);
                 this.renderModuleTree(data.modules, container);
-                countBadge.textContent = data.count;
+                this.setTreeCount(data.count, 'Objects in view');
                 
                 setTimeout(() => {
                     this.autoExpandFilteredModuleRoots();
@@ -926,7 +1118,7 @@ window.BrowserModule = {
                 this.cacheNode(data.root);
                 this.cacheNodesRecursive(data.children);
                 this.renderOidTree(data, container);
-                countBadge.textContent = data.total_descendants;
+                this.setTreeCount(data.total_descendants, 'Objects under root');
                 
                 setTimeout(() => {
                     this.restoreExpandedNodes();
@@ -961,12 +1153,15 @@ window.BrowserModule = {
                     <div class="d-flex align-items-center py-2 px-3 tree-node-content border-bottom"
                          onclick="BrowserModule.handleNodeClickFromElement(this)">
                         ${hasChildren ? `
-                            <i class="fas fa-chevron-right fa-xs me-2 tree-expand-icon" 
-                            onclick="event.stopPropagation(); BrowserModule.toggleNodeFromElement(this)"></i>
+                            <button type="button" class="btn p-0 border-0 shadow-none tree-expand-icon" 
+                                    aria-label="Expand module" aria-expanded="false"
+                                    onclick="event.stopPropagation(); BrowserModule.toggleNodeFromElement(this)">
+                                <i class="fas fa-chevron-right fa-xs me-2"></i>
+                            </button>
                         ` : '<span class="app-tree-spacer"></span>'}
-                        <i class="fas fa-book app-header-icon is-primary me-2"></i>
-                        <span class="tree-node-name fw-bold">${esc(module.name)}</span>
-                        <span class="badge badge-subtle ms-auto app-fs-70">${children.length} ${this.currentTypeFilter ? this.getTypeLabel(this.currentTypeFilter) : 'objects'}</span>
+                         <i class="fas fa-book app-header-icon is-primary me-2"></i>
+                         <span class="tree-node-name fw-bold">${esc(module.name)}</span>
+                         <span class="badge badge-subtle ms-auto app-fs-70">${esc(String(module.object_count != null ? module.object_count : children.length))} ${this.currentTypeFilter ? this.getTypeLabel(this.currentTypeFilter) : 'objects'}</span>
                     </div>
                     ${hasChildren ? `
                         <div class="tree-children app-tree-children-pad is-collapsed">
@@ -1006,9 +1201,12 @@ window.BrowserModule = {
             <div class="tree-node" data-oid="${esc(data.root.oid)}" data-module="${esc(data.root.module || this.currentModule || '')}">
                 <div class="d-flex align-items-center py-2 px-3 tree-node-content border-bottom" 
                      onclick="BrowserModule.handleNodeClickFromElement(this)">
-                    ${data.children.length > 0 ? `
-                        <i class="fas fa-chevron-down fa-xs me-2 tree-expand-icon" 
-                           onclick="event.stopPropagation(); BrowserModule.toggleNodeFromElement(this)"></i>
+                     ${data.children.length > 0 ? `
+                        <button type="button" class="btn p-0 border-0 shadow-none tree-expand-icon" 
+                                aria-label="Collapse root" aria-expanded="true"
+                                onclick="event.stopPropagation(); BrowserModule.toggleNodeFromElement(this)">
+                            <i class="fas fa-chevron-down fa-xs me-2"></i>
+                        </button>
                     ` : '<span class="app-tree-spacer"></span>'}
                     <i class="fas fa-cube app-header-icon is-neutral me-2"></i>
                     <span class="tree-node-name fw-bold">${esc(data.root.name)}</span>
@@ -1034,9 +1232,12 @@ window.BrowserModule = {
             <div class="tree-node" data-oid="${esc(node.oid)}" data-module="${esc(node.module || '')}" style="padding-left: ${indent}px;">
                 <div class="d-flex align-items-center py-1 px-2 tree-node-content" 
                      onclick="BrowserModule.handleNodeClickFromElement(this)">
-                    ${hasChildren ? `
-                        <i class="fas fa-chevron-right fa-xs me-2 tree-expand-icon" 
-                           onclick="event.stopPropagation(); BrowserModule.toggleNodeFromElement(this)"></i>
+                     ${hasChildren ? `
+                        <button type="button" class="btn p-0 border-0 shadow-none tree-expand-icon" 
+                                aria-label="Expand node" aria-expanded="false"
+                                onclick="event.stopPropagation(); BrowserModule.toggleNodeFromElement(this)">
+                            <i class="fas fa-chevron-right fa-xs me-2"></i>
+                        </button>
                     ` : '<span class="app-tree-spacer"></span>'}
                     <i class="fas ${icon} ${iconColor} me-2 app-browser-node-icon"></i>
                     <span class="tree-node-name small">${esc(node.name)}</span>
@@ -1213,11 +1414,12 @@ window.BrowserModule = {
             'MibScalar': 'fa-file',
             'NotificationType': 'fa-bell',
             'ObjectGroup': 'fa-folder',
-            'ModuleCompliance': 'fa-check-circle'
+            'ModuleCompliance': 'fa-check-circle',
+            'ModuleIdentity': 'fa-id-card'
         };
         return icons[type] || 'fa-cube';
     },
-    
+
     getNodeIconColor: function(type) {
         const colors = {
             'Module': 'app-header-icon is-primary',
@@ -1225,7 +1427,8 @@ window.BrowserModule = {
             'MibTableColumn': 'app-header-icon is-success',
             'MibScalar': 'app-header-icon is-info',
             'NotificationType': 'app-header-icon is-warning',
-            'ObjectGroup': 'app-header-icon is-neutral'
+            'ObjectGroup': 'app-header-icon is-neutral',
+            'ModuleIdentity': 'app-header-icon is-primary'
         };
         return colors[type] || 'app-header-icon is-neutral';
     },
@@ -1243,7 +1446,7 @@ window.BrowserModule = {
         if (!childrenEl || !icon) return;
         
         if (!this.isNodeExpanded(nodeEl)) {
-            
+
             if (childrenEl.innerHTML.trim() === '') {
                 try {
                     const children = await this.loadChildrenIntoNode(nodeEl);
@@ -1251,11 +1454,19 @@ window.BrowserModule = {
                         childrenEl.innerHTML = '<div class="text-muted small px-2 py-1">No children</div>';
                     }
                 } catch (e) {
+                    // BRW-11: leave the children container empty and stay
+                    // collapsed — writing an error into the container used to
+                    // permanently block the lazy-load retry (it only fires on
+                    // empty innerHTML). The toast tells the user to retry.
                     console.error('Failed to load children:', e);
-                    childrenEl.innerHTML = '<div class="small app-status-text is-error px-2 py-1">Failed to load</div>';
+                    TrishulUtils.showNotification(
+                        'Failed to load tree children — expand the node again to retry',
+                        'error'
+                    );
+                    return;
                 }
             }
-            
+
             this.setNodeExpanded(nodeEl, true);
         } else {
             this.setNodeExpanded(nodeEl, false);
@@ -1271,6 +1482,8 @@ window.BrowserModule = {
     },
 
     handleNodeClickFromElement: async function(el) {
+        // BRW-13: a row click selects the node only — expansion is the
+        // chevron button's job, so the two intents no longer fire together.
         const nodeEl = el?.closest('.tree-node');
         if (!nodeEl) return;
         const oid = nodeEl.getAttribute('data-oid');
@@ -1278,12 +1491,6 @@ window.BrowserModule = {
         if (!oid) return;
 
         await this.selectNode(oid, module);
-
-        const childrenEl = nodeEl.querySelector(':scope > .tree-children');
-        const icon = nodeEl.querySelector(':scope > .tree-node-content > .tree-expand-icon');
-        if (childrenEl && icon) {
-            await this.toggleNodeElement(nodeEl);
-        }
     },
     
     selectNode: async function(oid, module) {
@@ -1356,6 +1563,10 @@ window.BrowserModule = {
         const panel = document.getElementById('browser-details-panel');
         const esc = TrishulUtils.escapeHtml;
 
+        // BRW-23: keep the rendered payload so a late status snapshot can
+        // re-render the detail with the recompile notice once it arrives.
+        this._currentDetailData = data;
+
         const isNotification = node.type === 'NotificationType';
         const trapObjects = data.trap_objects || [];
 
@@ -1371,14 +1582,18 @@ window.BrowserModule = {
                 return String(left[0]).localeCompare(String(right[0]));
             })
             : [];
+        // BRW-15: render declared range/size/enum constraints (and union
+        // alternatives) as badges in the detail table.
+        const constraintBadges = this.buildConstraintBadges(node.constraints, node.enums);
         const trapPayload = TrishulUtils.encodeDataAttr({
             full_name: node.full_name,
             name: node.name,
             oid: node.oid,
             objects: trapObjects
         });
-        
+
         panel.innerHTML = `
+            ${this.shouldShowRecompileNotice() ? this.buildRecompileNotice() : ''}
             <!-- Breadcrumb with tooltips -->
             ${data.breadcrumb.length > 0 ? `
                 <nav aria-label="breadcrumb" class="mb-3">
@@ -1450,6 +1665,12 @@ window.BrowserModule = {
                             <td><span class="badge app-badge is-info app-browser-units-badge">${esc(node.units)}</span></td>
                         </tr>
                     ` : ''}
+                    ${constraintBadges ? `
+                        <tr>
+                            <td class="text-muted fw-bold">Constraints</td>
+                            <td>${constraintBadges}</td>
+                        </tr>
+                    ` : ''}
                     ${node.access ? `
                         <tr>
                             <td class="text-muted fw-bold">Access</td>
@@ -1475,7 +1696,7 @@ window.BrowserModule = {
             ` : ''}
             
             ${enumEntries.length > 0 ? `
-                <div class="mb-3">
+                <div class="mb-3" id="browser-enum-section">
                     <label class="fw-bold small text-muted d-block mb-1">Enumerations
                         <span class="badge app-badge is-neutral ms-1">${enumEntries.length}</span>
                     </label>
@@ -1520,21 +1741,96 @@ window.BrowserModule = {
                 </div>
             ` : ''}
             
-            <!-- Actions -->
-            <hr>
-            <div class="d-grid gap-2">
-                ${!isNotification ? `
-                    <button type="button" class="btn btn-sm btn-app-primary" onclick="BrowserModule.useInWalker(this.dataset.fullName)" data-full-name="${esc(node.full_name)}">
-                        <i class="fas fa-walking"></i> Walk this OID
-                    </button>
-                ` : ''}
-                ${isNotification ? `
-                    <button type="button" class="btn btn-sm btn-app-primary" onclick="BrowserModule.useInTrapSenderFromElement(this)" data-trap="${esc(trapPayload)}">
-                        <i class="fas fa-paper-plane"></i> Send this Trap
-                    </button>
-                ` : ''}
+            <!-- Actions — BRW-18: pinned to the panel bottom so the primary
+                 action stays reachable on long (enum/description-heavy) details -->
+            <div class="app-browser-detail-actions">
+                <div class="d-grid gap-2">
+                    ${!isNotification ? `
+                        <button type="button" class="btn btn-sm btn-app-primary" onclick="BrowserModule.useInWalker(this.dataset.fullName)" data-full-name="${esc(node.full_name)}">
+                            <i class="fas fa-walking"></i> Walk this OID
+                        </button>
+                    ` : ''}
+                    ${isNotification ? `
+                        <button type="button" class="btn btn-sm btn-app-primary" onclick="BrowserModule.useInTrapSenderFromElement(this)" data-trap="${esc(trapPayload)}">
+                            <i class="fas fa-paper-plane"></i> Send this Trap
+                        </button>
+                    ` : ''}
+                </div>
             </div>
         `;
+    },
+
+    // BRW-15: render a node's declared constraints as compact mono badges,
+    // following the picker's vocabulary ("lo..hi" ranges, "length lo..hi").
+    // Range and size badges list every declared pair; enum constraints show
+    // the value count and jump to the Enumerations table when present;
+    // bits constraints show the named bits (BRW-28); unions render each
+    // alternative joined by "or" under an "any of" lead.
+    buildConstraintBadges: function(constraints, enums) {
+        const esc = TrishulUtils.escapeHtml;
+        if (!constraints || typeof constraints !== 'object' || !constraints.kind) return '';
+
+        const enumCount = enums && typeof enums === 'object' ? Object.keys(enums).length : 0;
+        const badge = (text) => `<span class="badge app-badge is-neutral app-browser-constraint-badge">${esc(text)}</span>`;
+
+        const renderFact = (kind, data) => {
+            if (kind === 'bits') {
+                // BRW-28: BITS data is [name, bit] pairs — show the named
+                // bits (truncated with the full list in the tooltip), or
+                // just the count when no names are derivable.
+                const entries = Array.isArray(data) ? data : [];
+                const names = entries
+                    .filter(pair => Array.isArray(pair) && pair.length >= 2 && String(pair[0] || '').trim())
+                    .map(pair => String(pair[0]));
+                if (!entries.length && !names.length) return '';
+                if (names.length) {
+                    const shown = names.slice(0, 5).join(', ');
+                    const suffix = names.length > 5 ? `, +${names.length - 5} more` : '';
+                    return `<span class="badge app-badge is-neutral app-browser-constraint-badge" title="BITS: ${esc(names.join(', '))}">bits: ${esc(shown)}${esc(suffix)}</span>`;
+                }
+                return badge(`${entries.length} bits`);
+            }
+            const pairs = (Array.isArray(data) ? data : [])
+                .filter(pair => Array.isArray(pair) && pair.length >= 2)
+                .map(pair => `${pair[0]}..${pair[1]}`);
+            if (kind === 'range' && pairs.length) {
+                return badge(pairs.join(', '));
+            }
+            if (kind === 'size' && pairs.length) {
+                return badge(`length ${pairs.join(', ')}`);
+            }
+            if (kind === 'enum') {
+                const count = pairs.length || enumCount;
+                if (!count) return '';
+                if (enumCount > 0) {
+                    return `<button type="button" class="badge app-badge is-neutral app-browser-constraint-badge app-browser-constraint-link"
+                        onclick="BrowserModule.scrollToEnumTable()"
+                        title="Jump to the Enumerations table"
+                        aria-label="Jump to the Enumerations table (${esc(String(count))} values)">${esc(String(count))} values</button>`;
+                }
+                return badge(`${count} values`);
+            }
+            return '';
+        };
+
+        if (constraints.kind !== 'union' && Array.isArray(constraints.data)) {
+            return renderFact(constraints.kind, constraints.data);
+        }
+        if (constraints.kind === 'union' && Array.isArray(constraints.data)) {
+            const alternatives = constraints.data
+                .map(item => item && typeof item === 'object' ? renderFact(item.kind, item.data) : '')
+                .filter(Boolean);
+            if (!alternatives.length) return '';
+            return `<span class="small text-muted">any of</span> ${alternatives.join(' <span class="small text-muted">or</span> ')}`;
+        }
+        return '';
+    },
+
+    scrollToEnumTable: function() {
+        const section = document.getElementById('browser-enum-section');
+        if (section) {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     },
 
     selectNodeFromElement: function(el) {

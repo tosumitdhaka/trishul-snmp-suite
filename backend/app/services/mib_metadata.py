@@ -51,8 +51,9 @@ def enum_values(node) -> list[dict[str, Any]]:
 def first_enum_value(node) -> int | None:
     """First integer enum value for *node*, used as the simulator default.
 
-    Note: BITS constraints resolve through the same map, but a BITS simulator
-    default should eventually be an octet-string, not this integer bit number.
+    Only INTEGER enums qualify. BITS objects carry the same label→number map
+    shape but their wire value is an octet string, so BITS nodes must be
+    routed through :func:`is_bits_node` and never through this integer default.
     """
     mapping = enum_map(node)
     if not mapping:
@@ -61,6 +62,31 @@ def first_enum_value(node) -> int | None:
         if isinstance(value, int):
             return value
     return None
+
+
+def is_bits_node(node, *, bundle=None) -> bool:
+    """True when *node* is BITS-typed.
+
+    BITS objects declare their label→bit map like enums, but the value they
+    serve is an octet string. Detected from the node's syntax, its effective
+    constraints (kind ``bits``), or the type record's ``base_type`` on new
+    bundles.
+    """
+    if getattr(node, "syntax", None) == "BITS":
+        return True
+    constraints = effective_constraints(node, bundle=bundle)
+    if isinstance(constraints, dict) and constraints.get("kind") == "bits":
+        return True
+    syntax = getattr(node, "syntax", None)
+    module = getattr(node, "module", None)
+    if bundle is not None and syntax and module:
+        try:
+            type_record = bundle.resolve_type(module, syntax)
+        except Exception:
+            type_record = None
+        if type_record is not None and getattr(type_record, "base_type", None) == "BITS":
+            return True
+    return False
 
 
 def range_bounds(constraints: Any) -> list[tuple[int, int]] | None:

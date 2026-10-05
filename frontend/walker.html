@@ -2,13 +2,17 @@
     <!-- LEFT: Config + History (40%) -->
     <div class="col-lg-4 col-md-5 d-flex flex-column">
         <!-- TOP: Configuration -->
-        <div class="card shadow-sm mb-3 app-flex-fixed">
+        <div class="card shadow-sm mb-3 app-flex-fixed" id="walk-config-card">
             <div class="card-header">
                 <div class="app-card-header-main">
                     <h2 class="h6 mb-0 fw-semibold"><i class="fas fa-cog me-2 app-header-icon is-primary"></i> Walk Target</h2>
                 </div>
             </div>
             <div class="card-body">
+                <!-- Plain Enter in any single-line config field submits the walk
+                     (novalidate keeps validation errors in the page's inline
+                     alert instead of native browser tooltips). -->
+                <form id="walk-form" onsubmit="WalkerModule.execute(event)" novalidate>
                 <!-- Host -->
                 <div class="mb-3">
                     <div class="input-group input-group-sm">
@@ -76,16 +80,43 @@
                     <div class="form-text small text-muted">Flat JSON returns one row per OID. Grouped JSON returns grouped metric records and keeps OID resolution on.</div>
                 </div>
 
+                <!-- Advanced: Timeout & Retries -->
+                <div class="mb-3">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">Timeout</span>
+                                <input type="number" class="form-control" id="walk-timeout" value="2000"
+                                       min="500" max="10000" step="100" aria-label="Response timeout in milliseconds">
+                                <span class="input-group-text">ms</span>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">Retries</span>
+                                <input type="number" class="form-control" id="walk-retries" value="1"
+                                       min="0" max="5" step="1" aria-label="Retry count">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-text small text-muted">Per-request response timeout and retry count. Press Enter to run the walk.</div>
+                </div>
+
                 <!-- Progress -->
                 <div id="walk-progress" class="d-none mb-3">
+                    <!-- No aria-live: the bar is indeterminate while running, so
+                         there are no real milestones to announce. Completion is
+                         announced once via the #walk-count badge. -->
                     <div class="d-flex justify-content-between small mb-1">
-                        <span id="walk-progress-text" aria-live="polite">Walking...</span>
-                        <span id="walk-progress-count" aria-live="polite">0 items</span>
+                        <span id="walk-progress-text">Walking...</span>
+                        <span id="walk-progress-count"></span>
                     </div>
                     <div class="progress app-progress-thin">
                         <div class="progress-bar progress-bar-striped progress-bar-animated"
-                             id="walk-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
-                             style="width: 0%"></div>
+                             id="walk-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                             style="width: 100%">
+                            <span class="visually-hidden">Walk in progress</span>
+                        </div>
                     </div>
                 </div>
 
@@ -95,9 +126,15 @@
                     <span id="walk-error-text"></span>
                 </div>
 
-                <button type="button" class="btn btn-app-primary btn-sm w-100" id="btn-walk-run" onclick="WalkerModule.execute()">
-                    <i class="fas fa-play me-1"></i> Run Walk
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-app-primary btn-sm flex-fill" id="btn-walk-run">
+                        <i class="fas fa-play me-1"></i> Run Walk
+                    </button>
+                    <button type="button" class="btn btn-app-danger btn-sm flex-fill d-none" id="btn-walk-cancel" onclick="WalkerModule.cancelWalk()">
+                        <i class="fas fa-stop me-1"></i> Cancel
+                    </button>
+                </div>
+            </form>
             </div>
         </div>
 
@@ -160,6 +197,10 @@
                         <button type="button" class="btn btn-app-secondary btn-icon" onclick="WalkerModule.copyToClipboard()"
                                 title="Copy Output" aria-label="Copy output">
                             <i class="fas fa-copy"></i>
+                        </button>
+                        <button type="button" class="btn btn-app-secondary btn-icon" onclick="WalkerModule.copyAsTable()"
+                                title="Copy as table (TSV)" aria-label="Copy as table (TSV)">
+                            <i class="fas fa-table"></i>
                         </button>
                         <button type="button" class="btn btn-app-secondary btn-icon" onclick="WalkerModule.download('json')"
                                 title="Export JSON" aria-label="Export JSON">

@@ -1,7 +1,7 @@
 # Roadmap
 
-This file tracks the shipped `2.0.x` and `2.1.0` release lines and the
-follow-up queue.
+This file tracks the shipped `2.0.x`, `2.1.0`, and `2.2.0` release lines and
+the follow-up queue.
 
 The temporary `2.0.0` and `2.1.0` planning workspaces were removed from the
 active repo tree during the release cleanup. Use this file for release-level
@@ -9,7 +9,7 @@ status and [issue_tracker.md](issue_tracker.md) for slice and backlog tracking.
 
 ## Current Delivery State
 
-`2.1.0` is the current shipped release. The initial `2.0.0` implementation
+`2.2.0` is the current shipped release. The initial `2.0.0` implementation
 slices `S0` through `S13` remain `Done`.
 
 ## Delivered In The 2.0.x Line
@@ -42,12 +42,22 @@ slices `S0` through `S13` remain `Done`.
 - MIB schema integration per the [MIB Schema Integration Plan](mib_schema_integration_plan.md): enum labels, units, and constraints surfaced end-to-end (walks, trap history, MIB browser), reproducible content-addressed bundles with producer-aware recompile prompts, constraint validation before PDU encode, index-aware walk grouping, client-side OID search, and module revision-history cards
 - `trishul-smi==0.5.3` / `trishul-snmp==0.6.2` pinned, with the constraints-as-enum fallback consolidated into one shared helper
 
-## Planned Beyond 2.1.0
+## Delivered In 2.2.0
 
-`2.1.0` should keep the current operator shell and surface backend capabilities
-that already exist in the platform but are not yet exposed in the shipped UI.
+- The full 151-finding end-to-end review closed — registry, dispositions, and phase verdicts in the [E2E Review Findings](e2e_review_findings.md) doc
+- Bundle lifecycle management: list/inspect/diff (content-hash fast path)/rollback with live-session broadcasts
+- Trap inform sending, trap replay, offline payload decoding, Counter64 varbinds, CSV export, per-trap delete, and paginated receiver history
+- Walker timeout/retry controls, cancellation, sortable columns, Enter-to-run, and copy-as-table export
+- MIB browser constraint badges (range/size/enum/bits), inline recompile notices, ETag-cached OID index, and sticky detail actions
+- Community-string redaction across list payloads, the live WS push, and exports
+- Performance: single-scan MIB status inventory, compile lock without held DB sessions, change-only table re-rendering, WS-aware polling
 
-The initial `2.1.0` follow-up queue is summarized in this file and mirrored in
+## Planned Beyond 2.2.0
+
+`2.2.0` follow-ups should keep the current operator shell and add schema depth
+and protocol reach.
+
+The follow-up queue is summarized in this file and mirrored in
 [issue_tracker.md](issue_tracker.md).
 
 No secondary API surface is planned. Follow-up work should extend the current
@@ -55,13 +65,11 @@ No secondary API surface is planned. Follow-up work should extend the current
 
 Initial targets:
 
-- bundle lifecycle UI on top of the existing bundle service
 - saved connection and simulator profiles in the current pages
-- notification history detail and replay in `Traps`
-- direct runtime tools such as `GET`, `GETNEXT`, `GETBULK`, inform send, and payload decode
+- direct manager operations (GET/GETNEXT/GETBULK) on the existing unified API
 - richer dashboard and settings diagnostics through the current stats, runtime, and settings services
+- schema depth and protocol reach: display hints, SMIv1 generic-trap decoding, a compile-time lint gate, v1 walker support, and SNMPv3 exposure
 - API and page refinements on the existing unified `/api/...` surface where they simplify the current UI
-- E2E review remediation — the 148-finding registry (bugs, gaps, improvements, missing features) and the phased 2.2.0 plan live in the [E2E Review Findings](e2e_review_findings.md) doc
 
 ## Deferred Beyond 2.0.x
 

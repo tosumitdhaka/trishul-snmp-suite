@@ -145,6 +145,46 @@ def test_activate_and_rollback_switch_active_bundle_pointer(isolated_db):
     assert state["active_pointer"]["bundle_set_id"] == first_bundle_id
 
 
+def test_activate_bundle_load_failure_rolls_back_pointer_and_raises(isolated_db, monkeypatch):
+    from app.services import bundles as bundles_module
+    from app.services.bundle_state import get_bundle
+    from app.services.bundles import BundleCompileRequest, BundleService, BundleServiceError
+
+    service = BundleService(isolated_db["settings"])
+
+    first_result = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+    first_bundle_id = first_result["bundle"]["id"]
+    service.activate_bundle(first_bundle_id)
+    served_before = get_bundle()
+    assert served_before is not None
+    assert set(served_before.modules) == {"SNMPv2-MIB"}
+
+    second_result = service.compile_bundle(BundleCompileRequest(mib_names=["IF-MIB"]))
+    second_bundle_id = second_result["bundle"]["id"]
+
+    def _broken_load(_path):
+        raise RuntimeError("corrupted compiled data")
+
+    monkeypatch.setattr(bundles_module, "_load_tsnmp_bundle", _broken_load)
+
+    with pytest.raises(BundleServiceError, match="could not be loaded"):
+        service.activate_bundle(second_bundle_id)
+
+    # The DB pointer still names the bundle that memory actually serves.
+    pointer = service.read_active_pointer()
+    assert pointer is not None
+    assert pointer["bundle_set_id"] == first_bundle_id
+
+    state = service.list_state()
+    bundles_by_id = {bundle["id"]: bundle for bundle in state["bundles"]}
+    assert bundles_by_id[first_bundle_id]["is_active"] is True
+    assert bundles_by_id[second_bundle_id]["is_active"] is False
+    assert bundles_by_id[second_bundle_id]["status"] == "compiled"
+
+    served_after = get_bundle()
+    assert served_after is served_before
+
+
 def test_bundle_detail_and_diff_service_expose_dependency_and_change_data(isolated_db):
     from app.services.bundles import BundleCompileRequest, BundleService
 
@@ -235,10 +275,42 @@ def test_manifest_summary_reports_recompile_recommendation(isolated_db):
     assert prerelease["recompile_recommended"] is False
     assert prerelease["missing_capabilities"] == []
 
+    # A manifest with a missing producer version predates capability
+    # tracking — it must be treated as below the floor, not as modern.
     unknown = service._manifest_summary({"modules": [], "sidecars": {}})
     assert unknown["producer_version"] is None
-    assert unknown["recompile_recommended"] is False
-    assert unknown["missing_capabilities"] == []
+    assert unknown["recompile_recommended"] is True
+    assert unknown["missing_capabilities"] == ["enums", "units"]
+
+    blank = service._manifest_summary(
+        {
+            "modules": [],
+            "sidecars": {},
+            "producer_version": "   ",
+        }
+    )
+    assert blank["recompile_recommended"] is True
+    assert blank["missing_capabilities"] == ["enums", "units"]
+
+    unparseable = service._manifest_summary(
+        {
+            "modules": [],
+            "sidecars": {},
+            "producer_version": "not-a-version",
+        }
+    )
+    assert unparseable["recompile_recommended"] is True
+    assert unparseable["missing_capabilities"] == ["enums", "units"]
+
+    numeric = service._manifest_summary(
+        {
+            "modules": [],
+            "sidecars": {},
+            "producer_version": 0.6,
+        }
+    )
+    assert numeric["recompile_recommended"] is False
+    assert numeric["missing_capabilities"] == []
 
 
 def test_ensure_bootstrap_bundle_compiles_and_activates_bundled_sources(isolated_db):
@@ -258,3 +330,148 @@ def test_ensure_bootstrap_bundle_compiles_and_activates_bundled_sources(isolated
     assert state["active_bundle_id"] == bundle["id"]
     assert state["active_pointer"] is not None
     assert state["active_pointer"]["bundle_set_id"] == bundle["id"]
+
+
+def test_diff_bundles_uses_content_hash_fast_path_for_identical_bundles(isolated_db, monkeypatch):
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    service = BundleService(isolated_db["settings"])
+    first = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+    second = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+
+    assert first["bundle"]["content_hash"] == second["bundle"]["content_hash"]
+
+    load_payload_calls = {"count": 0}
+    real_load_payloads = service._load_module_payloads
+
+    def counting_load_payloads(bundle):
+        load_payload_calls["count"] += 1
+        return real_load_payloads(bundle)
+
+    monkeypatch.setattr(service, "_load_module_payloads", counting_load_payloads)
+
+    diff = service.diff_bundles(first["bundle"]["id"], second["bundle"]["id"])
+    assert diff["identical"] is True
+    assert diff["hash"] == first["bundle"]["content_hash"]
+    assert load_payload_calls["count"] == 0
+    assert "modules_added" not in diff and "modules_removed" not in diff
+    assert diff["left_bundle"]["id"] == first["bundle"]["id"]
+    assert diff["right_bundle"]["id"] == second["bundle"]["id"]
+
+
+def test_bundle_summary_carries_producer_version_and_list_state_rows(isolated_db):
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    service = BundleService(isolated_db["settings"])
+    result = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+
+    summary = result["bundle"]
+    assert summary["id"] == result["bundle"]["id"]
+    assert summary["label"]
+    assert summary["created_at"] is not None
+    assert summary["is_active"] is False
+    assert summary["content_hash"]
+    assert summary["module_count"] >= 1
+    assert summary["producer_version"] is not None
+
+    state = service.list_state()
+    listed = next(item for item in state["bundles"] if item["id"] == summary["id"])
+    # MGR-28: list rows are a lightweight index (no modules array, no
+    # manifest-derived producer_version); the detail route carries the rest.
+    assert listed["module_count"] == summary["module_count"]
+    assert "modules" not in listed
+    assert listed["producer_version"] is None
+
+
+def test_compile_bundle_releases_db_session_during_compile(isolated_db, monkeypatch):
+    """MGR-06: the compiler runs with no DB session/connection open.
+
+    The "running" run row is committed and the session closed before the
+    compile starts; the outcome is recorded afterwards in a fresh session.
+    """
+    import asyncio
+
+    from trishul_smi import MibCompiler
+
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    service = BundleService(isolated_db["settings"])
+    real_compile = MibCompiler.compile
+    opened = {"active": 0, "during_compile": None}
+
+    async def fake_compile(self, *names, **kwargs):
+        opened["during_compile"] = opened["active"]
+        return await real_compile(self, *names, **kwargs)
+
+    monkeypatch.setattr(MibCompiler, "compile", fake_compile)
+
+    original_factory = service.session_factory
+
+    class TrackingFactory:
+        def __call__(self, *args, **kwargs):
+            opened["active"] += 1
+            return _TrackedSession(original_factory(*args, **kwargs))
+
+    class _TrackedSession:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __enter__(self):
+            return self._inner.__enter__()
+
+        def __exit__(self, *exc):
+            try:
+                return self._inner.__exit__(*exc)
+            finally:
+                opened["active"] -= 1
+
+    monkeypatch.setattr(service, "session_factory", TrackingFactory())
+
+    result = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+    assert result["bundle"]["status"] == "compiled"
+    assert result["compile_run"]["status"] == "succeeded"
+    # No session was open while the compiler was actually running.
+    assert opened["during_compile"] == 0
+    assert opened["active"] == 0
+
+
+def test_compile_bundle_serializes_concurrent_compiles(isolated_db, monkeypatch):
+    """MGR-06: a process-wide compile lock keeps concurrent compiles from
+    overlapping — two racing requests each get a complete, uncorrupted run."""
+    import asyncio
+    import threading
+
+    from trishul_smi import MibCompiler
+
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    service = BundleService(isolated_db["settings"])
+    real_compile = MibCompiler.compile
+    state = {"active": 0, "max_active": 0}
+
+    async def fake_compile(self, *names, **kwargs):
+        state["active"] += 1
+        state["max_active"] = max(state["max_active"], state["active"])
+        await asyncio.sleep(0.05)
+        state["active"] -= 1
+        return await real_compile(self, *names, **kwargs)
+
+    monkeypatch.setattr(MibCompiler, "compile", fake_compile)
+
+    outcomes: list[BaseException | None] = []
+
+    def run():
+        try:
+            service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
+            outcomes.append(None)
+        except BaseException as exc:  # pragma: no cover - failure diagnostics
+            outcomes.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert all(item is None for item in outcomes)
+    assert state["max_active"] == 1

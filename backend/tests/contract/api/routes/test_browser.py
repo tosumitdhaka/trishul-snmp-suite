@@ -17,6 +17,8 @@ def _login_token() -> str:
 
 
 def test_bundle_oid_index_route_streams_sidecar_and_404s_when_missing(isolated_db):
+    from types import SimpleNamespace
+
     from app.api.routes import browser as browser_module
     from app.models import BundleSet
     from app.services.bundles import BundleCompileRequest, BundleService
@@ -26,14 +28,31 @@ def test_bundle_oid_index_route_streams_sidecar_and_404s_when_missing(isolated_d
     result = service.compile_bundle(BundleCompileRequest(mib_names=["SNMPv2-MIB"]))
     bundle_set_id = result["bundle"]["id"]
 
-    response = browser_module.bundle_oid_index(bundle_set_id=bundle_set_id, x_auth_token=token)
+    no_match_request = SimpleNamespace(headers={})
+    response = browser_module.bundle_oid_index(
+        bundle_set_id=bundle_set_id, request=no_match_request, x_auth_token=token
+    )
     assert response.media_type == "application/json"
+    # BRW-06: the sidecar is immutable per bundle id — served with caching.
+    assert "ETag" in response.headers
+    assert "immutable" in response.headers.get("Cache-Control", "")
     payload = json.loads(response.body)
     assert isinstance(payload.get("oids"), dict)
     assert "1.3.6.1.2.1.1" in payload["oids"]
 
+    # A matching If-None-Match answers 304 without a body.
+    etag = response.headers["ETag"]
+    matched_request = SimpleNamespace(headers={"if-none-match": etag})
+    refreshed = browser_module.bundle_oid_index(
+        bundle_set_id=bundle_set_id, request=matched_request, x_auth_token=token
+    )
+    assert refreshed.status_code == 304
+    assert not refreshed.body
+
     with pytest.raises(HTTPException) as excinfo:
-        browser_module.bundle_oid_index(bundle_set_id=999999, x_auth_token=token)
+        browser_module.bundle_oid_index(
+            bundle_set_id=999999, request=no_match_request, x_auth_token=token
+        )
     assert excinfo.value.status_code == 404
 
     with isolated_db["session_factory"]() as session:
@@ -44,7 +63,9 @@ def test_bundle_oid_index_route_streams_sidecar_and_404s_when_missing(isolated_d
         session.commit()
 
     with pytest.raises(HTTPException) as excinfo:
-        browser_module.bundle_oid_index(bundle_set_id=bundle_set_id, x_auth_token=token)
+        browser_module.bundle_oid_index(
+            bundle_set_id=bundle_set_id, request=no_match_request, x_auth_token=token
+        )
     assert excinfo.value.status_code == 404
 
 
@@ -97,6 +118,48 @@ def test_browser_routes_return_empty_catalog_shapes_when_no_bundle(isolated_db):
         "breadcrumb": [],
         "trap_objects": [],
     }
+
+
+def test_browse_node_payload_carries_constraint_kinds_for_detail_rendering(isolated_db):
+    from app.api.routes import browser as browser_module
+    from app.services.bundles import BundleCompileRequest, BundleService
+    from trishul_snmp import load_bundle
+
+    token = _login_token()
+    service = BundleService(isolated_db["settings"])
+    service.compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+
+    # The browser detail panel (BRW-15) renders range/size/enum constraints
+    # straight from the node payload — pin that all three kinds arrive.
+    enum_node = browser_module.browse_node("IF-MIB::ifAdminStatus", module=None, x_auth_token=token)["node"]
+    assert enum_node["constraints"] == {
+        "kind": "enum",
+        "data": [["up", 1], ["down", 2], ["testing", 3]],
+    }
+
+    size_node = browser_module.browse_node("SNMPv2-MIB::sysLocation", module=None, x_auth_token=token)["node"]
+    assert size_node["constraints"] == {"kind": "size", "data": [[0, 255]]}
+
+    range_node = browser_module.browse_node("SNMPv2-MIB::sysServices", module=None, x_auth_token=token)["node"]
+    assert range_node["constraints"] == {"kind": "range", "data": [[0, 127]]}
+
+
+def test_bundle_summary_route_reports_manifest_state_without_status_scan(isolated_db):
+    from app.api.routes import browser as browser_module
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    token = _login_token()
+    BundleService(isolated_db["settings"]).compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+
+    summary = browser_module.bundle_summary(x_auth_token=token)
+    # A bundle compiled by the current producer needs no recompile.
+    assert summary["recompile_recommended"] is False
+    assert summary["missing_capabilities"] == []
+    assert isinstance(summary["active_bundle_id"], int)
 
 
 def test_browser_search_route_forwards_filters_to_service(isolated_db, monkeypatch):

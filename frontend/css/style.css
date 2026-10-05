@@ -2603,3 +2603,58 @@ table {
     overflow-y: auto;
     padding-left: 1.25rem;
 }
+
+/* --- Simulator: activity-log follow/pause + level-count chips (SIM-26) --- */
+
+.app-log-chip {
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.app-log-chip:hover {
+    filter: brightness(1.1);
+}
+
+.app-log-chip:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 1px;
+}
+
+.app-log-chip-count {
+    font-weight: 700;
+    margin-left: 0.25rem;
+}
+
+/* ===================== 2.2.0-B: browser detail constraints (BRW-15) ===================== */
+
+.app-browser-constraint-badge {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.75rem;
+}
+
+/* The enum-count badge doubles as a jump link to the Enumerations table. */
+.app-browser-constraint-link {
+    cursor: pointer;
+}
+
+.app-browser-constraint-link:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 1px;
+}
+
+/* ===================== 2.2.0-C: browser detail sticky actions (BRW-18) ===================== */
+
+/* Keeps "Walk this OID"/"Send this Trap" pinned to the bottom of the details
+   scroll panel so the primary action stays reachable on long details. The
+   negative margins stretch it across the card-body padding. */
+.app-browser-detail-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding: 0.75rem var(--bs-card-spacer-x, 1rem);
+    margin: 0.5rem calc(var(--bs-card-spacer-x, 1rem) * -1) calc(var(--bs-card-spacer-y, 1rem) * -1);
+    background-color: var(--app-sticky-bg);
+    border-top: 1px solid var(--app-border);
+}

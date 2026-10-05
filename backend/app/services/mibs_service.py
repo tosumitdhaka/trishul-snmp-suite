@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+import threading
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -28,12 +29,17 @@ class MibsError(RuntimeError):
 
 # Module-level source service singleton — caches disk scan results across requests.
 # Invalidated (set to None) whenever the upload directory changes.
+# MGR-10: a process-wide lock guards construction and invalidation so concurrent
+# requests (FastAPI runs sync handlers on a thread pool) can never build two
+# instances or tear one down while another request is mid-construction.
+_source_svc_lock = threading.Lock()
 _source_svc_instance = None
 
 
 def _invalidate_source_cache() -> None:
     global _source_svc_instance
-    _source_svc_instance = None
+    with _source_svc_lock:
+        _source_svc_instance = None
 
 
 def _log(message: str, settings: Settings, *, level: str = "INFO") -> None:
@@ -41,6 +47,13 @@ def _log(message: str, settings: Settings, *, level: str = "INFO") -> None:
 
 
 _EXPORT_SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+# MGR-09: how many most-recent failed compile runs `/api/mibs/status` scans
+# when attributing errors to stored sources. The old hardcoded limit of 5 let
+# older failures vanish while their files kept sitting "pending". A failed run
+# contributes at most one row per failing module, so 100 runs is a generous
+# bound for realistic histories while keeping the scan cheap.
+_MAX_FAILED_RUNS_SCANNED = 100
 
 
 def _slug_fragment(value: str | None, *, fallback: str) -> str:
@@ -184,6 +197,13 @@ def _compile_run_source_path_for_module(
     if not normalized_name:
         return None
 
+    # MGR-05: the warmed path cache already indexes every current upload and
+    # bundled source by stem AND declared name — check it before scanning the
+    # run's (possibly stale) directories file-by-file.
+    cached_path = source_svc.source_path_for_module(normalized_name)
+    if cached_path is not None and cached_path.exists():
+        return cached_path
+
     for raw_directory in run_source_dirs or []:
         directory = Path(str(raw_directory or "")).expanduser()
         if not directory.exists() or not directory.is_dir():
@@ -198,7 +218,7 @@ def _compile_run_source_path_for_module(
             if source_svc.extract_mib_name(path.name, text) == normalized_name:
                 return path
 
-    return source_svc.source_path_for_module(normalized_name)
+    return cached_path
 
 
 def _source_group_summary(
@@ -252,25 +272,26 @@ def _compile_run_result_rows(compile_run) -> list[dict[str, Any]]:
 
 def _make_source_service(settings: Settings, state: StateStore, bundle_service):
     global _source_svc_instance
-    if _source_svc_instance is not None:
-        return _source_svc_instance
+    with _source_svc_lock:
+        if _source_svc_instance is not None:
+            return _source_svc_instance
 
-    from app.services.mib_sources import ShellMibSourceService
+        from app.services.mib_sources import ShellMibSourceService
 
-    _source_svc_instance = ShellMibSourceService(
-        error_cls=MibsError,
-        session_factory=bundle_service.session_factory,
-        upload_dir=lambda: settings.data_dir / "mibs",
-        bundled_mibs_dir=lambda: settings.bundled_mibs_dir,
-        tsmi_cache_dir=lambda: settings.tsmi_cache_dir,
-        load_settings=state.snapshot,
-        emit_operation_log=lambda msg, level="INFO": _log(msg, settings, level=level),
-        active_bundle_summary=bundle_service.get_effective_bundle_summary,
-        unique_mib_names=bundle_service._unique_mib_names,
-        bundled_mib_names=bundle_service.bundled_mib_names,
-        mib_auto_fetch_key=_MIB_AUTO_FETCH_KEY,
-        mib_remote_sources_key=_MIB_REMOTE_SOURCES_KEY,
-    )
+        _source_svc_instance = ShellMibSourceService(
+            error_cls=MibsError,
+            session_factory=bundle_service.session_factory,
+            upload_dir=lambda: settings.data_dir / "mibs",
+            bundled_mibs_dir=lambda: settings.bundled_mibs_dir,
+            tsmi_cache_dir=lambda: settings.tsmi_cache_dir,
+            load_settings=state.snapshot,
+            emit_operation_log=lambda msg, level="INFO": _log(msg, settings, level=level),
+            active_bundle_summary=bundle_service.get_effective_bundle_summary,
+            unique_mib_names=bundle_service._unique_mib_names,
+            bundled_mib_names=bundle_service.bundled_mib_names,
+            mib_auto_fetch_key=_MIB_AUTO_FETCH_KEY,
+            mib_remote_sources_key=_MIB_REMOTE_SOURCES_KEY,
+        )
     return _source_svc_instance
 
 
@@ -324,17 +345,14 @@ def get_status(
     )
 
     def _imports_for_source(source_path: Path | None) -> list[str]:
-        if source_path is None or not source_path.exists():
-            return []
-        try:
-            text = source_path.read_text(errors="ignore")
-        except OSError:
-            return []
-        return source_svc.extract_imported_modules(text)
+        # MGR-05: the source service memoizes extracted IMPORTS per path (the
+        # inventory scan already computed them for managed uploads), so no
+        # stored file is re-read here.
+        return source_svc.imports_for_source(source_path)
 
     bundle = get_bundle()
     uploaded_inventory = source_svc.uploaded_source_inventory()
-    bundle_modules, _, _, active_bundle_id = _bundle_summary_details(bundle_service)
+    bundle_modules, bundle_label, _, active_bundle_id = _bundle_summary_details(bundle_service)
     manifest_summary = bundle_service.get_effective_bundle_manifest_summary() or {}
 
     rows_by_module: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
@@ -395,7 +413,7 @@ def get_status(
             select(CompileRun)
             .where(CompileRun.status == "failed")
             .order_by(CompileRun.id.desc())
-            .limit(5)
+            .limit(_MAX_FAILED_RUNS_SCANNED)
         ).all()
         for run in failed_runs:
             run_result_rows = _compile_run_result_rows(run)
@@ -584,6 +602,7 @@ def get_status(
         "recompile_recommended": bool(manifest_summary.get("recompile_recommended")),
         "missing_capabilities": manifest_summary.get("missing_capabilities") or [],
         "active_bundle_id": active_bundle_id,
+        "active_bundle_label": bundle_label,
     }
 
 
@@ -631,6 +650,7 @@ def reload(*, settings: Settings, state: StateStore, bundle_service) -> dict[str
 def fetch_dependencies(
     dependencies: list[str],
     *,
+    reload_after_fetch: bool = True,
     settings: Settings,
     state: StateStore,
     bundle_service,
@@ -638,7 +658,7 @@ def fetch_dependencies(
     _invalidate_source_cache()
     source_svc = _make_source_service(settings, state, bundle_service)
     mutation_svc = _make_mutation_service(settings, state, bundle_service, source_svc)
-    return mutation_svc.fetch_dependencies(dependencies)
+    return mutation_svc.fetch_dependencies(dependencies, reload_after_fetch=reload_after_fetch)
 
 
 def delete_mib(

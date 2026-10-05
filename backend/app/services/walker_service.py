@@ -94,15 +94,51 @@ def _walk_line(entry: dict[str, Any], *, use_mibs: bool) -> str:
     return f"{label} = {_extract_value(entry)}"
 
 
+# Whole words that mark a numeric object as an identifier/label rather than a
+# measurement. Matched against camelCase-split words only — substring matching
+# misclassified names like "ifVideoBitRate" or "ifWidth" (both contain "id").
+_LABEL_WORD_MARKERS = frozenset({
+    "index",
+    "indices",
+    "id",
+    "ids",
+    "identifier",
+    "identifiers",
+    "name",
+    "descr",
+    "description",
+    "serial",
+    "mac",
+    "type",
+    "version",
+    "status",
+    "address",
+    "addr",
+    "phys",
+    "physical",
+})
+
+
+def _name_words(object_name: str) -> set[str]:
+    """Split a MIB object name into lowercase words.
+
+    "ifPhysAddress" -> {"if", "phys", "address"}; acronym-led names split on
+    the acronym boundary too ("sysORDIndex" -> {"sys", "ord", "index"});
+    "dot1dStpPort" keeps the leading "dot1d" token intact.
+    """
+    text = str(object_name or "").strip()
+    if not text:
+        return set()
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", spaced)
+    return {word.lower() for word in re.split(r"[^A-Za-z0-9]+", spaced) if word}
+
+
 def _value_is_metric(object_name: str, value_type: str, value: Any) -> bool:
     del value
     if value_type not in {"integer", "counter32", "counter64", "gauge32", "timeticks"}:
         return False
-    low = str(object_name or "").strip().lower()
-    return not any(t in low for t in (
-        "index", "id", "name", "descr", "serial", "mac", "type", "version",
-        "status", "address", "phys",
-    ))
+    return not (_name_words(object_name) & _LABEL_WORD_MARKERS)
 
 
 def _metric_value(value_type: str, value: Any) -> int | float | None:
@@ -133,31 +169,34 @@ def _is_string_index_syntax(syntax: str) -> bool:
     return any(marker in normalized for marker in _STRING_INDEX_SYNTAX_MARKERS)
 
 
-def _resolve_index_columns(root_oid: str) -> tuple[tuple[int, ...], list[dict[str, str]]] | None:
-    """Resolve the walk root to a column node and read its row's index columns.
+def _index_context_for_object(
+    bundle: Any,
+    module_name: str,
+    object_name: str,
+) -> tuple[tuple[int, ...] | None, list[dict[str, str]], str] | None:
+    """Resolve one walked object to its row-identity and index columns.
 
-    Returns ``(column_oid, columns)`` where each column is a
-    ``{"name", "syntax"}`` descriptor from the row's ``index`` list, or None
-    when the root is not a resolvable column (heuristic fallback applies).
+    Returns ``(column_oid, index_columns, row_key)`` where ``column_oid`` is
+    None for scalars, ``index_columns`` are ``{"name", "syntax"}`` descriptors
+    from the owning row's ``index`` list, and ``row_key`` is a stable
+    row-identity string used to scope grouped rows. Per-object resolution
+    (instead of resolving only the walk root) keeps index-aware decoding
+    working for table/MIB-root walks, and the row-key scoping stops rows from
+    different tables (or distinct scalars) merging into mega-rows (WLK-04).
+    Returns None when the object does not resolve to a column/scalar node —
+    the heuristic fallback applies.
     """
-    from app.services.bundle_state import get_bundle
-
-    bundle = get_bundle()
-    if bundle is None:
-        return None
     try:
-        if "::" in str(root_oid or ""):
-            column_oid = bundle.resolve(str(root_oid).strip())
-        else:
-            match = bundle.lookup(str(root_oid).strip())
-            column_oid = match.oid
-        match = bundle.lookup(column_oid)
-        root_node = bundle.resolve_node(match.module, match.symbol)
+        node = bundle.resolve_node(module_name, object_name)
     except Exception:
         return None
-    if root_node is None or root_node.nodetype != "column" or len(root_node.oid) < 2:
+    if node is None or len(node.oid) < 2:
         return None
-    row_oid = root_node.oid[:-1]
+    if node.nodetype == "scalar":
+        return None, [], f"{module_name}::{object_name}"
+    if node.nodetype != "column":
+        return None
+    row_oid = node.oid[:-1]
     try:
         row_match = bundle.lookup(row_oid)
         row_node = bundle.resolve_node(row_match.module, row_match.symbol)
@@ -177,7 +216,7 @@ def _resolve_index_columns(root_oid: str) -> tuple[tuple[int, ...], list[dict[st
             "name": str(index_name),
             "syntax": (index_node.syntax or "").split("(")[0].strip(),
         })
-    return tuple(column_oid), columns
+    return tuple(node.oid), columns, f"{row_match.module}::{row_match.symbol}"
 
 
 def _decode_instance_index(
@@ -234,11 +273,15 @@ def _walk_compat_items(
     category = root_oid.split("::", 1)[1] if "::" in root_oid else root_oid
     timestamp = int(datetime.now(timezone.utc).timestamp())
     rows: OrderedDict[str, dict[str, Any]] = OrderedDict()
-    index_context = _resolve_index_columns(root_oid) if use_mibs else None
-    if index_context is not None:
-        column_oid, index_columns = index_context
-    else:
-        column_oid, index_columns = None, []
+    bundle = None
+    if use_mibs:
+        from app.services.bundle_state import get_bundle
+
+        bundle = get_bundle()
+    context_cache: dict[
+        tuple[str, str],
+        tuple[tuple[int, ...] | None, list[dict[str, str]], str] | None,
+    ] = {}
     for entry in varbinds:
         symbolic = str(entry.get("symbolic") or "").strip()
         oid = str(entry.get("oid") or "").strip()
@@ -251,28 +294,53 @@ def _walk_compat_items(
             module_name, remainder = label.split("::", 1)
             module_name = module_name.strip() or "Unknown"
             remainder = remainder.strip()
+        # Bare numeric label: symbolic resolution failed (WLK-01). Split on
+        # the LAST sub-identifier so the column prefix stays the object name
+        # and the instance tail becomes the index — first-dot splitting
+        # produced garbage rows like metric_name="1" with the whole OID tail
+        # as the instance index.
+        numeric_label = "::" not in label and remainder.lstrip(".")[:1].isdigit()
         if "." in remainder:
-            object_name, index = remainder.split(".", 1)
+            if numeric_label:
+                object_name, index = remainder.rsplit(".", 1)
+            else:
+                object_name, index = remainder.split(".", 1)
         elif oid:
             parts = [p for p in oid.split(".") if p]
             if len(parts) > 1:
                 object_name = remainder or oid
                 index = parts[-1]
         object_name = object_name.strip() or remainder or oid
-        if index_columns and column_oid is not None and oid:
-            decoded_index = _decode_instance_index(oid, column_oid, index_columns)
-            if decoded_index is None:
-                logger.info(
-                    "Index-aware instance decoding skipped for %s (root=%s); using heuristic",
-                    oid,
-                    root_oid,
+        row_key: str | None = None
+        if bundle is not None and "::" in label and not numeric_label:
+            cache_key = (module_name, object_name)
+            if cache_key not in context_cache:
+                context_cache[cache_key] = _index_context_for_object(
+                    bundle, module_name, object_name
                 )
-            else:
-                index = decoded_index
+            context = context_cache[cache_key]
+            if context is not None:
+                column_oid, index_columns, context_row_key = context
+                if column_oid is not None and index_columns and oid:
+                    decoded_index = _decode_instance_index(oid, column_oid, index_columns)
+                    if decoded_index is None:
+                        logger.info(
+                            "Index-aware instance decoding skipped for %s (object=%s); using heuristic",
+                            oid,
+                            object_name,
+                        )
+                    else:
+                        index = decoded_index
+                # Scope the row key to the owning row/scalar so grouped rows
+                # from different tables (or distinct scalars) never merge
+                # into mega-rows (WLK-04).
+                row_key = f"{context_row_key}|{index}"
         index = index.strip() or "0"
+        if row_key is None:
+            row_key = index
         value = _raw_value(entry)
         value_type = str(entry.get("value_type") or "").strip().lower()
-        row = rows.setdefault(index, {"index": index, "labels": {}, "metrics": {}})
+        row = rows.setdefault(row_key, {"index": index, "labels": {}, "metrics": {}})
         if _value_is_metric(object_name, value_type, value):
             mv = _metric_value(value_type, value)
             if mv is None:
@@ -314,6 +382,8 @@ async def execute(
     parse: bool,
     use_mibs: bool,
     json_format: str = "current",
+    timeout_ms: int = 2000,
+    retries: int = 1,
     settings: Settings,
     state: StateStore,
     runtime_service,
@@ -324,9 +394,19 @@ async def execute(
         normalized_format = "grouped"
     else:
         normalized_format = "flat"
+    # Defensive clamp: the route validates bounds, direct callers are clamped
+    # into the supported window instead of reaching the SNMP engine unbounded.
+    timeout_ms = max(500, min(10000, int(timeout_ms if timeout_ms is not None else 2000)))
+    retries = max(0, min(5, int(retries if retries is not None else 1)))
     try:
         result = await runtime_service.manager_walk(
-            host=target, port=port, community=community, root=oid, bulk=True
+            host=target,
+            port=port,
+            community=community,
+            root=oid,
+            bulk=True,
+            timeout=timeout_ms / 1000.0,
+            retries=retries,
         )
     except RuntimeServiceError as exc:
         emit_backend_log(
@@ -341,7 +421,8 @@ async def execute(
     raw_lines = [_walk_line(e, use_mibs=use_mibs) for e in varbinds]
     emit_backend_log(
         f"Walk completed for {target}:{port} root={oid} count={len(varbinds)} "
-        f"parse={bool(parse)} use_mibs={bool(use_mibs)} json_format={normalized_format}",
+        f"parse={bool(parse)} use_mibs={bool(use_mibs)} json_format={normalized_format} "
+        f"timeout_ms={timeout_ms} retries={retries}",
         logger_name="app.operations", settings=settings,
     )
     await broadcast_stats(settings=settings)

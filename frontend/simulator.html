@@ -96,7 +96,7 @@
                             title="Format JSON" aria-label="Format JSON">
                         <i class="fas fa-magic"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-app-primary" onclick="SimulatorModule.saveCustomData()" aria-label="Save custom data">
+                    <button type="button" class="btn btn-sm btn-app-primary" id="btn-save-custom-data" onclick="SimulatorModule.saveCustomData()" aria-label="Save custom data">
                         <i class="fas fa-save me-1"></i> Save
                     </button>
                 </div>
@@ -124,7 +124,10 @@
   "IF-MIB::ifDescr.1": "eth0"
 }' aria-label="Custom OID data JSON"></textarea>
                     <div id="json-error-indicator" class="position-absolute bottom-0 end-0 m-2 d-none">
-                        <span class="badge app-badge is-danger"><i class="fas fa-exclamation-triangle"></i> JSON Error</span>
+                        <span class="badge app-badge is-danger" id="json-error-badge" role="alert">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <span id="json-error-text">JSON Error</span>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -179,11 +182,23 @@
                         </div>
                         <div class="col-md-5 text-md-end">
                             <span class="small text-muted" id="log-stats">0 entries</span>
+                            <button type="button" class="btn btn-sm btn-app-primary ms-2"
+                                    id="btn-log-follow"
+                                    onclick="SimulatorModule.toggleLogFollow()"
+                                    aria-pressed="true"
+                                    title="Auto-scroll to the latest entries">
+                                <i class="fas fa-arrow-down me-1"></i> Follow
+                            </button>
                             <span class="ms-2 badge app-status-badge is-live" id="log-live-indicator">
                                 <i class="fas fa-circle fa-xs me-1"></i> Live
                             </span>
                         </div>
                     </div>
+                    <!-- Level-count chips: quick filter on the existing badge vocabulary -->
+                    <div class="d-flex gap-1 flex-wrap mt-2 align-items-center"
+                         id="log-level-chips"
+                         role="group"
+                         aria-label="Filter by log level"></div>
                 </div>
                 <!-- Log Area -->
                 <div class="p-2 font-monospace small app-log-pane app-scroll-panel app-split-fill-region app-min-h-320"

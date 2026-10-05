@@ -116,10 +116,12 @@
                                id="set-session-timeout"
                                min="60" max="86400" step="60"
                                placeholder="3600"
-                               aria-label="Session timeout in seconds">
+                               aria-label="Session timeout in seconds"
+                               aria-describedby="set-session-timeout-hint set-session-timeout-error">
                         <span class="input-group-text">seconds</span>
                     </div>
-                    <div class="form-text small">Min 60 s &middot; Max 86400 s (24 h) &middot; Default 3600 s (1 h)</div>
+                    <div class="form-text small" id="set-session-timeout-hint">Min 60 s &middot; Max 86400 s (24 h) &middot; Default 3600 s (1 h)</div>
+                    <div class="form-text small text-danger d-none" id="set-session-timeout-error" role="alert">Session timeout must be between 60 and 86400 seconds.</div>
                 </div>
 
                 <hr class="my-2">
@@ -140,13 +142,15 @@
                               rows="4"
                               spellcheck="false"
                               placeholder="https://example.invalid/mibs/@mib@"
-                              aria-label="Approved remote MIB sources"></textarea>
+                              aria-label="Approved remote MIB sources"
+                              aria-describedby="set-mib-source-errors"></textarea>
+                    <div class="form-text small text-danger d-none" id="set-mib-source-errors" aria-live="polite"></div>
                     <div class="form-text small">Optional. Leave blank to use tsmi default sources. Custom entries must include <code>@mib@</code>. Order matters.</div>
                 </div>
 
                 <div id="app-settings-msg" class="alert d-none small py-2 mb-3" role="alert"></div>
                 <div class="d-grid">
-                    <button class="btn btn-sm btn-app-primary" onclick="SettingsModule.saveAppSettings()">
+                    <button id="set-save-settings-btn" class="btn btn-sm btn-app-primary" onclick="SettingsModule.saveAppSettings()">
                         <i class="fas fa-save me-1"></i> Save Settings
                     </button>
                 </div>
@@ -200,6 +204,20 @@
                     <dt class="col-5 text-muted fw-normal">Description</dt>
                     <dd class="col-7 mb-0" id="about-app-desc">&mdash;</dd>
                 </dl>
+                <hr class="my-2">
+                <dl class="row small mb-0">
+                    <dt class="col-5 text-muted fw-normal">MIB Bundle</dt>
+                    <dd class="col-7 mb-1" id="about-bundle-label">&mdash;</dd>
+                    <dt class="col-5 text-muted fw-normal">Bundle Producer</dt>
+                    <dd class="col-7 mb-1" id="about-bundle-producer">&mdash;</dd>
+                    <dt class="col-5 text-muted fw-normal">Active Modules</dt>
+                    <dd class="col-7 mb-0" id="about-bundle-modules">&mdash;</dd>
+                </dl>
+                <p class="small text-muted mb-0 mt-2 d-none" id="about-bundle-hint">
+                    <i class="fas fa-arrow-right me-1"></i>
+                    The active MIB bundle was compiled by an older compiler &mdash;
+                    <a href="#mibs">recompile it in the MIB Manager</a>.
+                </p>
             </div>
         </div>
     </div>

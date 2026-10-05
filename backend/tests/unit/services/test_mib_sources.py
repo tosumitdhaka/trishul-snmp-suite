@@ -458,6 +458,7 @@ def test_source_service_guard_branches_and_read_failures(isolated_db, monkeypatc
             "relative_path": "common/BROKEN-MIB.mib",
             "group": "common",
             "mib_name": "BROKEN-MIB",
+            "imports": [],
         }
     ]
     assert service.source_mib_names_in_dir(upload_root, recursive=True) == []
@@ -514,3 +515,68 @@ def test_source_service_cached_remote_guard_branches(isolated_db, monkeypatch):
 
     assert service.cached_remote_source_path("BROKEN-CACHE") is None
     assert service.materialize_cached_remote_modules(["MISSING-CACHE-MIB"]) == {}
+
+
+def test_reset_source_caches_rebuilds_path_cache_on_next_lookup(isolated_db):
+    service, settings, _logs, _snapshot = _make_source_service(isolated_db)
+    upload_root = settings.data_dir / "mibs"
+    source = upload_root / "common" / "RESET-CACHE-MIB.mib"
+    _write_mib(source, "RESET-CACHE-MIB")
+
+    assert service.source_path_for_module("RESET-CACHE-MIB") == source
+
+    # Upload/delete flows reset caches mid-session; the next lookup must
+    # re-warm from disk instead of missing against the cleared cache.
+    service.reset_source_caches()
+
+    assert service.source_path_for_module("RESET-CACHE-MIB") == source
+
+
+def test_scan_results_are_cached_and_reused_across_callers(isolated_db, monkeypatch):
+    """MGR-05: one disk read per stored file per cache generation.
+
+    The inventory scan carries mib_name AND imports; the warm path cache and
+    import lookups reuse the scan instead of re-reading each file, and a
+    mutation-triggered reset forces a fresh scan.
+    """
+    service, settings, _logs, _snapshot = _make_source_service(isolated_db)
+    upload_root = settings.data_dir / "mibs"
+    _write_mib(upload_root / "common" / "CACHED-A-MIB.mib", "CACHED-A-MIB", imports=["IF-MIB"])
+    _write_mib(upload_root / "vendor" / "CACHED-B-MIB.mib", "CACHED-B-MIB", imports=["SNMPv2-MIB"])
+
+    real_read_text = Path.read_text
+    reads = {"count": 0}
+
+    def _counting_read(self: Path, *args, **kwargs):
+        reads["count"] += 1
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _counting_read)
+
+    first = service.uploaded_source_inventory()
+    second = service.uploaded_source_inventory()
+    assert len(first) == 2
+    assert first == second
+    # Repeated calls hit the cache: both files were read exactly once.
+    assert reads["count"] == 2
+
+    by_path = {entry["relative_path"]: entry for entry in first}
+    assert by_path["common/CACHED-A-MIB.mib"]["imports"] == ["IF-MIB"]
+    assert by_path["vendor/CACHED-B-MIB.mib"]["imports"] == ["SNMPv2-MIB"]
+
+    # Path-cache warm + import lookups reuse the scan — still no re-reads.
+    assert service.source_path_for_module("CACHED-A-MIB") == upload_root / "common" / "CACHED-A-MIB.mib"
+    assert service.imports_for_source(upload_root / "common" / "CACHED-A-MIB.mib") == ["IF-MIB"]
+    assert reads["count"] == 2
+
+    # import_for_source for a path outside the inventory reads once, then caches.
+    outside = settings.data_dir / "standalone" / "STANDALONE-MIB.mib"
+    _write_mib(outside, "STANDALONE-MIB", imports=["IF-MIB"])
+    assert service.imports_for_source(outside) == ["IF-MIB"]
+    assert service.imports_for_source(outside) == ["IF-MIB"]
+    assert reads["count"] == 3
+
+    # A mutation resets the caches; the next scan reads the files again.
+    service.reset_source_caches()
+    service.uploaded_source_inventory()
+    assert reads["count"] == 5

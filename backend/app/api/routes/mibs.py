@@ -17,6 +17,27 @@ from app.services.state_store import get_state_store
 
 router = APIRouter()
 
+# Per-file cap for uploaded MIB sources. MIB files are small text documents;
+# anything past this is almost certainly a misdirected upload, so refuse it
+# instead of buffering it in memory.
+MAX_UPLOAD_FILE_BYTES = 8 * 1024 * 1024
+
+
+async def _read_upload_files(files: list[UploadFile]) -> list[tuple[str, bytes]]:
+    uploaded: list[tuple[str, bytes]] = []
+    for upload in files:
+        data = await upload.read(MAX_UPLOAD_FILE_BYTES + 1)
+        if len(data) > MAX_UPLOAD_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Uploaded file '{upload.filename or 'unnamed'}' exceeds the "
+                    f"{MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MiB per-file size limit."
+                ),
+            )
+        uploaded.append((upload.filename or "", data))
+    return uploaded
+
 
 class DependencyFetchBody(BaseModel):
     dependencies: list[str] = Field(default_factory=list)
@@ -125,7 +146,7 @@ async def validate_batch(
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _require_auth(x_auth_token)
-    uploaded = [(u.filename or "", await u.read()) for u in files]
+    uploaded = await _read_upload_files(files)
     settings, state, bundle_service = _ctx()
     try:
         return mibs_service.validate_upload_batch(
@@ -145,7 +166,7 @@ async def upload_mibs(
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _require_auth(x_auth_token)
-    uploaded = [(u.filename or "", await u.read()) for u in files]
+    uploaded = await _read_upload_files(files)
     parsed_targets = None
     if compile_targets:
         try:
@@ -234,15 +255,20 @@ async def reload_mibs(
 
 
 @router.post("/mibs/fetch-dependencies")
-def fetch_dependencies(
+async def fetch_dependencies(
     body: DependencyFetchBody,
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _require_auth(x_auth_token)
     settings, state, bundle_service = _ctx()
-    return mibs_service.fetch_dependencies(
-        body.dependencies, settings=settings, state=state, bundle_service=bundle_service,
+    result = mibs_service.fetch_dependencies(
+        body.dependencies,
+        reload_after_fetch=body.reload_after_fetch,
+        settings=settings, state=state, bundle_service=bundle_service,
     )
+    await broadcast_mibs(settings=settings)
+    await broadcast_stats(settings=settings)
+    return result
 
 
 @router.delete("/mibs/file")

@@ -11,12 +11,24 @@ window.TrapsModule = {
     _modalJson: {},          // keyed by modal id — avoids JSON-in-onclick-attr breakage
     _lastStatus: null,
     _receiverUptime: null,   // uptime_seconds cached from last updateStatusUI call
+    _receiverUptimeBase: 0,  // RCV-07: uptime ticks locally between status payloads
+    _receiverUptimeAnchorMs: 0,
+    _uptimeTickerTimer: null,
     _trapPollTimer: null,
     _statusPollTimer: null,
     _trapPollInFlight: false,
     _statusPollInFlight: false,
     _trapFetchSeq: 0,
     _statusFetchSeq: 0,
+    _trapListFetchSeq: 0,   // invalidates in-flight trap-library loads on MIB broadcasts
+    _lastLoadedTrapName: '',
+    _lastLoadedSignature: '',
+    _livePaused: false,     // TRP-21: pause live prepend/poll churn while inspecting
+    _trapLimit: 100,        // RCV-05: page size, aligned with the backend cap
+    _trapOffset: 0,
+    _trapTotal: null,       // RCV-11: persisted total from the pager payload; null until first fetch
+    _replayTargetKey: null, // trap key being replayed (delegated modal submit)
+    COMMUNITY_MASK: '••••••', // RCV-15: list payloads carry a mask, never the community string
 
     init: function() {
         this._updateTrapSortHeaders();
@@ -65,6 +77,7 @@ window.TrapsModule = {
         });
         this._listeners = [];
         this._stopPollingFallback();
+        this._stopUptimeTicker();
         this.persistTraps();
     },
 
@@ -75,6 +88,12 @@ window.TrapsModule = {
 
     _registerListeners: function() {
         var self = this;
+
+        // Delegated row actions: trap keys flow through data-* attributes, so
+        // arbitrary key content cannot corrupt an inline onclick handler (RCV-10).
+        this._on('click', function(event) {
+            self._handleTrapRowAction(event);
+        });
 
         // Receiver status from full state on WS (re)connect
         this._on('trishul:ws:full_state', function(e) {
@@ -99,12 +118,25 @@ window.TrapsModule = {
 
         // REST re-seed after WS reconnect
         this._on('trishul:ws:open', function() {
+            self._stopPollingFallback();
             self.checkStatus();
             self.loadTraps();
         });
 
         this._on('trishul:ws:close', function() {
             self._startPollingFallback();
+        });
+
+        // MIB reload / bundle activation invalidates the trap-library and
+        // var-bind-picker caches; drop them so the next load re-fetches fresh
+        // metadata instead of serving stale objects (TRP-12). The picker
+        // refetches lazily on its next open (allObjects is empty here).
+        this._on('trishul:ws:mibs', function() {
+            self._trapListFetchSeq++;      // discard any in-flight library load
+            self.allTraps = [];
+            self.trapMap = {};
+            self.allObjects = [];
+            self.loadTrapList();
         });
 
         // Resolve MIBs toggle — applies live without receiver restart
@@ -125,6 +157,10 @@ window.TrapsModule = {
                     self.updateStatusUI(Object.assign({}, self._lastStatus || {}, {
                         resolve_mibs: !!data.resolve_mibs,
                     }));
+                    // NEW-1: re-fetch and re-render immediately — varbind
+                    // display fields change with the toggle even though
+                    // ids/timestamps do not.
+                    self.loadTraps();
                 }).catch(function(e) {
                     console.error('Failed to update resolve_mibs:', e);
                     resolveToggleEl.checked = previousResolve;
@@ -144,8 +180,16 @@ window.TrapsModule = {
 
         this._stopPollingFallback();
 
+        // RCV-02: the 1s REST poll is a WS-down fallback, mirroring the
+        // simulator's strategy — while the WS is healthy the trap push and
+        // status broadcasts keep the page live, so polling is unnecessary.
+        if (window.WsClient && typeof window.WsClient.isConnected === 'function' && window.WsClient.isConnected()) {
+            return;
+        }
+
         this._trapPollTimer = window.setInterval(function() {
             if (self._trapPollInFlight) return;
+            if (self._livePaused) return;   // TRP-21: paused view is manually refreshed
             self._trapPollInFlight = true;
             Promise.resolve(self.loadTraps()).finally(function() {
                 self._trapPollInFlight = false;
@@ -172,6 +216,29 @@ window.TrapsModule = {
         }
         this._trapPollInFlight = false;
         this._statusPollInFlight = false;
+    },
+
+    // RCV-07: uptime_seconds arrives only on status payloads (lifecycle events
+    // or the WS-down poll); tick the display locally between them so the
+    // receiver uptime keeps counting up instead of freezing.
+    _startUptimeTicker: function(uptimeSeconds) {
+        this._receiverUptimeBase = Number(uptimeSeconds) || 0;
+        this._receiverUptimeAnchorMs = Date.now();
+        if (this._uptimeTickerTimer) return;
+        var self = this;
+        this._uptimeTickerTimer = window.setInterval(function() {
+            const uptimeEl = document.getElementById('tr-metric-uptime');
+            if (!uptimeEl) return;
+            const elapsed = Math.floor((Date.now() - self._receiverUptimeAnchorMs) / 1000);
+            uptimeEl.textContent = TrishulUtils.formatUptime(self._receiverUptimeBase + elapsed);
+        }, 1000);
+    },
+
+    _stopUptimeTicker: function() {
+        if (this._uptimeTickerTimer) {
+            clearInterval(this._uptimeTickerTimer);
+            this._uptimeTickerTimer = null;
+        }
     },
 
     hasActiveTrapFilter: function() {
@@ -239,12 +306,35 @@ window.TrapsModule = {
         return composite !== '||' ? composite : JSON.stringify(trap);
     },
 
-    // Prepend a single live trap without doing a full REST reload.
+    // RCV-02: stable signature of a trap list — ids + timestamps in order —
+    // used to skip re-rendering when a fetch returned the same page.
+    _trapsSignature: function(traps) {
+        // Salted with the resolve state: toggling resolution (or a bundle
+        // switch) changes varbind display fields without changing ids or
+        // timestamps, so the unsalted list would wrongly suppress the
+        // re-render (RCV-02 residual).
+        const resolve = (document.getElementById('tr-resolve-toggle') && document.getElementById('tr-resolve-toggle').checked) ? '1' : '0';
+        return resolve + '|' + (Array.isArray(traps) ? traps : []).map(t =>
+            `${this.getTrapKey(t)}@${t.timestamp || ''}`
+        ).join('\n');
+    },
+
+    // RCV-15: the API masks the community string in list payloads; the replay
+    // route applies the recorded value server-side when the override is blank.
+    _isMaskedCommunity: function(value) {
+        return String(value || '').trim() === this.COMMUNITY_MASK;
+    },
+
+    // Prepend a single live trap without doing a full REST reload. Skipped
+    // while the view is paused or paged past page 1 — those traps arrive on the
+    // next poll/manual refresh of page 1 (TRP-21, RCV-05).
     _prependTrap: function(trap) {
+        if (this._livePaused || this._trapOffset > 0) return;
         const trapKey = this.getTrapKey(trap);
         if (trapKey && this.receivedTraps.find(t => this.getTrapKey(t) === trapKey)) return;
         this.receivedTraps.unshift(trap);
-        if (this.receivedTraps.length > 100) this.receivedTraps.pop();
+        if (this.receivedTraps.length > this._trapLimit) this.receivedTraps.pop();
+        if (this._trapTotal != null) this._trapTotal += 1;
         this.persistTraps();
         if (this.hasActiveTrapFilter()) {
             this.filterTraps();
@@ -252,6 +342,7 @@ window.TrapsModule = {
             this.renderTraps();
         }
         this.updateMetrics();
+        this.updatePager();
     },
 
     // ==================== Persistence ====================
@@ -295,6 +386,24 @@ window.TrapsModule = {
         }
     },
 
+    // Result area for successful sends / inform acknowledgements (TRP-06):
+    // acked informs get a green confirmation; ack failures use the error area.
+    showSenderResult: function(message) {
+        const resultEl   = document.getElementById('ts-result');
+        const resultText = document.getElementById('ts-result-text');
+        if (resultEl && resultText) {
+            resultText.textContent = message;
+            resultEl.classList.remove('d-none');
+        }
+    },
+
+    hideSenderResult: function() {
+        const resultEl = document.getElementById('ts-result');
+        if (resultEl) {
+            resultEl.classList.add('d-none');
+        }
+    },
+
     browseTraps: function() {
         const currentOid = document.getElementById("ts-oid").value.trim();
         if (currentOid) {
@@ -307,9 +416,12 @@ window.TrapsModule = {
     // ==================== Trap List Management ====================
 
     loadTrapList: async function() {
+        const requestSeq = ++this._trapListFetchSeq;
         try {
             const res = await fetch('/api/mibs/traps');
+            if (!res.ok) throw new Error(`Trap library request failed: HTTP ${res.status}`);
             const data = await res.json();
+            if (requestSeq !== this._trapListFetchSeq) return;
 
             this.allTraps = Array.isArray(data.traps) ? data.traps : [];
             this.trapMap = {};
@@ -357,8 +469,30 @@ window.TrapsModule = {
         const trap = this.findTrapSelection(input.value);
         if (!trap) return;
 
-        input.value = trap.full_name || input.value;
+        const fullName = trap.full_name || input.value;
+
+        // TRP-16: a single selection can surface repeated change events
+        // (datalist pick + blur). Skip the rebuild when the same trap is
+        // already loaded and the form is untouched; manual edits produce a
+        // different signature, so an explicit re-selection still reloads.
+        if (this._lastLoadedTrapName === fullName
+            && this._lastLoadedSignature === this._trapFormSignature()) {
+            return;
+        }
+
+        input.value = fullName;
         this.populateTrapForm(trap);
+    },
+
+    // Fingerprint of the current varbind rows (OID/type/value), used to tell
+    // "same trap, form untouched" (duplicate event) from "same trap, edited".
+    _trapFormSignature: function() {
+        return Array.from(document.querySelectorAll('#vb-container .card')).map(card => {
+            const oid  = card.querySelector('.vb-oid')?.value || '';
+            const type = card.querySelector('.vb-type')?.value || '';
+            const val  = card.querySelector('.vb-val')?.value || '';
+            return `${oid}|${type}|${val}`;
+        }).join('\n');
     },
 
     populateTrapForm: function(trap) {
@@ -379,6 +513,9 @@ window.TrapsModule = {
                 this.addVarbind(obj);
             });
         }
+
+        this._lastLoadedTrapName   = trap.full_name || trap.oid || '';
+        this._lastLoadedSignature  = this._trapFormSignature();
 
         this.showNotification(`Trap loaded: ${trap.name}`, 'success');
     },
@@ -544,6 +681,9 @@ window.TrapsModule = {
         ) {
             return 'Integer';
         }
+        if (normalized.includes('counter64')) {
+            return 'Counter64';
+        }
         if (normalized.includes('counter')) {
             return 'Counter';
         }
@@ -556,7 +696,7 @@ window.TrapsModule = {
         if (normalized.includes('ipaddress') || normalized.includes('inetaddress')) {
             return 'IpAddress';
         }
-        if (normalized.includes('objectidentifier') || normalized.includes('autonomoustype')) {
+        if (normalized.includes('objectidentifier') || normalized.includes('autonomoustype') || normalized === 'oid') {
             return 'OID';
         }
         return 'String';
@@ -621,6 +761,17 @@ window.TrapsModule = {
         );
     },
 
+    // TRP-19: which varbind types are bound by which constraint kind. Counter,
+    // Gauge, TimeTicks and Counter64 are numeric like Integer (range bounds);
+    // OID values are strings of arcs (size bounds) — not just Integer/String.
+    _isNumericVarbindType: function(type) {
+        return ['Integer', 'Counter', 'Counter64', 'Gauge', 'TimeTicks'].indexOf(String(type || '').trim()) !== -1;
+    },
+
+    _isSizedVarbindType: function(type) {
+        return ['String', 'OID'].indexOf(String(type || '').trim()) !== -1;
+    },
+
     shouldUseEnumValueControl: function(type, enumValues) {
         return String(type || '').trim() === 'Integer' && Array.isArray(enumValues) && enumValues.length > 0;
     },
@@ -660,12 +811,11 @@ window.TrapsModule = {
             select.appendChild(option);
         });
 
+        // TRP-05: no free-form "custom" option — enum rows must hold a declared
+        // member. A non-member value (e.g. restored from a stale send) falls
+        // back to the placeholder and fails the required-value validation.
         if (currentValue && !matched) {
-            const customOption = document.createElement('option');
-            customOption.value = currentValue;
-            customOption.textContent = currentValue;
-            customOption.selected = true;
-            select.appendChild(customOption);
+            select.value = '';
         }
 
         return select;
@@ -674,14 +824,14 @@ window.TrapsModule = {
     renderConstraintHint: function(row, type, constraint) {
         row.querySelectorAll('.vb-constraint-hint').forEach(el => el.remove());
         const applicable = constraint && (
-            (type === 'Integer' && constraint.kind === 'range')
-            || (type === 'String' && constraint.kind === 'size')
+            (this._isNumericVarbindType(type) && constraint.kind === 'range')
+            || (this._isSizedVarbindType(type) && constraint.kind === 'size')
         );
         const hint = applicable ? this.formatConstraintHint(constraint) : '';
         if (!hint) return;
         const hintEl = document.createElement('div');
         hintEl.className = 'small text-muted mt-1 vb-constraint-hint';
-        hintEl.textContent = type === 'Integer' ? `Range: ${hint}` : `Length: ${hint}`;
+        hintEl.textContent = this._isNumericVarbindType(type) ? `Range: ${hint}` : `Length: ${hint}`;
         const valueInput = row.querySelector('.vb-val');
         const inputGroup = valueInput ? valueInput.closest('.input-group') : null;
         if (inputGroup) {
@@ -780,7 +930,7 @@ window.TrapsModule = {
                     <div class="input-group input-group-sm mb-1">
                         <span class="input-group-text app-input-group-text">OID</span>
                         <input type="text" class="form-control vb-oid" value="${esc(targetOid)}" placeholder="1.3.6... or IF-MIB::ifIndex" aria-label="VarBind OID">
-                        <button class="btn btn-app-danger-outline" type="button" aria-label="Remove varbind" onclick="TrapsModule.removeVarbind('${id}')">X</button>
+                        <button class="btn btn-app-danger-outline btn-icon" type="button" aria-label="Remove varbind" onclick="TrapsModule.removeVarbind('${id}')"><i class="fas fa-times"></i></button>
                     </div>
                     <div class="input-group input-group-sm">
                         <select class="form-select vb-type app-max-w-120" aria-label="VarBind type">
@@ -789,8 +939,9 @@ window.TrapsModule = {
                             <option value="OID"        ${resolvedType==='OID'       ?'selected':''}>OID</option>
                             <option value="TimeTicks"  ${resolvedType==='TimeTicks' ?'selected':''}>TimeTicks</option>
                             <option value="IpAddress"  ${resolvedType==='IpAddress' ?'selected':''}>IpAddress</option>
-                            <option value="Counter"    ${resolvedType==='Counter'   ?'selected':''}>Counter</option>
-                            <option value="Gauge"      ${resolvedType==='Gauge'     ?'selected':''}>Gauge</option>
+                            <option value="Counter"    ${resolvedType==='Counter'    ?'selected':''}>Counter</option>
+                            <option value="Counter64"  ${resolvedType==='Counter64'  ?'selected':''}>Counter64</option>
+                            <option value="Gauge"      ${resolvedType==='Gauge'      ?'selected':''}>Gauge</option>
                         </select>
                         <input type="text" class="form-control vb-val" value="${esc(value)}" placeholder="Value" aria-label="VarBind value">
                     </div>
@@ -845,6 +996,7 @@ window.TrapsModule = {
         const type = typeInput ? typeInput.value : 'String';
         const value = valueInput ? valueInput.value.trim() : '';
         const constraint = this.constraintForRow(row);
+        const enumValues = this.enumValuesForRow(row);
         const hasAnyContent = Boolean(oid || value);
 
         let message = '';
@@ -861,16 +1013,20 @@ window.TrapsModule = {
             message = 'VarBind value is required.';
         } else if (type === 'Integer' && !/^-?\d+$/.test(value)) {
             message = 'Integer values must be whole numbers.';
-        } else if ((type === 'Counter' || type === 'Gauge' || type === 'TimeTicks') && !/^\d+$/.test(value)) {
+        } else if (type === 'Integer' && Array.isArray(enumValues) && enumValues.length > 0
+                   && !enumValues.some(ev => String(ev.value) === value)) {
+            // TRP-05: enum rows only accept declared members.
+            message = 'Value must be one of the declared enum values.';
+        } else if ((type === 'Counter' || type === 'Counter64' || type === 'Gauge' || type === 'TimeTicks') && !/^\d+$/.test(value)) {
             message = `${type} values must be zero or greater integers.`;
         } else if (type === 'OID' && !this.isOidReference(value)) {
             message = 'OID values must be dotted numeric with at least two arcs or MODULE::symbol.';
         } else if (type === 'IpAddress' && !/^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(value)) {
             message = 'IP address values must be valid IPv4 addresses.';
-        } else if (type === 'Integer' && constraint && constraint.kind === 'range' && !this.isIntegerInRange(value, constraint)) {
-            message = `Integer values must be within range: ${this.formatConstraintHint(constraint)}.`;
-        } else if (type === 'String' && constraint && constraint.kind === 'size' && !this.isStringWithinSize(value, constraint)) {
-            message = `String length must be within: ${this.formatConstraintHint(constraint)}.`;
+        } else if (this._isNumericVarbindType(type) && constraint && constraint.kind === 'range' && !this.isIntegerInRange(value, constraint)) {
+            message = `${type} values must be within range: ${this.formatConstraintHint(constraint)}.`;
+        } else if (this._isSizedVarbindType(type) && constraint && constraint.kind === 'size' && !this.isStringWithinSize(value, constraint)) {
+            message = `${type} length must be within: ${this.formatConstraintHint(constraint)}.`;
         }
 
         const invalid = Boolean(message);
@@ -898,22 +1054,50 @@ window.TrapsModule = {
         
         const trapInput = document.getElementById("ts-trap-select");
         if (trapInput) trapInput.value = "";
+
+        this._lastLoadedTrapName  = '';
+        this._lastLoadedSignature = '';
         
         this.addVarbind("SNMPv2-MIB::sysUpTime.0", "TimeTicks", "0");
         this.hideSenderError();
+        this.hideSenderResult();
     },
 
     // ==================== Trap Sending ====================
 
+    // Readable error text from a failed API response: handles FastAPI's 422
+    // validation detail (a list of {loc,msg,type}) and plain detail strings so
+    // errors never render as "[object Object]" (TRP-03).
+    _extractApiError: async function(res) {
+        try {
+            const data = await res.json();
+            const detail = data && data.detail;
+            if (typeof detail === 'string' && detail) return detail;
+            if (Array.isArray(detail)) {
+                const msgs = detail
+                    .map(entry => (entry && typeof entry.msg === 'string') ? entry.msg : '')
+                    .filter(Boolean);
+                if (msgs.length) return msgs.join('; ');
+            }
+        } catch (_) {
+            // fall through to status fallback
+        }
+        return `Request failed (HTTP ${res.status})`;
+    },
+
     sendTrap: async function(e) {
         e.preventDefault();
         this.hideSenderError();
+        this.hideSenderResult();
         
         const trapOid = document.getElementById("ts-oid").value.trim();
         if (!trapOid) {
             this.showSenderError('Please enter a notification OID or select one from the trap library');
             return;
         }
+
+        // TRP-06: "Send as Inform" waits for the receiver's acknowledgement.
+        const asInform = Boolean(document.getElementById('ts-inform-toggle')?.checked);
         
         const varbindRows = document.querySelectorAll("#vb-container .card");
         if (varbindRows.length === 0) {
@@ -928,9 +1112,20 @@ window.TrapsModule = {
             return;
         }
 
-        const invalidRow = completeRows.find(entry => !entry.valid);
-        if (invalidRow) {
-            this.showSenderError(`Trap send failed: ${invalidRow.message}`);
+        // TRP-18: scroll the first invalid row into view inside the scrollable
+        // varbind panel, and pull the error banner (now above the panel) into
+        // view, so a long varbind list can't hide the failure.
+        const invalidIndex = validatedRows.findIndex(entry => (entry.oid && entry.value) && !entry.valid);
+        if (invalidIndex !== -1) {
+            const invalidRowEl = varbindRows[invalidIndex];
+            if (invalidRowEl && typeof invalidRowEl.scrollIntoView === 'function') {
+                invalidRowEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+            this.showSenderError(`Trap send failed: ${validatedRows[invalidIndex].message}`);
+            const errorEl = document.getElementById('ts-error');
+            if (errorEl && typeof errorEl.scrollIntoView === 'function') {
+                errorEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
             return;
         }
 
@@ -939,14 +1134,22 @@ window.TrapsModule = {
         const btn          = document.getElementById('btn-send-trap');
         const originalText = btn.innerHTML;
         btn.disabled       = true;
-        btn.innerHTML      = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+        btn.innerHTML      = asInform
+            ? '<i class="fas fa-spinner fa-spin"></i> Sending inform...'
+            : '<i class="fas fa-spinner fa-spin"></i> Sending...';
 
         try {
             let resolvedTrapOid = trapOid;
             
             if (trapOid.includes("::")) {
                 const trapRes  = await fetch(`/api/mibs/resolve?oid=${encodeURIComponent(trapOid)}&mode=numeric`);
+                if (!trapRes.ok) {
+                    throw new Error(`Failed to resolve trap OID ${trapOid}: ${await this._extractApiError(trapRes)}`);
+                }
                 const trapData = await trapRes.json();
+                if (!trapData || !trapData.output) {
+                    throw new Error(`Failed to resolve trap OID ${trapOid}: no numeric output`);
+                }
                 resolvedTrapOid = trapData.output;
             }
 
@@ -959,6 +1162,9 @@ window.TrapsModule = {
                 let numericOid = oid;
                 if (oid.includes("::")) {
                     const vbRes  = await fetch(`/api/mibs/resolve?oid=${encodeURIComponent(oid)}&mode=numeric`);
+                    if (!vbRes.ok) {
+                        throw new Error(`Failed to resolve varbind OID ${oid}: ${await this._extractApiError(vbRes)}`);
+                    }
                     const vbData = await vbRes.json();
                     numericOid   = vbData && vbData.output ? vbData.output : oid;
                 }
@@ -974,7 +1180,7 @@ window.TrapsModule = {
                 varbinds:  varbinds
             };
 
-            const res = await fetch('/api/traps/send', {
+            const res = await fetch(asInform ? '/api/traps/send-inform' : '/api/traps/send', {
                 method:  'POST',
                 headers: {'Content-Type': 'application/json'},
                 body:    JSON.stringify(payload)
@@ -983,17 +1189,34 @@ window.TrapsModule = {
             if (res.ok) {
                 const data = await res.json();
                 const skippedSuffix = skippedRows > 0 ? ` (${skippedRows} blank/incomplete VarBind row${skippedRows === 1 ? '' : 's'} skipped)` : '';
-                this.showNotification(`Trap sent to ${data.target}:${data.port}${skippedSuffix}`, 'success');
+                if (asInform) {
+                    const ackCode = data.response && typeof data.response.error_status_code === 'number'
+                        ? data.response.error_status_code
+                        : 0;
+                    if (ackCode === 0) {
+                        const requestLabel = data.request_id != null ? ` (request ${data.request_id})` : '';
+                        this.showSenderResult(`Inform acknowledged by ${data.target}:${data.port}${requestLabel}${skippedSuffix}`);
+                    } else {
+                        const statusLabel = data.response && data.response.error_status
+                            ? data.response.error_status
+                            : `error_status_code ${ackCode}`;
+                        this.showSenderError(`Inform delivered, but the receiver returned: ${statusLabel}`);
+                    }
+                } else {
+                    this.showSenderResult(`Trap sent to ${data.target}:${data.port}${skippedSuffix}`);
+                }
                 // WS trap push will update the table if target is local;
                 // no manual setTimeout reload needed.
             } else {
-                const errorData = await res.json();
-                const errorMsg  = errorData.detail || 'Unknown error';
-                this.showSenderError(`Trap send failed: ${errorMsg}`);
+                const errorMsg = await this._extractApiError(res);
+                this.showSenderError(asInform
+                    ? `Inform failed (not acknowledged): ${errorMsg}`
+                    : `Trap send failed: ${errorMsg}`);
             }
         } catch (e) {
             console.error('[TRAP] Send error:', e);
-            this.showSenderError(`Connection failed: ${e.message}`);
+            const prefix = (e instanceof TypeError) ? 'Connection failed: ' : (asInform ? 'Inform failed: ' : 'Trap send failed: ');
+            this.showSenderError(`${prefix}${e.message}`);
         } finally {
             btn.disabled  = false;
             btn.innerHTML = originalText;
@@ -1046,8 +1269,10 @@ window.TrapsModule = {
                 communityInput.disabled = true;
             }
             // resolve_mibs toggle stays enabled while running — backend applies it live
-            // Cache uptime_seconds for updateMetrics()
+            // Cache uptime_seconds for updateMetrics() and tick it locally
+            // between status payloads (RCV-07).
             this._receiverUptime = status.uptime_seconds != null ? status.uptime_seconds : null;
+            this._startUptimeTicker(this._receiverUptime);
             if (metricsPanel) metricsPanel.classList.remove('d-none');
             btnStart.disabled = true;
             btnStop.disabled  = false;
@@ -1071,6 +1296,7 @@ window.TrapsModule = {
                 resolveToggle.disabled = false;
             }
             this._receiverUptime = null;
+            this._stopUptimeTicker();
             if (metricsPanel) metricsPanel.classList.add('d-none');
             btnStart.disabled = false;
             btnStop.disabled  = true;
@@ -1116,13 +1342,22 @@ window.TrapsModule = {
     },
 
     stopReceiver: async function() {
-        await fetch('/api/traps/stop', {method:'POST'});
-        this.updateStatusUI({
-            running: false,
-            resolve_mibs: document.getElementById("tr-resolve-toggle")?.checked,
-        });
-        await this.checkStatus();
-        this.showNotification('Trap receiver stopped', 'info');
+        try {
+            const res  = await fetch('/api/traps/stop', {method:'POST'});
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || 'Trap receiver failed to stop');
+            }
+            this.updateStatusUI({
+                running: false,
+                resolve_mibs: document.getElementById("tr-resolve-toggle")?.checked,
+            });
+            await this.checkStatus();
+            this.showNotification('Trap receiver stopped', 'info');
+        } catch (e) {
+            console.error('Trap receiver stop failed:', e);
+            this.showNotification(`Trap receiver failed: ${e.message}`, 'error');
+        }
     },
 
     // ==================== Metrics ====================
@@ -1135,7 +1370,12 @@ window.TrapsModule = {
         
         if (!totalEl) return;
         
-        totalEl.textContent = this.receivedTraps.length;
+        // RCV-11: "Total Traps" is the persisted total — the same value the
+        // pager's "of N traps" shows — not the session list length (which can
+        // be a filtered slice or a single page). Before the first fetch there
+        // is no persisted total yet; fall back to the loaded session list.
+        const persistedTotal = this._trapTotal != null ? this._trapTotal : this.receivedTraps.length;
+        totalEl.textContent = persistedTotal;
         
         if (this.receivedTraps.length > 0) {
             const latest = this.receivedTraps[0];
@@ -1166,36 +1406,43 @@ window.TrapsModule = {
 
     loadTraps: async function() {
         const requestSeq = ++this._trapFetchSeq;
+        const limit = this._trapLimit || 100;
+        const offset = this._trapOffset || 0;
         try {
-            const res  = await fetch('/api/traps/');
+            const res  = await fetch(`/api/traps/?limit=${limit}&offset=${offset}`);
+            if (!res.ok) throw new Error(`Traps request failed: HTTP ${res.status}`);
             const json = await res.json();
             if (requestSeq !== this._trapFetchSeq) return;
-            
-            const newTraps = json.data || [];
-            const merged = new Map();
 
-            newTraps.forEach(trap => {
-                merged.set(this.getTrapKey(trap), trap);
-            });
-            this.receivedTraps.forEach(trap => {
-                const key = this.getTrapKey(trap);
-                if (!merged.has(key)) {
-                    merged.set(key, trap);
-                }
-            });
-
-            this.receivedTraps = Array.from(merged.values())
+            // Server list is authoritative (RCV-03): the listener persists each
+            // event to the DB before broadcasting it, so the REST response is
+            // never missing a live trap. Replacing — not merging — also stops
+            // deleted events from resurrecting after Reset Stats / Clear.
+            const nextList = (json.data || [])
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                .slice(0, 100);
-            
-            this.persistTraps();
-            if (this.hasActiveTrapFilter()) {
-                this.filterTraps();
-            } else {
-                this.renderTraps();
+                .slice(0, limit);
+            const nextTotal = typeof json.total === 'number' ? json.total : nextList.length;
+
+            // RCV-02: skip the full tbody re-render when the payload is
+            // unchanged — the WS-down fallback poll would otherwise rebuild
+            // the DOM every second for no visible difference.
+            const changed = this._trapsSignature(nextList) !== this._trapsSignature(this.receivedTraps)
+                || nextTotal !== this._trapTotal;
+
+            this.receivedTraps = nextList;
+            this._trapTotal = nextTotal;
+
+            if (changed) {
+                this.persistTraps();
+                if (this.hasActiveTrapFilter()) {
+                    this.filterTraps();
+                } else {
+                    this.renderTraps();
+                }
             }
             this.updateMetrics();
-            
+            this.updatePager();
+
         } catch(e) {
             console.error('Failed to load traps:', e);
         }
@@ -1261,6 +1508,27 @@ window.TrapsModule = {
         }
     },
 
+    // TRP-17: badge tone follows a known severity/status vocabulary with
+    // whole-token matching (camelCase + separator boundaries). A bare substring
+    // heuristic paints "warmup"/"group"/"startup" green via 'up'; token
+    // matching keeps those neutral. Unknown names default to neutral.
+    _trapBadgeTone: function(trapType) {
+        const tokens = String(trapType || '')
+            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+            .split(/[^A-Za-z0-9]+/)
+            .map(t => t.toLowerCase())
+            .filter(Boolean);
+        const success = ['up', 'linkup', 'start', 'started', 'running', 'ok', 'recovered', 'recovery', 'cleared', 'enabled', 'normal', 'online'];
+        const danger = ['down', 'linkdown', 'error', 'critical', 'fault', 'shutdown', 'stopped', 'disabled', 'offline'];
+        const warning = ['auth', 'authentication', 'authenticationfailure', 'failure', 'failed', 'warning', 'degraded', 'rejected', 'denied'];
+        // Danger/warning outrank success: "linkUpFailure" must never paint
+        // green off its "up" token.
+        if (tokens.some(t => danger.indexOf(t) !== -1)) return 'danger';
+        if (tokens.some(t => warning.indexOf(t) !== -1)) return 'warning';
+        if (tokens.some(t => success.indexOf(t) !== -1)) return 'success';
+        return 'neutral';
+    },
+
     renderTraps: function() {
         const tbody      = document.getElementById("tr-table-body");
         const countBadge = document.getElementById("tr-count-badge");
@@ -1294,31 +1562,31 @@ window.TrapsModule = {
         const countText = String(trapsToShow.length);
         if (countBadge && countBadge.textContent !== countText) countBadge.textContent = countText;
         
-        tbody.innerHTML = trapsToShow.map((t, idx) => {
-            let trapBadgeClass = 'app-badge is-neutral';
-            const trapType     = t.trap_type || 'Unknown';
-            
-            if (trapType.toLowerCase().includes('up') || trapType.toLowerCase().includes('start')) {
-                trapBadgeClass = 'app-badge is-success';
-            } else if (trapType.toLowerCase().includes('down')) {
-                trapBadgeClass = 'app-badge is-danger';
-            } else if (trapType.toLowerCase().includes('auth') || trapType.toLowerCase().includes('fail')) {
-                trapBadgeClass = 'app-badge is-warning';
-            }
+        tbody.innerHTML = trapsToShow.map(t => {
+            const trapKey = this.getTrapKey(t);
+            const trapType = t.trap_type || 'Unknown';
+            // TRP-17: vocabulary-based tone — whole-token matching, neutral default.
+            const tone = this._trapBadgeTone(trapType);
+            const trapBadgeClass = tone === 'success' ? 'app-badge is-success'
+                : tone === 'danger' ? 'app-badge is-danger'
+                : tone === 'warning' ? 'app-badge is-warning'
+                : 'app-badge is-neutral';
             
             // NOTE: All buttons MUST have type="button" explicitly.
             // Default <button> type is "submit" which would trigger the Send Trap
             // <form onsubmit=...> and navigate the SPA back to the dashboard.
+            // Actions are keyed by the stable trap key (id), never the render
+            // index — the visible list can change between render and click (RCV-10).
             return `
                 <tr>
-                    <td class="small text-muted">${esc(t.time_str)}</td>
+                    <td class="small text-muted" title="${esc(t.timestamp || '')}">${esc(t.time_str)}</td>
                     <td><code class="small">${esc(t.source)}</code></td>
                     <td>
                         <span class="badge ${trapBadgeClass}">${esc(trapType)}</span>
                     </td>
                     <td>
-                        <div class="cursor-pointer"
-                              onclick="TrapsModule.showTrapDetails(${idx})"
+                        <div class="cursor-pointer app-trap-detail-trigger"
+                              data-trap-key="${esc(trapKey)}"
                               title="Click to view full details">
                             ${this.renderVarbindRows(t.varbinds, t.resolved)}
                         </div>
@@ -1326,12 +1594,20 @@ window.TrapsModule = {
                     <td class="text-center">
                         <div class="trap-action-buttons">
                             <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
-                                    onclick="TrapsModule.copyTrap(${idx})" title="Copy JSON" aria-label="Copy JSON">
+                                    data-trap-action="replay" data-trap-key="${esc(trapKey)}" title="Replay trap" aria-label="Replay trap">
+                                <i class="fas fa-reply"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
+                                    data-trap-action="copy" data-trap-key="${esc(trapKey)}" title="Copy JSON" aria-label="Copy JSON">
                                 <i class="fas fa-copy"></i>
                             </button>
                             <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
-                                    onclick="TrapsModule.downloadTrap(${idx})" title="Download" aria-label="Download trap">
+                                    data-trap-action="download" data-trap-key="${esc(trapKey)}" title="Download" aria-label="Download trap">
                                 <i class="fas fa-download"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-app-danger-outline btn-icon py-0 px-1"
+                                    data-trap-action="delete" data-trap-key="${esc(trapKey)}" title="Delete trap" aria-label="Delete trap">
+                                <i class="fas fa-trash"></i>
                             </button>
                         </div>
                     </td>
@@ -1423,6 +1699,38 @@ window.TrapsModule = {
 
     // ==================== Trap Detail Modal ====================
 
+    // Resolve the trap a row action refers to via its stable key (id), so a
+    // list mutation between render and click can never target the wrong row.
+    // The delegated pattern extends to the replay modal's submit/cancel and the
+    // per-trap delete confirm (RCV-10, TRP-07, RCV-12).
+    _handleTrapRowAction: function(event) {
+        if (!event.target || typeof event.target.closest !== 'function') return;
+        const trigger = event.target.closest('[data-trap-key]');
+        if (!trigger) return;
+        const trapKey = trigger.getAttribute('data-trap-key') || '';
+        if (!trapKey) return;
+        const action = trigger.getAttribute('data-trap-action') || 'detail';
+        if (action === 'copy') {
+            this.copyTrap(trapKey);
+        } else if (action === 'download') {
+            this.downloadTrap(trapKey);
+        } else if (action === 'replay') {
+            this.showReplayModal(trapKey);
+        } else if (action === 'replay-submit') {
+            this.submitReplay(trapKey);
+        } else if (action === 'delete') {
+            this.deleteTrap(trapKey);
+        } else {
+            this.showTrapDetails(trapKey);
+        }
+    },
+
+    _findTrapByKey: function(trapKey) {
+        const key = String(trapKey || '');
+        if (!key) return null;
+        return this.getVisibleTraps().find(t => this.getTrapKey(t) === key) || null;
+    },
+
     copyModalJson: function(modalId) {
         const json = this._modalJson[modalId];
         if (!json) return;
@@ -1431,30 +1739,41 @@ window.TrapsModule = {
             .catch(()  => this.showNotification('Copy failed', 'error'));
     },
 
-    showTrapDetails: function(idx) {
-        const trapsToShow        = this.getVisibleTraps();
-        const trap               = trapsToShow[idx];
+    showTrapDetails: function(trapKey) {
+        const trap = this._findTrapByKey(trapKey);
+        if (!trap) {
+            this.showNotification('Trap no longer in the list', 'warning');
+            return;
+        }
+        const esc = TrishulUtils.escapeHtml;
         const simplifiedVarbinds = this.simplifyVarbinds(trap.varbinds, trap.resolved);
-        
+
+        // TRP-14: the snmpTrapOID projection is aligned across the table badge,
+        // the formatted header row, and the raw JSON block.
+        const snmpTrapOID = this._extractSnmpTrapOid(trap) || trap.trap_type || '--';
+
         const displayTrap = {
-            timestamp: trap.timestamp,
-            time:      trap.time_str,
-            source:    trap.source,
-            trap_type: trap.trap_type,
-            varbinds:  simplifiedVarbinds,
-            resolved:  trap.resolved
+            timestamp:  trap.timestamp,
+            time:       trap.time_str,
+            source:     trap.source,
+            trap_type:  trap.trap_type,
+            snmpTrapOID: snmpTrapOID,
+            varbinds:   simplifiedVarbinds,
+            resolved:   trap.resolved
         };
-        
+
         const json    = JSON.stringify(displayTrap, null, 2);
         const modalId = `trap-detail-modal-${Date.now()}`;
         this._modalJson[modalId] = json;
-        
+
         const modal   = document.createElement('div');
         modal.className = 'modal fade';
         modal.id        = modalId;
         const titleId   = `${modalId}-title`;
+        const formattedId = `${modalId}-formatted`;
+        const rawId = `${modalId}-raw`;
         modal.setAttribute('aria-labelledby', titleId);
-        const escapedJson = TrishulUtils.escapeHtml(json);
+        const escapedJson = esc(json);
         modal.innerHTML = `
             <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
                 <div class="modal-content">
@@ -1463,9 +1782,32 @@ window.TrapsModule = {
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                        ${this.renderDetailVarbindTable(trap.varbinds, trap.resolved)}
-                        <hr>
-                        <pre class="app-code-pane app-scroll-panel p-3 rounded app-max-h-500">${escapedJson}</pre>
+                        <div class="mb-2">
+                            <div class="d-flex align-items-center gap-2 flex-wrap small">
+                                <span class="badge app-badge is-info">${esc(trap.trap_type || '--')}</span>
+                                <span class="text-muted">snmpTrapOID</span>
+                                <code class="small">${esc(snmpTrapOID)}</code>
+                            </div>
+                        </div>
+                        <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Trap detail view">
+                            <button type="button" class="btn btn-app-primary active" data-detail-view="formatted"
+                                    aria-pressed="true"
+                                    onclick="TrapsModule.setDetailView('${modalId}', 'formatted')">
+                                <i class="fas fa-table"></i> Formatted
+                            </button>
+                            <button type="button" class="btn btn-app-secondary" data-detail-view="raw"
+                                    aria-pressed="false"
+                                    onclick="TrapsModule.setDetailView('${modalId}', 'raw')">
+                                <i class="fas fa-code"></i> Raw JSON
+                            </button>
+                        </div>
+                        <div id="${formattedId}" class="trap-detail-formatted">
+                            ${this.renderDetailVarbindTable(trap.varbinds, trap.resolved)}
+                        </div>
+                        <div id="${rawId}" class="trap-detail-raw d-none">
+                            <div class="text-muted fw-bold small mb-2">Raw JSON</div>
+                            <pre class="app-code-pane app-scroll-panel p-3 rounded app-max-h-500">${escapedJson}</pre>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-sm btn-app-secondary"
@@ -1478,7 +1820,7 @@ window.TrapsModule = {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
@@ -1488,18 +1830,54 @@ window.TrapsModule = {
         });
     },
 
-    copyTrap: function(idx) {
-        const trapsToShow        = this.getVisibleTraps();
-        const trap               = trapsToShow[idx];
+    // Value of the snmpTrapOID varbind (1.3.6.1.6.3.1.1.4.1.0) from a trap's
+    // formatted varbinds; returns '' when absent so callers can fall back.
+    _extractSnmpTrapOid: function(trap) {
+        const rows = Array.isArray(trap && trap.varbinds) ? trap.varbinds : [];
+        for (const vb of rows) {
+            if (!vb) continue;
+            if (String(vb.oid || '').includes('1.3.6.1.6.3.1.1.4.1.0')
+                || String(vb.name || '').toLowerCase().includes('snmptrapoid')) {
+                return vb.value != null ? String(vb.value) : '';
+            }
+        }
+        return '';
+    },
+
+    // Formatted <-> Raw JSON toggle inside the detail modal (TRP-14).
+    setDetailView: function(modalId, view) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        const formatted = modal.querySelector('.trap-detail-formatted');
+        const raw = modal.querySelector('.trap-detail-raw');
+        const showRaw = view === 'raw';
+        if (formatted) formatted.classList.toggle('d-none', showRaw);
+        if (raw) raw.classList.toggle('d-none', !showRaw);
+        modal.querySelectorAll('[data-detail-view]').forEach(btn => {
+            const isActive = btn.getAttribute('data-detail-view') === view;
+            btn.classList.toggle('btn-app-primary', isActive);
+            btn.classList.toggle('active', isActive);
+            btn.classList.toggle('btn-app-secondary', !isActive);
+            btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    },
+
+    copyTrap: function(trapKey) {
+        const trap = this._findTrapByKey(trapKey);
+        if (!trap) {
+            this.showNotification('Trap no longer in the list', 'warning');
+            return;
+        }
         const simplifiedVarbinds = this.simplifyVarbinds(trap.varbinds, trap.resolved);
         
         const displayTrap = {
-            timestamp: trap.timestamp,
-            time:      trap.time_str,
-            source:    trap.source,
-            trap_type: trap.trap_type,
-            varbinds:  simplifiedVarbinds,
-            resolved:  trap.resolved
+            timestamp:  trap.timestamp,
+            time:       trap.time_str,
+            source:     trap.source,
+            trap_type:  trap.trap_type,
+            snmpTrapOID: this._extractSnmpTrapOid(trap) || trap.trap_type || '',
+            varbinds:   simplifiedVarbinds,
+            resolved:   trap.resolved
         };
         
         const json = JSON.stringify(displayTrap, null, 2);
@@ -1508,18 +1886,22 @@ window.TrapsModule = {
             .catch(()  => this.showNotification('Copy failed — check clipboard permissions', 'error'));
     },
 
-    downloadTrap: function(idx) {
-        const trapsToShow        = this.getVisibleTraps();
-        const trap               = trapsToShow[idx];
+    downloadTrap: function(trapKey) {
+        const trap = this._findTrapByKey(trapKey);
+        if (!trap) {
+            this.showNotification('Trap no longer in the list', 'warning');
+            return;
+        }
         const simplifiedVarbinds = this.simplifyVarbinds(trap.varbinds, trap.resolved);
         
         const displayTrap = {
-            timestamp: trap.timestamp,
-            time:      trap.time_str,
-            source:    trap.source,
-            trap_type: trap.trap_type,
-            varbinds:  simplifiedVarbinds,
-            resolved:  trap.resolved
+            timestamp:  trap.timestamp,
+            time:       trap.time_str,
+            source:     trap.source,
+            trap_type:  trap.trap_type,
+            snmpTrapOID: this._extractSnmpTrapOid(trap) || trap.trap_type || '',
+            varbinds:   simplifiedVarbinds,
+            resolved:   trap.resolved
         };
         
         const json = JSON.stringify(displayTrap, null, 2);
@@ -1569,10 +1951,481 @@ window.TrapsModule = {
         await fetch('/api/traps/', {method:'DELETE'});
         this.receivedTraps = [];
         this.filteredTraps = [];
+        // RCV-14: clearing the store must reset the pager state too — a stale
+        // offset/total would page an empty list and resurrect phantom pages.
+        this._trapOffset = 0;
+        this._trapTotal = 0;
         this.persistTraps();
         this.renderTraps();
         this.updateMetrics();
+        this.updatePager();
         this.showNotification('All traps cleared', 'info');
+    },
+
+    // ==================== Replay (TRP-07) ====================
+
+    // Modal with host/port/community overrides prefilled from the recorded
+    // event: source host, SNMP default port, recorded community.
+    showReplayModal: function(trapKey) {
+        const trap = this._findTrapByKey(trapKey);
+        if (!trap) {
+            this.showNotification('Trap no longer in the list', 'warning');
+            return;
+        }
+        this._replayTargetKey = trapKey;
+        const esc = TrishulUtils.escapeHtml;
+
+        const sourceHost = String(trap.source || '').split(':')[0] || '127.0.0.1';
+        // RCV-15: list payloads carry a mask, never the recorded community; the
+        // server applies the stored value when the override is left blank.
+        const recordedCommunity = String(trap.community || '').trim();
+        const defaultCommunity = this._isMaskedCommunity(recordedCommunity) || !recordedCommunity
+            ? this.COMMUNITY_MASK
+            : recordedCommunity;
+        const modalId = `trap-replay-modal-${Date.now()}`;
+        const titleId = `${modalId}-title`;
+
+        const modal = document.createElement('div');
+        modal.className = 'modal fade trap-replay-modal';
+        modal.id = modalId;
+        modal.setAttribute('aria-labelledby', titleId);
+        modal.innerHTML = `
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="${titleId}">Replay Trap</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="text-muted small mb-3">
+                            Re-send the stored event <code>${esc(trap.trap_type || '--')}</code> received from
+                            <code>${esc(trap.source || '--')}</code>. The target defaults to the recorded values.
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold" for="${modalId}-host">Target IP</label>
+                                <input type="text" id="${modalId}-host" class="form-control form-control-sm rp-host"
+                                       value="${esc(sourceHost)}" autocomplete="off">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold" for="${modalId}-port">Port</label>
+                                <input type="number" id="${modalId}-port" class="form-control form-control-sm rp-port"
+                                       value="162" min="1" max="65535">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold" for="${modalId}-community">Community</label>
+                                <input type="text" id="${modalId}-community" class="form-control form-control-sm rp-community"
+                                       value="${esc(defaultCommunity)}" autocomplete="off">
+                                <div class="form-text small">The recorded value is used unless you override it.</div>
+                            </div>
+                        </div>
+                        <div class="app-status-text is-error small d-none rp-feedback" role="alert"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-app-secondary-solid" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-sm btn-app-primary"
+                                data-trap-action="replay-submit" data-trap-key="${esc(trapKey)}">
+                            <i class="fas fa-reply"></i> Replay
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => {
+            if (this._replayTargetKey === trapKey) this._replayTargetKey = null;
+            modal.remove();
+        });
+    },
+
+    submitReplay: async function(trapKey) {
+        const trap = this._findTrapByKey(trapKey);
+        if (!trap) {
+            this.showNotification('Trap no longer in the list', 'warning');
+            return;
+        }
+        const id = trap.id != null ? String(trap.id) : '';
+        if (!id) {
+            this.showNotification('This trap cannot be replayed (no id)', 'warning');
+            return;
+        }
+        const modal = document.querySelector('.trap-replay-modal');
+        const feedback = modal ? modal.querySelector('.rp-feedback') : null;
+        const showFeedback = (message) => {
+            if (feedback) {
+                feedback.textContent = message;
+                feedback.classList.toggle('d-none', !message);
+            }
+        };
+
+        const host = modal ? (modal.querySelector('.rp-host').value || '').trim() : '';
+        const port = modal ? parseInt(modal.querySelector('.rp-port').value, 10) : NaN;
+        // RCV-15: an untouched mask means "use the recorded value" — send null
+        // so the server applies the stored community instead of the placeholder.
+        let community = modal ? (modal.querySelector('.rp-community').value || '').trim() : '';
+        if (this._isMaskedCommunity(community)) community = null;
+
+        if (!host) {
+            showFeedback('A target host is required.');
+            return;
+        }
+        if (!(port >= 1 && port <= 65535)) {
+            showFeedback('Port must be between 1 and 65535.');
+            return;
+        }
+
+        const submitBtn = modal ? modal.querySelector('[data-trap-action="replay-submit"]') : null;
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Replaying...';
+        }
+        try {
+            const res = await fetch(`/api/traps/replay/${encodeURIComponent(id)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host, port, community }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.detail || `Replay failed (HTTP ${res.status})`);
+            }
+            const target = data.target || {};
+            const op = data.operation === 'inform' ? 'Inform' : 'Trap';
+            let message = `${op} replayed to ${target.host || host}:${target.port || port}`;
+            if (data.response) {
+                message += data.response.error_status_code === 0
+                    ? ' — acknowledged.'
+                    : ` — receiver returned ${data.response.error_status || data.response.error_status_code}.`;
+            }
+            const modalInstance = modal ? bootstrap.Modal.getInstance(modal) : null;
+            if (modalInstance) modalInstance.hide();
+            this.showNotification(message, 'success');
+        } catch (e) {
+            console.error('[TRAP] Replay error:', e);
+            showFeedback(e.message || 'Replay failed');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-reply"></i> Replay';
+            }
+        }
+    },
+
+    // ==================== Offline Decode (TRP-08) ====================
+
+    showDecodeModal: function() {
+        const modalId = `trap-decode-modal-${Date.now()}`;
+        const titleId = `${modalId}-title`;
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = modalId;
+        modal.setAttribute('aria-labelledby', titleId);
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="${titleId}">Decode Trap Payload</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold" for="${modalId}-payload">Payload</label>
+                            <textarea id="${modalId}-payload" class="form-control form-control-sm dc-payload app-code-pane"
+                                      rows="5" placeholder="Paste the hex or base64 notification payload here..."></textarea>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold" for="${modalId}-encoding">Encoding</label>
+                                <select id="${modalId}-encoding" class="form-select form-select-sm dc-encoding">
+                                    <option value="hex">Hex</option>
+                                    <option value="base64">Base64</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold" for="${modalId}-source-host">Source host (optional)</label>
+                                <input type="text" id="${modalId}-source-host" class="form-control form-control-sm dc-source-host"
+                                       placeholder="127.0.0.1" autocomplete="off">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold" for="${modalId}-source-port">Source port (optional)</label>
+                                <input type="number" id="${modalId}-source-port" class="form-control form-control-sm dc-source-port"
+                                       min="1" max="65535" placeholder="1162">
+                            </div>
+                        </div>
+                        <div class="app-status-text is-error small d-none mb-2 dc-feedback" role="alert"></div>
+                        <div class="dc-result"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-app-secondary-solid" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-sm btn-app-primary dc-submit">
+                            <i class="fas fa-code"></i> Decode
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.querySelector('.dc-submit').addEventListener('click', () => this.submitDecode(modal));
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
+    },
+
+    submitDecode: async function(modal) {
+        if (!modal) return;
+        const payload = (modal.querySelector('.dc-payload').value || '').trim();
+        const encoding = modal.querySelector('.dc-encoding').value || 'hex';
+        const sourceHost = (modal.querySelector('.dc-source-host').value || '').trim() || null;
+        const sourcePortRaw = modal.querySelector('.dc-source-port').value;
+        const sourcePort = sourcePortRaw ? parseInt(sourcePortRaw, 10) : null;
+        const feedback = modal.querySelector('.dc-feedback');
+        const resultEl = modal.querySelector('.dc-result');
+
+        const showFeedback = (message) => {
+            if (feedback) {
+                feedback.textContent = message;
+                feedback.classList.toggle('d-none', !message);
+            }
+        };
+
+        if (!payload) {
+            showFeedback('Paste a payload to decode.');
+            return;
+        }
+        if (sourcePort != null && !(sourcePort >= 1 && sourcePort <= 65535)) {
+            showFeedback('Source port must be between 1 and 65535.');
+            return;
+        }
+
+        const submitBtn = modal.querySelector('.dc-submit');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Decoding...';
+        }
+        try {
+            const res = await fetch('/api/traps/decode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    payload,
+                    encoding,
+                    source_host: sourceHost,
+                    source_port: sourcePort,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.detail || `Decode failed (HTTP ${res.status})`);
+            }
+            showFeedback('');
+            if (resultEl) resultEl.innerHTML = this.renderDecodedEvent(data.event);
+        } catch (e) {
+            console.error('[TRAP] Decode error:', e);
+            if (resultEl) resultEl.innerHTML = '';
+            showFeedback(e.message || 'Decode failed');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-code"></i> Decode';
+            }
+        }
+    },
+
+    renderDecodedEvent: function(event) {
+        const esc = TrishulUtils.escapeHtml;
+        if (!event || typeof event !== 'object') {
+            return '<div class="text-muted small">No decoded event returned.</div>';
+        }
+        const source = event.source_address
+            ? `${event.source_address.host || '--'}:${event.source_address.port || '--'}`
+            : '--';
+        const notification = event.notification_name || event.notification_oid || '--';
+        const varbinds = Array.isArray(event.varbinds) ? event.varbinds : [];
+        const rows = varbinds.map(vb => {
+            const key = vb.symbolic || vb.oid || '';
+            const rawVal = vb.value;
+            const value = rawVal && typeof rawVal === 'object' && rawVal.display != null
+                ? rawVal.display
+                : (vb.display_value != null ? vb.display_value : (rawVal != null ? String(rawVal) : ''));
+            const enumLabel = String(vb.enum_label || '').trim();
+            const units = String(vb.units || '').trim();
+            return `<tr><td><code class="small">${esc(key)}</code></td><td>${esc(value)}` +
+                (enumLabel ? ` <span class="badge app-badge is-info app-value-enum-badge">${esc(enumLabel)}</span>` : '') +
+                (units ? ` <span class="app-value-units">${esc(units)}</span>` : '') +
+                `</td></tr>`;
+        }).join('');
+
+        return `
+            <div class="small mb-2">
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <span class="badge app-badge is-info">${esc(notification)}</span>
+                    <span class="text-muted">${esc(event.pdu_type || '')}</span>
+                    <span class="text-muted">community: <code>${esc(event.community || '--')}</code></span>
+                    <span class="text-muted">from <code>${esc(source)}</code></span>
+                    ${event.uptime != null ? `<span class="text-muted">uptime: <code>${esc(String(event.uptime))}</code></span>` : ''}
+                </div>
+            </div>
+            <div class="mb-2">
+                <div class="text-muted fw-bold small mb-2">VarBinds</div>
+                <table class="table table-sm table-hover mb-0 small">
+                    <thead class="table-light"><tr><th scope="col">Name</th><th scope="col">Value</th></tr></thead>
+                    <tbody>${rows || '<tr><td colspan="2" class="text-muted">No varbinds.</td></tr>'}</tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    // ==================== CSV Export + Live Pause (TRP-21) ====================
+
+    // Exports the current view (active filter + page) as CSV.
+    exportTrapsCsv: function() {
+        const traps = this.getVisibleTraps();
+        if (!traps.length) {
+            this.showNotification('No traps to export', 'warning');
+            return;
+        }
+        const escapeCell = (value) => {
+            const text = value == null ? '' : String(value);
+            return `"${text.replace(/"/g, '""')}"`;
+        };
+        const header = ['timestamp', 'time', 'source', 'community', 'trap_type', 'varbinds'];
+        const lines = [header.join(',')];
+        traps.forEach(t => {
+            const varbinds = (Array.isArray(t.varbinds) ? t.varbinds : [])
+                .map(vb => `${vb.name || vb.oid || ''}=${vb.value == null ? '' : vb.value}`)
+                .join('; ');
+            // RCV-15: the export never carries the real community string — the
+            // mask (or nothing) is all that leaves the page, even for legacy
+            // session-cached rows that still hold the raw value.
+            const community = this._isMaskedCommunity(t.community)
+                ? this.COMMUNITY_MASK
+                : (String(t.community || '').trim() ? this.COMMUNITY_MASK : '');
+            lines.push([
+                t.timestamp,
+                t.time_str,
+                t.source,
+                community,
+                t.trap_type,
+                varbinds,
+            ].map(escapeCell).join(','));
+        });
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `received_traps_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showNotification(`Exported ${traps.length} trap${traps.length === 1 ? '' : 's'} to CSV`, 'success');
+    },
+
+    // Pause the 1s live-prepend churn while inspecting; manual Refresh still
+    // works and Resume performs an immediate refresh.
+    toggleLivePause: function() {
+        this._livePaused = !this._livePaused;
+        const btn = document.getElementById('btn-tr-pause');
+        if (btn) {
+            const paused = this._livePaused;
+            btn.innerHTML = paused
+                ? '<i class="fas fa-play"></i> Resume'
+                : '<i class="fas fa-pause"></i> Pause';
+            btn.classList.toggle('btn-app-secondary', !paused);
+            btn.classList.toggle('btn-app-primary', paused);
+            btn.title = paused ? 'Resume live updates' : 'Pause live updates';
+            btn.setAttribute('aria-label', paused ? 'Resume live updates' : 'Pause live updates');
+            btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+        }
+        if (!this._livePaused) {
+            this.loadTraps();
+        }
+        this.showNotification(
+            this._livePaused ? 'Live updates paused — use Refresh for a manual snapshot.' : 'Live updates resumed',
+            this._livePaused ? 'warning' : 'info'
+        );
+    },
+
+    // ==================== Pagination (RCV-05) ====================
+
+    pageTraps: function(direction) {
+        const limit = this._trapLimit || 100;
+        // RCV-14: clamp against the current total so 'older' can't step past
+        // a shrunken store into an empty page — land on the last real page.
+        const total = this._trapTotal || 0;
+        const lastPageStart = Math.floor(Math.max(0, total - 1) / limit) * limit;
+        if (direction === 'older') {
+            this._trapOffset = Math.min(this._trapOffset + limit, lastPageStart);
+        } else if (direction === 'newer') {
+            this._trapOffset = Math.max(0, this._trapOffset - limit);
+        } else {
+            return;
+        }
+        this.loadTraps();
+    },
+
+    updatePager: function() {
+        const pager = document.getElementById('tr-pager');
+        if (!pager) return;
+        const total = this._trapTotal || 0;
+        const hasHistory = total > this._trapLimit || this._trapOffset > 0;
+        if (!hasHistory) {
+            pager.classList.add('d-none');
+            return;
+        }
+        pager.classList.remove('d-none');
+        const info = document.getElementById('tr-pager-info');
+        if (info) {
+            const shown = Math.max(0, this._trapOffset + (this.receivedTraps.length || 0));
+            const page = Math.floor(this._trapOffset / this._trapLimit) + 1;
+            const lastPage = Math.max(1, Math.ceil(total / this._trapLimit));
+            info.textContent = `Showing ${Math.min(total, shown)} of ${total} traps · Page ${page} of ${lastPage}`;
+        }
+        const newerBtn = document.getElementById('btn-tr-newer');
+        const olderBtn = document.getElementById('btn-tr-older');
+        if (newerBtn) newerBtn.disabled = this._trapOffset <= 0;
+        if (olderBtn) olderBtn.disabled = (this._trapOffset + this._trapLimit) >= total;
+    },
+
+    // ==================== Per-Trap Delete (RCV-12) ====================
+
+    deleteTrap: async function(trapKey) {
+        const trap = this._findTrapByKey(trapKey);
+        if (!trap) {
+            this.showNotification('Trap no longer in the list', 'warning');
+            return;
+        }
+        const id = trap.id != null ? String(trap.id) : '';
+        if (!id) {
+            this.showNotification('This trap cannot be deleted (no id)', 'warning');
+            return;
+        }
+        const confirmed = await TrishulUtils.confirmDialog({
+            title: 'Delete this trap?',
+            message: `Delete the received trap <code>${TrishulUtils.escapeHtml(trap.trap_type || '')}</code> from ${TrishulUtils.escapeHtml(trap.source || '--')}?`,
+            confirmLabel: 'Delete',
+            variant: 'danger',
+        });
+        if (!confirmed) return;
+
+        try {
+            const res = await fetch(`/api/traps/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.detail || `Delete failed (HTTP ${res.status})`);
+            }
+            this.receivedTraps = this.receivedTraps.filter(t => this.getTrapKey(t) !== trapKey);
+            this.filteredTraps = this.filteredTraps.filter(t => this.getTrapKey(t) !== trapKey);
+            this._trapTotal = Math.max(0, (this._trapTotal || 0) - 1);
+            this.persistTraps();
+            this.renderTraps();
+            this.updateMetrics();
+            this.updatePager();
+            this.showNotification('Trap deleted', 'info');
+        } catch (e) {
+            console.error('[TRAP] Delete error:', e);
+            this.showNotification(`Delete failed: ${e.message}`, 'error');
+        }
     },
 
     // ==================== Utilities ====================

@@ -8,9 +8,22 @@ window.SimulatorModule = {
     _logPollInFlight: false,
     _lastLogSignature: '',
     _customDataWarningsDismissed: false,
+    _uptimeTickerTimer: null,
+    _uptimeBaseSeconds: 0,
+    _uptimeAnchorMs: 0,
+    _lastHash: '',
+    _hashNavGuard: false,
+    _logFollow: true,
+    _logAreaScrollHandler: null,
+    _renderedCount: 0,
+    _lastRenderedArray: null,
+    _renderedFirst: null,
+    _lastStatusError: '',
+    _savingCustomData: false,
 
     init: function() {
         this.destroy();
+        this._lastHash = location.hash || '';
 
         if (!window.AppState) {
             window.AppState = {};
@@ -35,6 +48,7 @@ window.SimulatorModule = {
         this.loadCustomData();
         this.attachEditorEvents();
         this.updateLogStats();
+        this.attachLogScrollTracking();
 
         // Replace 10s setInterval with WS event listeners
         this._registerListeners();
@@ -46,11 +60,17 @@ window.SimulatorModule = {
     },
 
     destroy: function() {
+        const area = document.getElementById('sim-log-area');
+        if (area && this._logAreaScrollHandler) {
+            area.removeEventListener('scroll', this._logAreaScrollHandler);
+        }
+        this._logAreaScrollHandler = null;
         this._listeners.forEach(function(pair) {
             window.removeEventListener(pair[0], pair[1]);
         });
         this._listeners = [];
         this._stopPollingFallback();
+        this._stopUptimeTicker();
     },
 
     _on: function(type, fn) {
@@ -88,15 +108,34 @@ window.SimulatorModule = {
             self.updateLogStats();
         });
 
+        // Live request count from the stats push: the status payload only
+        // changes on lifecycle events, so without this the Requests card
+        // freezes while the WS is healthy.
+        this._on('trishul:ws:stats', function(e) {
+            const served = e.detail && e.detail.stats && e.detail.stats.simulator
+                ? e.detail.stats.simulator.snmp_requests_served
+                : undefined;
+            if (typeof served === 'number') {
+                self.updateRequestsCard(served);
+            }
+        });
+
         // REST re-seed after WS reconnect
         this._on('trishul:ws:open', function() {
             self._stopPollingFallback();
+            self._setLogSourceIndicator('live');
             self.fetchStatus();
             self.loadLogs(true);
         });
 
         this._on('trishul:ws:close', function() {
             self._startPollingFallback();
+        });
+
+        // SPA hash navigation would silently discard unsaved custom-data edits
+        // (beforeunload does not fire for hash changes).
+        this._on('hashchange', function() {
+            self._guardHashNav();
         });
     },
 
@@ -105,8 +144,13 @@ window.SimulatorModule = {
 
         this._stopPollingFallback();
         if (window.WsClient && typeof window.WsClient.isConnected === 'function' && window.WsClient.isConnected()) {
+            this._setLogSourceIndicator('live');
             return;
         }
+
+        // SIM-21: the pane is being fed by the polling fallback, so the
+        // "Live" indicator must reflect that instead of claiming WS liveness.
+        this._setLogSourceIndicator('polling');
 
         this._statusPollTimer = window.setInterval(function() {
             if (self._statusPollInFlight) return;
@@ -125,6 +169,22 @@ window.SimulatorModule = {
         }, 1500);
     },
 
+    _setLogSourceIndicator: function(source) {
+        const el = document.getElementById('log-live-indicator');
+        if (!el) return;
+        if (source === 'live') {
+            el.classList.remove('is-idle');
+            el.classList.add('is-live');
+            el.innerHTML = '<i class="fas fa-circle fa-xs me-1"></i> Live';
+            el.title = 'Live updates via WebSocket';
+        } else {
+            el.classList.remove('is-live');
+            el.classList.add('is-idle');
+            el.innerHTML = '<i class="fas fa-sync fa-xs me-1"></i> Polling';
+            el.title = 'Updates via polling (WebSocket unavailable)';
+        }
+    },
+
     _stopPollingFallback: function() {
         if (this._statusPollTimer) {
             clearInterval(this._statusPollTimer);
@@ -136,6 +196,53 @@ window.SimulatorModule = {
         }
         this._statusPollInFlight = false;
         this._logPollInFlight = false;
+    },
+
+    updateRequestsCard: function(served) {
+        const reqEl = document.getElementById('sim-requests');
+        if (reqEl) reqEl.textContent = served;
+    },
+
+    _startUptimeTicker: function(uptimeSeconds) {
+        this._uptimeBaseSeconds = Number(uptimeSeconds) || 0;
+        this._uptimeAnchorMs = Date.now();
+        if (this._uptimeTickerTimer) return;
+        const self = this;
+        this._uptimeTickerTimer = window.setInterval(function() {
+            const uptimeEl = document.getElementById('sim-uptime');
+            if (!uptimeEl) return;
+            const elapsed = Math.floor((Date.now() - self._uptimeAnchorMs) / 1000);
+            uptimeEl.textContent = TrishulUtils.formatUptime(self._uptimeBaseSeconds + elapsed);
+        }, 1000);
+    },
+
+    _stopUptimeTicker: function() {
+        if (this._uptimeTickerTimer) {
+            clearInterval(this._uptimeTickerTimer);
+            this._uptimeTickerTimer = null;
+        }
+    },
+
+    _guardHashNav: function() {
+        const editor = document.getElementById('custom-data-editor');
+        if (!editor) return;
+        if (this._hashNavGuard) {
+            // Hash was restored after a declined navigation; no second prompt.
+            this._hashNavGuard = false;
+            this._lastHash = location.hash;
+            return;
+        }
+        if (editor.value.trim() === this.lastSavedJson.trim()) {
+            this._lastHash = location.hash;
+            return;
+        }
+        const ok = window.confirm('You have unsaved custom data changes. Leave the Simulator page?');
+        if (!ok) {
+            this._hashNavGuard = true;
+            location.hash = this._lastHash || '#/simulator';
+            return;
+        }
+        this._lastHash = location.hash;
     },
 
     // ==================== Log Persistence ====================
@@ -330,6 +437,23 @@ window.SimulatorModule = {
         }, []);
     },
 
+    // SIM-14: merge the backend log list with the current pane state instead
+    // of replacing it, so locally-appended entries (lifecycle messages such
+    // as "Starting simulator...") are not wiped by a backend refresh. Backend
+    // entries always carry a timestamp; only local-only rows are preserved.
+    mergeLogLists: function(existing, incoming) {
+        const existingList = Array.isArray(existing) ? existing : [];
+        const incomingList = Array.isArray(incoming) ? incoming : [];
+        if (incomingList.length === 0) {
+            return existingList.slice(-500);
+        }
+        const localOnly = existingList.filter(entry => {
+            const n = this.normalizeLogEntry(entry);
+            return Boolean(n) && !n.timestamp && !n.last_event_timestamp;
+        });
+        return this.coalesceLogEntries(incomingList.concat(localOnly)).slice(-500);
+    },
+
     renderLogs: function(entries, scrollToBottom) {
         const area = document.getElementById('sim-log-area');
         if (!area) return;
@@ -346,11 +470,56 @@ window.SimulatorModule = {
                 copy: 'Live simulator requests and summaries will appear here.',
                 compact: true,
             });
+            this._renderedCount = 0;
+            this._lastRenderedArray = null;
+            this._renderedFirst = null;
             return;
         }
 
-        area.innerHTML = entries.map(entry => this.buildLogHtml(entry)).join('');
-        if (scrollToBottom) {
+        // SIM-26: auto-scroll only while following; a paused viewport keeps
+        // its position as new entries append below.
+        const keepPosition = !this._logFollow && area.scrollTop > 0;
+        const prevScrollTop = area.scrollTop;
+
+        // SIM-22: the log pane grows incrementally. The common per-event path
+        // appends only the new tail instead of rebuilding the whole list; a
+        // full rebuild happens only when the list is replaced wholesale
+        // (backend refresh, filter, clear).
+        const sameArray = entries === this._lastRenderedArray;
+        if (sameArray && this._renderedCount > 0) {
+            if (this._renderedCount < entries.length) {
+                // Grew in place: append only the new tail.
+                const tail = entries.slice(this._renderedCount).map(entry => this.buildLogHtml(entry)).join('');
+                if (tail) {
+                    area.insertAdjacentHTML('beforeend', tail);
+                }
+            } else if (entries.length === this._renderedCount && entries[0] !== this._renderedFirst) {
+                // The 500-entry cap dropped the head in place: slide the pane
+                // by removing the first rendered row and appending the newest.
+                if (area.firstElementChild) {
+                    area.firstElementChild.remove();
+                }
+                const lastHtml = this.buildLogHtml(entries[entries.length - 1]);
+                if (lastHtml) {
+                    area.insertAdjacentHTML('beforeend', lastHtml);
+                }
+            } else {
+                // Nothing new to render.
+                return;
+            }
+            this._renderedCount = entries.length;
+            this._renderedFirst = entries[0];
+        } else {
+            const html = entries.map(entry => this.buildLogHtml(entry)).join('');
+            area.innerHTML = html;
+            this._lastRenderedArray = entries;
+            this._renderedCount = entries.length;
+            this._renderedFirst = entries.length > 0 ? entries[0] : null;
+        }
+
+        if (keepPosition) {
+            area.scrollTop = prevScrollTop;
+        } else if (scrollToBottom && this._logFollow) {
             area.scrollTop = area.scrollHeight;
         }
     },
@@ -396,8 +565,31 @@ window.SimulatorModule = {
         const editor = document.getElementById('custom-data-editor');
         const unsaved = document.getElementById('unsaved-indicator');
         const jsonError = document.getElementById('json-error-indicator');
+        const jsonErrorBadge = document.getElementById('json-error-badge');
+        const jsonErrorText = document.getElementById('json-error-text');
 
         if (!editor) return;
+
+        // SIM-25: render the parse error (truncated) on the badge with the
+        // full message as a tooltip, so "JSON Error" carries actionable detail.
+        const setJsonError = function(message) {
+            const full = String(message || 'Invalid JSON');
+            const truncated = full.length > 80 ? full.slice(0, 77) + '...' : full;
+            if (jsonErrorText) {
+                jsonErrorText.textContent = 'JSON Error: ' + truncated;
+            }
+            if (jsonErrorBadge) {
+                jsonErrorBadge.title = full;
+            }
+        };
+        const clearJsonError = function() {
+            if (jsonErrorText) {
+                jsonErrorText.textContent = 'JSON Error';
+            }
+            if (jsonErrorBadge) {
+                jsonErrorBadge.removeAttribute('title');
+            }
+        };
 
         editor.addEventListener('input', () => {
             const current = editor.value;
@@ -414,13 +606,16 @@ window.SimulatorModule = {
                     JSON.parse(current);
                     jsonError && jsonError.classList.add('d-none');
                     editor.classList.remove('is-invalid');
+                    clearJsonError();
                 } else {
                     jsonError && jsonError.classList.add('d-none');
                     editor.classList.remove('is-invalid');
+                    clearJsonError();
                 }
             } catch (e) {
                 jsonError && jsonError.classList.remove('d-none');
                 editor.classList.add('is-invalid');
+                setJsonError(e && e.message ? e.message : 'Invalid JSON');
             }
         });
     },
@@ -447,12 +642,13 @@ window.SimulatorModule = {
             const pretty = JSON.stringify(data, null, 2);
             editor.value = pretty;
             this.lastSavedJson = pretty;
-            window.addEventListener('beforeunload', this.beforeUnloadHandler);
+            this._on('beforeunload', this.beforeUnloadHandler);
         } catch (e) {
             console.error('Failed to load custom data:', e);
             const fallback = '{}';
             editor.value = fallback;
             this.lastSavedJson = fallback;
+            this._on('beforeunload', this.beforeUnloadHandler);
         }
     },
 
@@ -460,7 +656,18 @@ window.SimulatorModule = {
         const editor = document.getElementById('custom-data-editor');
         const unsaved = document.getElementById('unsaved-indicator');
         const jsonError = document.getElementById('json-error-indicator');
+        const saveBtn = document.getElementById('btn-save-custom-data');
         const content = editor.value;
+
+        // SIM-24: in-flight guard — a double-click must not double-submit.
+        if (this._savingCustomData) return;
+        this._savingCustomData = true;
+        const originalBtnHtml = saveBtn ? saveBtn.innerHTML : '';
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.setAttribute('aria-busy', 'true');
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Saving...';
+        }
 
         try {
             const json = JSON.parse(content);
@@ -488,6 +695,13 @@ window.SimulatorModule = {
             console.error('Save error:', e);
             this.log('Failed to save custom data: ' + e.message, 'error');
             this.showToast('Failed to save custom data: ' + e.message, 'error');
+        } finally {
+            this._savingCustomData = false;
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.removeAttribute('aria-busy');
+                saveBtn.innerHTML = originalBtnHtml;
+            }
         }
     },
 
@@ -506,8 +720,19 @@ window.SimulatorModule = {
     },
 
     start: async function() {
-        const port = document.getElementById('sim-config-port').value;
-        const comm = document.getElementById('sim-config-comm').value;
+        const portInput = document.getElementById('sim-config-port');
+        const commInput = document.getElementById('sim-config-comm');
+        if (!portInput || !commInput) return;
+        const port = portInput.value;
+        const comm = commInput.value;
+        const portNumber = Number(port);
+
+        // Client-side validation so lifecycle errors are not just "HTTP 400/422".
+        if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
+            this.log('Cannot start: port must be an integer between 1 and 65535.', 'error');
+            this.showToast('Invalid port: must be an integer between 1 and 65535.', 'error');
+            return;
+        }
 
         this.log(`Starting simulator on Port ${port}...`);
 
@@ -515,11 +740,11 @@ window.SimulatorModule = {
             const res = await fetch('/api/simulator/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ port: parseInt(port), community: comm })
+                body: JSON.stringify({ port: portNumber, community: comm })
             });
 
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await this.readErrorMessage(res, `HTTP ${res.status}`));
             }
 
             const data = await res.json();
@@ -549,7 +774,7 @@ window.SimulatorModule = {
         try {
             const res = await fetch('/api/simulator/stop', { method: 'POST' });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await this.readErrorMessage(res, `HTTP ${res.status}`));
             }
 
             const data = await res.json();
@@ -568,12 +793,18 @@ window.SimulatorModule = {
         try {
             const res = await fetch('/api/simulator/restart', { method: 'POST' });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await this.readErrorMessage(res, `HTTP ${res.status}`));
             }
 
             const data = await res.json();
             this.log(data.message || 'Simulator restarted successfully', 'success');
             this.showToast(data.message || 'Simulator restarted successfully', 'success');
+
+            // Restart delegates to start(), whose response carries the same
+            // custom-data warnings contract — render them like the start path.
+            this._customDataWarningsDismissed = false;
+            this.renderCustomDataWarnings(data.custom_data_warnings);
+
             this.fetchStatus();
         } catch (e) {
             console.error('Restart error:', e);
@@ -590,9 +821,17 @@ window.SimulatorModule = {
 
             window.AppState.simulator = data;
             this.updateUI(data);
+            this._lastStatusError = '';
         } catch (e) {
             console.error('Sim status error', e);
-            this.log('Error fetching simulator status: ' + e.message, 'error');
+            // SIM-20: the 4s polling fallback retries backend-down errors
+            // continuously; collapse consecutive identical failures into a
+            // single activity-log entry instead of spamming the pane.
+            const message = 'Error fetching simulator status: ' + e.message;
+            if (message !== this._lastStatusError) {
+                this._lastStatusError = message;
+                this.log(message, 'error');
+            }
         }
     },
 
@@ -611,10 +850,13 @@ window.SimulatorModule = {
                 if (nextSignature === this._lastLogSignature) {
                     return;
                 }
-                window.AppState.logs = normalized;
+                // SIM-14: merge instead of replace — locally-appended
+                // entries (lifecycle messages from this page) must survive a
+                // backend list refresh.
+                window.AppState.logs = this.mergeLogLists(window.AppState.logs, normalized);
                 this._lastLogSignature = nextSignature;
             } else {
-                window.AppState.logs = this.coalesceLogEntries((window.AppState.logs || []).concat(normalized));
+                window.AppState.logs = this.coalesceLogEntries((window.AppState.logs || []).concat(normalized)).slice(-500);
                 this._lastLogSignature = this.getLogSignature(window.AppState.logs);
             }
 
@@ -669,7 +911,7 @@ window.SimulatorModule = {
                 commInput.disabled = true;
             }
 
-            configHint && configHint.classList.add('d-none');
+            configHint && configHint.classList.toggle('d-none', !data.restart_required);
             configDisabledHint && configDisabledHint.classList.remove('d-none');
 
             if (metrics && uptimeEl && reqEl && lastActEl) {
@@ -680,6 +922,7 @@ window.SimulatorModule = {
                 reqEl.textContent     = data.requests ?? 0;
                 // last_activity: ISO ts from stats_store → relative time via TrishulUtils
                 lastActEl.textContent = TrishulUtils.formatRelativeTime(data.last_activity);
+                this._startUptimeTicker(data.uptime_seconds);
             }
         } else {
             TrishulUtils.setStatusBadgeState(badge, 'stopped', 'STOPPED');
@@ -706,6 +949,7 @@ window.SimulatorModule = {
             if (metrics) {
                 metrics.classList.add('d-none');
             }
+            this._stopUptimeTicker();
         }
 
         // Forward-compatible: status payloads may also carry custom_data_warnings
@@ -774,6 +1018,9 @@ window.SimulatorModule = {
     },
 
     clearLog: function() {
+        if (!window.confirm('Clear all simulator log entries? This cannot be undone.')) {
+            return;
+        }
         fetch('/api/simulator/logs', { method: 'DELETE' })
             .catch((e) => console.error('Failed to clear backend simulator logs:', e))
             .finally(() => {
@@ -828,9 +1075,22 @@ window.SimulatorModule = {
             return matchesLevel && matchesSearch;
         });
 
-        this.renderLogs(filtered, true);
+        // SIM-23: single empty-state render. Previously the miss path called
+        // renderLogs([]) (which paints the "Waiting for activity" placeholder)
+        // and then overwrote it with a different inline style — two distinct
+        // empty states flashed in sequence.
         if (filtered.length === 0) {
-            area.innerHTML = '<div class="text-muted small p-2">No log entries match current filter.</div>';
+            area.innerHTML = TrishulUtils.buildPanelPlaceholder({
+                icon: 'fa-filter',
+                title: 'No matching entries',
+                copy: 'No log entries match the current filter.',
+                compact: true,
+            });
+            this._renderedCount = 0;
+            this._lastRenderedArray = null;
+            this._renderedFirst = null;
+        } else {
+            this.renderLogs(filtered, true);
         }
         this.updateLogStats(filtered.length);
     },
@@ -846,6 +1106,105 @@ window.SimulatorModule = {
         this.filterLogs();
     },
 
+    // ==================== Follow / Pause (SIM-26) ====================
+
+    toggleLogFollow: function() {
+        this.setLogFollow(!this._logFollow);
+    },
+
+    setLogFollow: function(following) {
+        this._logFollow = !!following;
+        const btn = document.getElementById('btn-log-follow');
+        if (btn) {
+            btn.setAttribute('aria-pressed', String(this._logFollow));
+            btn.classList.toggle('btn-app-primary', this._logFollow);
+            btn.classList.toggle('btn-app-secondary', !this._logFollow);
+            btn.innerHTML = this._logFollow
+                ? '<i class="fas fa-arrow-down me-1"></i> Follow'
+                : '<i class="fas fa-pause me-1"></i> Paused';
+            btn.title = this._logFollow
+                ? 'Auto-scroll to the latest entries'
+                : 'Auto-scroll is paused';
+        }
+        if (this._logFollow) {
+            const area = document.getElementById('sim-log-area');
+            if (area) area.scrollTop = area.scrollHeight;
+        }
+    },
+
+    // Stick-to-bottom detection: scrolling away from the bottom pauses the
+    // follow, returning to the bottom resumes it.
+    attachLogScrollTracking: function() {
+        const area = document.getElementById('sim-log-area');
+        if (!area) return;
+        if (this._logAreaScrollHandler) {
+            area.removeEventListener('scroll', this._logAreaScrollHandler);
+        }
+        const self = this;
+        const threshold = 40;
+        this._logAreaScrollHandler = function() {
+            const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < threshold;
+            if (nearBottom && !self._logFollow) {
+                self.setLogFollow(true);
+            } else if (!nearBottom && self._logFollow) {
+                self.setLogFollow(false);
+            }
+        };
+        area.addEventListener('scroll', this._logAreaScrollHandler);
+    },
+
+    // ==================== Level-count chips (SIM-26) ====================
+
+    renderLogLevelChips: function() {
+        const container = document.getElementById('log-level-chips');
+        if (!container) return;
+
+        const logs = window.AppState.logs || [];
+        const counts = { info: 0, success: 0, warning: 0, error: 0 };
+        logs.forEach(entry => {
+            const level = String(entry && entry.level || 'info').toLowerCase();
+            if (counts.hasOwnProperty(level)) {
+                counts[level]++;
+            } else {
+                counts.info++;
+            }
+        });
+
+        const activeLevel = document.getElementById('log-filter')?.value || 'all';
+        const levels = [
+            { key: 'info',    label: 'Info',    tone: 'info' },
+            { key: 'success', label: 'Success', tone: 'success' },
+            { key: 'warning', label: 'Warning', tone: 'warning' },
+            { key: 'error',   label: 'Error',   tone: 'danger' },
+        ];
+
+        const self = this;
+        container.replaceChildren.apply(container, levels.map(level => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'badge app-badge app-log-chip is-neutral';
+            btn.dataset.level = level.key;
+            btn.setAttribute('aria-pressed', String(activeLevel === level.key));
+            btn.title = `Filter by ${level.label} level`;
+            btn.appendChild(document.createTextNode(level.label + ' '));
+            const countSpan = document.createElement('span');
+            countSpan.className = 'app-log-chip-count';
+            countSpan.textContent = String(counts[level.key]);
+            btn.appendChild(countSpan);
+            btn.addEventListener('click', function() {
+                self.toggleLogLevelFilter(level.key);
+            });
+            return btn;
+        }));
+    },
+
+    toggleLogLevelFilter: function(level) {
+        const select = document.getElementById('log-filter');
+        if (!select) return;
+        select.value = select.value === level ? 'all' : level;
+        this.filterLogs();
+    },
+
     updateLogStats: function(filteredCount) {
         const stats = document.getElementById('log-stats');
         const total   = window.AppState.logs ? window.AppState.logs.length : 0;
@@ -855,6 +1214,7 @@ window.SimulatorModule = {
             stats.textContent = `${current} entries${current !== total ? ` (of ${total})` : ''}`;
         }
 
+        this.renderLogLevelChips();
         this.updateLogSummary();
     },
 

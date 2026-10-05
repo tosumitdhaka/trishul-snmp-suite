@@ -4,13 +4,49 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.1.0` UI or runtime behavior.
+`2.2.0` UI or runtime behavior.
 
-The current stable release line is `2.1.0`. The entries below `2.1.0` are
+The current stable release line is `2.2.0`. The entries below `2.2.0` are
 historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.2.0] - 2026-10-05
+
+Closes the full 151-finding end-to-end review (backend-to-frontend, code-to-UI/UX) — registry and dispositions in `docs/e2e_review_findings.md`.
+
+### Added
+- **Bundle Lifecycle** - Bundle sets can be listed, inspected, diffed, and rolled back from the MIB Manager; diffs use a content-hash fast path, and activation broadcasts to live sessions so other tabs re-sync immediately.
+- **Trap Sender** - SNMP inform sending with acknowledgement; replay of any received trap (the recorded community is applied server-side unless overridden); offline payload decoding; Counter64 varbinds; CSV export of received traps.
+- **Receiver** - Paginated trap history with per-trap delete, full dated timestamps, and a pause control for live updates while inspecting.
+- **Walker** - Timeout and retry controls, walk cancellation, sortable result columns, Enter-to-run (plain and Ctrl/Cmd+Enter), and copy-as-table TSV export.
+- **MIB Browser** - Constraint badges (range, size, enum, bits) in the detail panel; inline recompile notices for pre-enum/units bundles; ETag-cached OID index with 304 responses; always-visible detail actions via a sticky bar.
+- **Simulator** - BITS-typed object defaults (octet string); log follow/pause toggle with level-count chips; live/polling source indicator reflecting the actual data path.
+- **Settings** - About card showing the active bundle and producer version; server-derived restart-required badge that persists across navigation; per-line remote-source validation and inline session-timeout validation.
+- **MIB Manager** - Sortable trap catalog (Module/Objects columns); humanized revision dates with a Latest badge; failed-run surfacing widened to a 100-run window.
+
+### Changed
+- **Security / Redaction** - SNMP community strings are masked in trap list payloads (REST and live WS push) and CSV exports; the replay route applies the recorded value server-side when the override is blank.
+- **Performance** - MIB status reads each stored file once per cache generation; compiles serialize on a process-wide lock without holding DB sessions; the trap table re-renders only when data actually changes and polling stops while the WebSocket is healthy; a lightweight bundle-summary route replaces full status scans on browser entry.
+- **Walker Classification** - Metric detection uses whole-word matching over camelCase-tokenized names, fixing misclassification of identifiers like `ifWidth` and `ifVideoBitRate`.
+- **Walker Progress** - The progress bar runs indeterminate while walking and only announces real outcomes.
+- **Trap Badges** - Tones derive from a whole-token severity vocabulary, with danger and warning outranking success tokens.
+- **Settings / Sessions** - Credential updates broadcast a re-auth event and close live WebSocket sessions (4001); other clients react immediately instead of failing on the next request.
+- **Simulator Status Errors** - Consecutive identical backend-down errors collapse to a single activity-log entry.
+
+### Fixed
+- Grouped-mode walks no longer emit garbage metric rows when symbolic resolution fails (instance keys decode from the table's declared index columns, with a documented heuristic fallback).
+- An invalid custom-data value can no longer kill the simulator responder on first query; stale entries warn-and-skip on start with surfaced warnings, and saves reject them explicitly.
+- The simulator responder no longer leaks when restarted on a different address.
+- A zero-match filter no longer exports the full dataset.
+- A failed receiver restart no longer tears down the running listener.
+- Reset Stats no longer resurrects deleted traps from the client cache.
+- Settings saves validate everything before persisting (no partial persistence on validation errors).
+- Ctrl/Cmd+Enter can no longer start a second concurrent walk.
+- The Resolve-MIBs toggle re-renders trap history immediately (previously deferred until the next poll).
 
 ---
 

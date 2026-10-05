@@ -11,7 +11,8 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **Severity**: 7 high · ~30 medium · ~111 low/notes
 - **Live verification**: all 7 pages load with zero console/JS errors; top claims verified at API level (TRP-01, TRP-02) or by reviewer repro (WLK-01, SIM-01 chain)
 - **Disposition**: `2.1.0-FIX` = regression/incompletion of a 2.1.0 feature, candidate for the pending release; `2.2.0-A/B/C` = correctness / missing features / polish; `IDEA` = feature ideas
-- **Status 2026-10-05**: all 20 `2.1.0-FIX` items (incl. TRP-02 pulled in by decision) were fixed and independently re-reviewed — verdicts 17 FIXED, 3 FIXED-WITH-NOTES, 0 INCOMPLETE, 0 REGRESSION; release gate green. Remaining: 131 findings for 2.2.0.
+- **Status 2026-10-05**: all 20 `2.1.0-FIX` items (incl. TRP-02 pulled in by decision) were fixed and independently re-reviewed — verdicts 17 FIXED, 3 FIXED-WITH-NOTES, 0 INCOMPLETE, 0 REGRESSION; release gate green. Shipped in 2.1.0.
+- **Status 2026-10-05 (2.2.0 execution)**: **Phase A (correctness, 52 findings) complete** — independently reviewed: 46 FIXED, 5 FIXED-WITH-NOTES, 1 regression (SIM-28 responder leak) fixed in the residual pass along with SET-15, RCV-13, BRW-26, SIM-27, BRW-25, TRP-22. **Phase B (features, 19 findings) complete** — reviewed: 15 FIXED, 4 FIXED-WITH-NOTES; residual pass fixed MGR-26, MGR-27, MGR-28, RCV-14. **Phase C (polish, 54 findings) complete** — reviewed: 52 FIXED, 2 FIXED-WITH-NOTES; residual pass fixed RCV-16, WLK-28, TRP-23. **All 151 registry findings closed for 2.2.0** (fixed or explicitly accepted: WLK-27 heuristic limitation, MGR-29 documented shim, RCV-17 pager-lag note, TRP-14 raw-JSON retention).
 
 ## Summary by area
 
@@ -54,6 +55,10 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **BRW-22** (low, IMPR, 2.2.0-C) — Dead token `app-browser-enum-table` (no CSS rule). `browser.js:1370`
 - **BRW-23** (med, IDEA, 2.2.0-B) — Inline notice in browser when bundle lacks enum/units metadata (links to MIB Manager recompile). `browser.js:1330-1341`
 - **BRW-24** (med, GAP, **2.1.0-FIX**) — First numeric search silently awaits oid-index download before any loading feedback. `browser.js:672-683`
+- **BRW-25** (low, GAP, fixed 2.2.0-A residual) — Filtered numeric search downloaded the oid-index then discarded it for the server path. FIXED: filter-first gate skips the index path entirely.
+- **BRW-26** (info, IMPR, fixed 2.2.0-A residual) — browser.js had no mibs-broadcast coalescing (repeated loadTree per burst). FIXED: 250ms timer.
+- **BRW-27** (low, IMPR, 2.2.0-C) — BRW-23's status snapshot re-adds a full `/api/mibs/status` call to browser entry and every mibs broadcast (partial BRW-07 regression while MGR-05 unfixed). Lighter manifest-summary source needed.
+- **BRW-28** (low, GAP, 2.2.0-C) — `bits` constraint kind renders nothing in the browser detail Constraints row (BRW-15 covered range/size/enum/union only).
 
 ## MIB Manager (MGR)
 
@@ -82,6 +87,10 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **MGR-23** (low, IMPR, 2.2.0-C) — Dead tokens `app-recompile-banner`/`mib-module-meta-card` (no CSS rules). `mibs.html:1`; `mibs.js:725`
 - **MGR-24** (low, IMPR, 2.2.0-C) — Trap table Module/Objects columns not sortable (pattern exists). `mibs.html:220-235`
 - **MGR-25** (low, IDEA, 2.2.0-B) — Per-module compiled-version/producer hint in list. `mibs.js:305-390`
+- **MGR-26** (med-low, BUG, fixed 2.2.0-B residual) — Diff button on the active bundle always errored (self-diff 400, no pair selection). FIXED: diff-vs-previous default + disabled state when no predecessor.
+- **MGR-27** (med, BUG, fixed 2.2.0-B residual) — `POST /api/bundles/{id}/activate` emitted no `trishul:ws:mibs` broadcast (cross-tab caches stale after rollback). FIXED: broadcast added + contract-tested.
+- **MGR-28** (low, IMPR, fixed 2.2.0-B residual) — Bundle list payload embedded full module arrays + per-bundle manifest reads. FIXED: summaries-only list.
+- **MGR-29** (note, 2.2.0-C) — `_QueryParam` sentinel shim in the diff route exists solely for direct-call contract tests; move to a shared test helper or accept as documented.
 
 ## Walk & Parse (WLK)
 
@@ -109,8 +118,10 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **WLK-22** (low, IMPR, 2.2.0-C) — Count badge ignores active filter (traps page updates it). `walker.js:508,599`
 - **WLK-23** (low, IMPR, 2.2.0-C) — Filter-miss state is bare text, not `app-panel-placeholder`. `walker.js:136-138,648`
 - **WLK-24** (low, MISSING-FEATURE, 2.2.0-B) — No column sorting on results table (pattern exists on traps page). `walker.js:161-225`
-- **WLK-25** (low, IDEA, backlog) — Ctrl/Cmd+Enter to run; "copy as table" export. —
+- **WLK-25** (low, IDEA, fixed 2.2.0-B) — Ctrl/Cmd+Enter to run; "copy as table" TSV export. Done.
 - **WLK-26** (low, IMPR, 2.2.0-C) — `is-info` reused for every badge on the page; tone stops meaning anything. `utils.js:87`; `walker.js:303-327`
+- **WLK-27** (note, accepted 2.2.0) — Numeric-label fallback rows key on the bare instance index, so cross-table mega-rows remain possible in the no-symbolic-resolution heuristic path (pre-existing; documented limitation of the fallback).
+- **WLK-28** (low, BUG, fixed 2.2.0-C residual) — Ctrl/Cmd+Enter could start a second concurrent walk (bypassing the disabled submit) and clobber the active abort controller. FIXED: in-flight guard in `execute()`.
 
 ## Simulator (SIM)
 
@@ -139,7 +150,8 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **SIM-23** (low, IMPR, 2.2.0-C) — Filter-miss flow double-renders with two different empty-state styles. `simulator.js:781-784,341-349`
 - **SIM-24** (low, IMPR, 2.2.0-C) — Save has no in-flight state; double-click double-submits. `simulator.js:458-491`
 - **SIM-25** (low, IMPR, 2.2.0-C) — "JSON Error" badge carries no detail. `simulator.html:115-117`
-- **SIM-26** (low, IDEA, backlog) — Tail/pause toggle; level-count chips; client-side port validation. —
+- **SIM-26** (low, IDEA, fixed 2.2.0-B) — Tail/pause toggle; level-count chips; client-side port validation. Done.
+- **SIM-28** (med-high, BUG, fixed 2.2.0-A residual) — Responder leak on different-address restart (`start_responder` lacked the post-open shutdown the listener path has). FIXED: swap shuts down the previous responder + test.
 
 ## Trap Sender (TRP)
 
@@ -163,7 +175,8 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **TRP-18** (low, GAP, 2.2.0-C) — Validation error banner below the scrollable varbind panel; no scroll-into-view of first invalid row. `traps.js:924-935`
 - **TRP-19** (low, IMPR, 2.2.0-C) — Constraint hints only for Integer/range and String/size (Counter/Gauge/OID constraints unhinted). `traps.js:674-692,870-874`
 - **TRP-20** (low, IMPR, 2.2.0-C) — Varbind remove uses literal "X" text instead of the icon pattern. `traps.js:783`
-- **TRP-21** (low, IDEA, backlog) — CSV export for received traps; pause live updates while inspecting. —
+- **TRP-21** (low, IDEA, fixed 2.2.0-B) — CSV export for received traps; pause live updates while inspecting. Done.
+- **TRP-23** (low, BUG, fixed 2.2.0-C residual) — Badge-tone vocabulary checked success first, so `linkUpFailure` painted green off its "up" token. FIXED: danger/warning outrank success.
 
 ## Trap Receiver (RCV)
 
@@ -179,6 +192,11 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **RCV-10** (low, IMPR, 2.2.0-C) — Row actions keyed by render-time array index instead of `trap.id`. `traps.js:1321-1333,1428-1507`
 - **RCV-11** (low, GAP, 2.2.0-C) — "Total Traps" mixes session/persisted semantics. `traps.js:1138,271-278`
 - **RCV-12** (low, GAP, 2.2.0-B) — No per-trap delete (only Clear all). `traps.html:197-201`
+- **RCV-13** (low, BUG, fixed 2.2.0-A residual) — Inline-onclick quote escaping in traps row actions. FIXED: delegated `data-trap-key`/`data-trap-action` handlers.
+- **RCV-14** (low, BUG, fixed 2.2.0-B residual) — Pager edges: clear didn't reset offset/total; `older` could step past a shrunken total. FIXED: reset on clear + offset clamping.
+- **RCV-15** (note, 2.2.0-C) — `GET /api/traps` now returns the community string per event (needed by replay/CSV). Redact in list payloads; replay applies the stored value server-side when the override is blank (replay modal shows a masked placeholder).
+- **RCV-16** (med, BUG, fixed 2.2.0-C residual) — RCV-02's signature-skip suppressed re-renders when only resolve-derived display fields changed (toggle/bundle switch), even on manual refresh. FIXED: signature salted with resolve state + toggle re-fetches immediately.
+- **RCV-17** (note, accepted 2.2.0) — While paused or paged past page 1, arrived traps don't increment the pager total until the next fetch; refresh on Resume already covers it.
 
 ## Settings (SET)
 
@@ -196,6 +214,7 @@ logic/contract, two UI/UX) plus live empirical verification against a running
 - **SET-12** (low, IMPR, 2.2.0-C) — Restart-required badge not persisted across navigation. `settings.html:87-90`
 - **SET-13** (low, IMPR, 2.2.0-C) — Session-timeout out-of-range only flagged at save; no `is-invalid` while typing. `settings.html:112-123`
 - **SET-14** (low, IDEA, 2.2.0-B) — About card: show active bundle/producer version. `settings.html:184-205`
+- **SET-15** (low, BUG, fixed 2.2.0-A residual) — Settings save persisted some fields before validating remote sources (partial persistence on 400). FIXED: validate-all-then-persist.
 
 ---
 

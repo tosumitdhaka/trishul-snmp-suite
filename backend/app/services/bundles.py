@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Any
 from trishul_smi import CompilerConfig, FileReader, HttpReader, MibCompiler
 from trishul_snmp import load_bundle as _load_tsnmp_bundle
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
@@ -44,11 +45,27 @@ _LOG_PREVIEW_LIMIT = 10
 CAPABILITY_FLOOR = "0.5.2"
 PRODUCER_CAPABILITIES = {"enums": "0.5.2", "units": "0.5.2"}
 
+# MGR-06: compiles are heavy, write into a shared bundle-sets directory, and
+# can spawn remote fetches. Concurrent compiles from different requests (e.g.
+# two browser tabs) would corrupt each other's output, so all compiles are
+# serialized process-wide.
+_COMPILE_LOCK = threading.Lock()
+
 
 def _producer_version_below(version: Any, floor: str) -> bool:
-    """True when *version* is a parseable producer version strictly below *floor*."""
-    if not isinstance(version, str):
-        return False
+    """True when *version* is a parseable producer version strictly below *floor*.
+
+    A missing, blank, or otherwise unparseable producer version means the
+    manifest predates producer capability tracking — treat it as below the
+    floor so those bundles get the recompile recommendation instead of
+    silently passing as modern.
+    """
+    if isinstance(version, bool):
+        return True
+    if isinstance(version, (int, float)):
+        version = str(version)
+    if not isinstance(version, str) or not version.strip():
+        return True
 
     def _parts(value: str) -> list[int]:
         parts: list[int] = []
@@ -164,6 +181,12 @@ class BundleService:
         with self.session_factory() as session:
             bundles = session.scalars(select(BundleSet).order_by(BundleSet.id.desc())).all()
             compile_runs = session.scalars(select(CompileRun).order_by(CompileRun.id.desc()).limit(10)).all()
+            module_counts = dict(
+                session.execute(
+                    select(BundleModule.bundle_set_id, func.count(BundleModule.id))
+                    .group_by(BundleModule.bundle_set_id)
+                ).all()
+            )
             active_bundle_id = self._get_setting_value(session, "active_bundle_id")
             previous_active_bundle_id = self._get_setting_value(session, "previous_active_bundle_id")
             pointer = self._read_active_pointer(
@@ -181,7 +204,10 @@ class BundleService:
                 "active_bundle_id": active_bundle_id,
                 "previous_active_bundle_id": previous_active_bundle_id,
                 "active_pointer": pointer,
-                "bundles": [self._bundle_summary(bundle) for bundle in bundles],
+                "bundles": [
+                    self._bundle_list_summary(bundle, module_counts.get(bundle.id, 0))
+                    for bundle in bundles
+                ],
                 "compile_runs": [self._compile_run_summary(compile_run) for compile_run in compile_runs],
             }
 
@@ -190,34 +216,45 @@ class BundleService:
         source_dirs = self._resolve_source_dirs(request.mib_dirs)
         selected_source_paths = self._selected_source_paths(mib_names, source_dirs)
 
-        with self.session_factory() as session:
-            compile_run = CompileRun(
-                requested_mib_names_json=mib_names,
-                source_dirs_json=[str(path) for path in source_dirs],
-                status="running",
-                started_at=datetime.now(timezone.utc),
-            )
-            session.add(compile_run)
-            session.commit()
-            session.refresh(compile_run)
+        # MGR-06: one compile at a time process-wide (see _COMPILE_LOCK). The
+        # lock spans the DB writes too, so a fresh "running" run row is always
+        # recorded before the next compile starts.
+        with _COMPILE_LOCK:
+            with self.session_factory() as session:
+                compile_run = CompileRun(
+                    requested_mib_names_json=mib_names,
+                    source_dirs_json=[str(path) for path in source_dirs],
+                    status="running",
+                    started_at=datetime.now(timezone.utc),
+                )
+                session.add(compile_run)
+                session.commit()
+                session.refresh(compile_run)
+                compile_run_id = compile_run.id
 
-            bundle_key = self._build_bundle_key(compile_run.id, mib_names or [source_dirs[0].name])
-            bundle_dir = self.settings.bundle_sets_dir / bundle_key
-            bundle_dir.mkdir(parents=True, exist_ok=False)
+                bundle_key = self._build_bundle_key(
+                    compile_run_id, mib_names or [source_dirs[0].name]
+                )
+                bundle_dir = self.settings.bundle_sets_dir / bundle_key
+                bundle_dir.mkdir(parents=True, exist_ok=False)
 
-            compile_meta = {
-                "mib_names": mib_names,
-                "source_dirs": [str(p) for p in source_dirs],
-                "selected_source_paths": selected_source_paths,
-                "output_dir": str(bundle_dir),
-                "online": request.online,
-                "remote_sources": request.remote_sources or [],
-            }
-            compile_run.command_json = dict(compile_meta)
-            compile_run.bundle_key = bundle_key
-            compile_run.output_dir = str(bundle_dir)
-            session.commit()
+                compile_meta = {
+                    "mib_names": mib_names,
+                    "source_dirs": [str(p) for p in source_dirs],
+                    "selected_source_paths": selected_source_paths,
+                    "output_dir": str(bundle_dir),
+                    "online": request.online,
+                    "remote_sources": request.remote_sources or [],
+                }
+                compile_run.command_json = dict(compile_meta)
+                compile_run.bundle_key = bundle_key
+                compile_run.output_dir = str(bundle_dir)
+                session.commit()
 
+            # MGR-06: the compiler runs with NO DB session open. The "running"
+            # run row is already committed above; the outcome is recorded below
+            # in a fresh session. A slow compile therefore never pins a pooled
+            # connection or an open transaction.
             normalized_sources = [
                 str(s).strip() for s in (request.remote_sources or []) if str(s).strip()
             ]
@@ -273,107 +310,114 @@ class BundleService:
             failed = [r for r in results if r.status == "failed"]
             missing = [r for r in results if r.status == "missing"]
             compile_meta["result_rows"] = self._compile_result_rows(results, source_dirs)
-            compile_run.finished_at = datetime.now(timezone.utc)
 
-            if failed or missing:
-                missing_deps = sorted({
-                    dep
-                    for r in (failed + missing)
-                    for dep in r.missing_dependencies
-                })
-                error_parts = [r.error for r in (failed + missing) if r.error]
-                error_text = "; ".join(error_parts) or "tsmi compile failed"
-                compile_run.status = "failed"
-                compile_run.error_text = error_text
+            with self.session_factory() as session:
+                compile_run = session.get(CompileRun, compile_run_id)
+                if compile_run is None:
+                    raise BundleServiceError(
+                        f"Compile run {compile_run_id} disappeared mid-compile."
+                    )
+                compile_run.finished_at = datetime.now(timezone.utc)
+
+                if failed or missing:
+                    missing_deps = sorted({
+                        dep
+                        for r in (failed + missing)
+                        for dep in r.missing_dependencies
+                    })
+                    error_parts = [r.error for r in (failed + missing) if r.error]
+                    error_text = "; ".join(error_parts) or "tsmi compile failed"
+                    compile_run.status = "failed"
+                    compile_run.error_text = error_text
+                    compile_run.command_json = dict(compile_meta)
+                    session.commit()
+                    logger.error(
+                        "Bundle compile failed for %s failed=%d missing=%d error=%s",
+                        bundle_key,
+                        len(failed),
+                        len(missing),
+                        error_text,
+                    )
+                    if missing_deps:
+                        logger.warning(
+                            "Bundle compile %s unresolved dependencies: %s",
+                            bundle_key,
+                            _preview_items(missing_deps),
+                        )
+                    logger.debug(
+                        "Bundle compile %s failure detail: result_rows=%s",
+                        bundle_key,
+                        compile_meta["result_rows"],
+                    )
+                    raise BundleServiceError(error_text)
+
+                manifest_path = bundle_dir / "manifest.json"
+                oid_index_path = bundle_dir / "oid_index.json"
+                manifest = json.loads(manifest_path.read_text())
+
+                bundle_set = BundleSet(
+                    bundle_key=bundle_key,
+                    label=request.label or self._default_label(mib_names, manifest),
+                    storage_path=str(bundle_dir),
+                    manifest_path=str(manifest_path),
+                    oid_index_path=str(oid_index_path),
+                    status="compiled",
+                    is_active=False,
+                )
+                session.add(bundle_set)
+                session.flush()
+
+                for module in manifest.get("modules", []):
+                    module_name = module["module"]
+                    compiled_path = bundle_dir / module["file"]
+                    compiled_data = json.loads(compiled_path.read_text())
+                    bundle_set.modules.append(
+                        BundleModule(
+                            module_name=module_name,
+                            source_path=self._find_source_path(module_name, source_dirs),
+                            compiled_path=str(compiled_path),
+                            module_identity_oid=self._extract_module_identity_oid(compiled_data),
+                            object_count=len(compiled_data.get("objects", {})),
+                            notification_count=len(compiled_data.get("notifications", {})),
+                        )
+                    )
+
+                bundle_set.content_hash = self._compute_content_hash(bundle_dir, manifest)
+                compile_run.bundle_set_id = bundle_set.id
+                compile_run.manifest_path = str(manifest_path)
+                compile_run.oid_index_path = str(oid_index_path)
+                compile_run.status = "succeeded"
                 compile_run.command_json = dict(compile_meta)
                 session.commit()
-                logger.error(
-                    "Bundle compile failed for %s failed=%d missing=%d error=%s",
-                    bundle_key,
-                    len(failed),
-                    len(missing),
-                    error_text,
+                session.refresh(bundle_set)
+                session.refresh(compile_run)
+                remote_modules = sorted(
+                    module.module_name
+                    for module in bundle_set.modules
+                    if not module.source_path
                 )
-                if missing_deps:
-                    logger.warning(
-                        "Bundle compile %s unresolved dependencies: %s",
-                        bundle_key,
-                        _preview_items(missing_deps),
-                    )
+
+                logger.info(
+                    "Bundle compile succeeded for %s modules=%d remote_modules=%d",
+                    bundle_key,
+                    len(bundle_set.modules),
+                    len(remote_modules),
+                )
                 logger.debug(
-                    "Bundle compile %s failure detail: result_rows=%s",
+                    "Bundle compile %s detail: remote_modules=%s",
                     bundle_key,
-                    compile_meta["result_rows"],
-                )
-                raise BundleServiceError(error_text)
-
-            manifest_path = bundle_dir / "manifest.json"
-            oid_index_path = bundle_dir / "oid_index.json"
-            manifest = json.loads(manifest_path.read_text())
-
-            bundle_set = BundleSet(
-                bundle_key=bundle_key,
-                label=request.label or self._default_label(mib_names, manifest),
-                storage_path=str(bundle_dir),
-                manifest_path=str(manifest_path),
-                oid_index_path=str(oid_index_path),
-                status="compiled",
-                is_active=False,
-            )
-            session.add(bundle_set)
-            session.flush()
-
-            for module in manifest.get("modules", []):
-                module_name = module["module"]
-                compiled_path = bundle_dir / module["file"]
-                compiled_data = json.loads(compiled_path.read_text())
-                bundle_set.modules.append(
-                    BundleModule(
-                        module_name=module_name,
-                        source_path=self._find_source_path(module_name, source_dirs),
-                        compiled_path=str(compiled_path),
-                        module_identity_oid=self._extract_module_identity_oid(compiled_data),
-                        object_count=len(compiled_data.get("objects", {})),
-                        notification_count=len(compiled_data.get("notifications", {})),
-                    )
+                    remote_modules,
                 )
 
-            bundle_set.content_hash = self._compute_content_hash(bundle_dir, manifest)
-            compile_run.bundle_set_id = bundle_set.id
-            compile_run.manifest_path = str(manifest_path)
-            compile_run.oid_index_path = str(oid_index_path)
-            compile_run.status = "succeeded"
-            compile_run.command_json = dict(compile_meta)
-            session.commit()
-            session.refresh(bundle_set)
-            session.refresh(compile_run)
-            remote_modules = sorted(
-                module.module_name
-                for module in bundle_set.modules
-                if not module.source_path
-            )
-
-            logger.info(
-                "Bundle compile succeeded for %s modules=%d remote_modules=%d",
-                bundle_key,
-                len(bundle_set.modules),
-                len(remote_modules),
-            )
-            logger.debug(
-                "Bundle compile %s detail: remote_modules=%s",
-                bundle_key,
-                remote_modules,
-            )
-
-            result = {
-                "compile_run": self._compile_run_summary(compile_run),
-                "bundle": self._bundle_summary(bundle_set),
-                "remote_modules": remote_modules,
-            }
-            bundle_set_id = bundle_set.id
-        if request.activate:
-            result["activation"] = self.activate_bundle(bundle_set_id)
-        return result
+                result = {
+                    "compile_run": self._compile_run_summary(compile_run),
+                    "bundle": self._bundle_summary(bundle_set),
+                    "remote_modules": remote_modules,
+                }
+                bundle_set_id = bundle_set.id
+            if request.activate:
+                result["activation"] = self.activate_bundle(bundle_set_id)
+            return result
 
     def activate_bundle(self, bundle_set_id: int) -> dict[str, Any]:
         with self.session_factory() as session:
@@ -396,15 +440,28 @@ class BundleService:
 
             self._set_setting_value(session, "previous_active_bundle_id", current_active_id)
             self._set_setting_value(session, "active_bundle_id", bundle_set_id)
-            session.commit()
-            session.refresh(target)
 
-            # Load the activated bundle into memory
+            # Load the activated bundle into memory BEFORE committing the
+            # pointer swap. If the compiled data cannot be loaded, the DB
+            # transaction rolls back (the previous active bundle keeps
+            # serving) and the caller gets a real error instead of a
+            # pointer that claims an active bundle nothing can serve.
             from app.services.bundle_state import set_bundle
             try:
-                set_bundle(_load_tsnmp_bundle(target.storage_path))
-            except Exception:
-                logger.exception("Failed to load activated bundle into memory: %s", target.storage_path)
+                loaded_bundle = _load_tsnmp_bundle(target.storage_path)
+            except Exception as exc:
+                logger.exception(
+                    "Failed to load activated bundle into memory: %s", target.storage_path
+                )
+                raise BundleServiceError(
+                    f"Failed to activate bundle set {bundle_set_id}: "
+                    "its compiled data could not be loaded. The previously "
+                    "active bundle remains in effect."
+                ) from exc
+
+            session.commit()
+            session.refresh(target)
+            set_bundle(loaded_bundle)
 
             return {
                 "active_bundle_id": bundle_set_id,
@@ -442,6 +499,21 @@ class BundleService:
             right_bundle = session.get(BundleSet, right_bundle_set_id)
             if right_bundle is None:
                 raise BundleServiceError(f"Bundle set {right_bundle_set_id} does not exist.")
+
+            if (
+                left_bundle.content_hash is not None
+                and right_bundle.content_hash is not None
+                and left_bundle.content_hash == right_bundle.content_hash
+            ):
+                # Content-hash fast path: identical hashes prove the module
+                # files are byte-for-byte equivalent, so no per-module
+                # comparison work is needed.
+                return {
+                    "identical": True,
+                    "hash": left_bundle.content_hash,
+                    "left_bundle": self._bundle_summary(left_bundle),
+                    "right_bundle": self._bundle_summary(right_bundle),
+                }
 
             left_payloads = self._load_module_payloads(left_bundle)
             right_payloads = self._load_module_payloads(right_bundle)
@@ -484,6 +556,7 @@ class BundleService:
                 total_notifications_changed += len(change["notifications"]["changed"])
 
             return {
+                "identical": False,
                 "left_bundle": self._bundle_summary(left_bundle),
                 "right_bundle": self._bundle_summary(right_bundle),
                 "summary": {
@@ -940,13 +1013,46 @@ class BundleService:
         else:
             setting.value_json = value
 
-    def _bundle_summary(self, bundle: BundleSet) -> dict[str, Any]:
+    def _bundle_list_summary(self, bundle: BundleSet, module_count: int) -> dict[str, Any]:
+        """Summary row for the bundle list — no modules array, no manifest read.
+
+        The list endpoint is a lightweight index (MGR-28): per-bundle module
+        detail, the manifest, and manifest-derived fields (producer_version)
+        all live on the detail route. Keeping manifest reads out of the list
+        avoids one disk read per bundle per call.
+        """
         return {
             "id": bundle.id,
             "bundle_key": bundle.bundle_key,
             "label": bundle.label,
             "status": bundle.status,
             "is_active": bundle.is_active,
+            "producer_version": None,
+            "storage_path": bundle.storage_path,
+            "manifest_path": bundle.manifest_path,
+            "oid_index_path": bundle.oid_index_path,
+            "content_hash": bundle.content_hash,
+            "module_count": module_count,
+            "created_at": bundle.created_at.isoformat() if bundle.created_at else None,
+            "updated_at": bundle.updated_at.isoformat() if bundle.updated_at else None,
+        }
+
+    def _bundle_summary(self, bundle: BundleSet) -> dict[str, Any]:
+        producer_version: Any = None
+        manifest_path = Path(bundle.manifest_path or "")
+        if manifest_path.exists():
+            try:
+                manifest_data = json.loads(manifest_path.read_text())
+                producer_version = manifest_data.get("producer_version")
+            except (OSError, ValueError):
+                producer_version = None
+        return {
+            "id": bundle.id,
+            "bundle_key": bundle.bundle_key,
+            "label": bundle.label,
+            "status": bundle.status,
+            "is_active": bundle.is_active,
+            "producer_version": producer_version,
             "storage_path": bundle.storage_path,
             "manifest_path": bundle.manifest_path,
             "oid_index_path": bundle.oid_index_path,

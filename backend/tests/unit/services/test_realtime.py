@@ -224,3 +224,71 @@ def test_realtime_schedule_tolerates_close_failures_and_wrapper_helpers(monkeypa
 
     assert [label for label, _coro in captured] == ["stats", "simulator_log"]
     assert all(coro.cr_frame is None for _label, coro in captured)
+
+
+def test_broadcast_reauth_required_sends_event_then_closes_connections(monkeypatch):
+    from app.services import realtime
+
+    class FakeWebSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self.closed: list[tuple[int, str]] = []
+
+        async def send_json(self, payload: dict[str, object]) -> None:
+            self.sent.append(payload)
+
+        async def close(self, code: int, reason: str = "") -> None:
+            self.closed.append((code, reason))
+
+    ws1, ws2 = FakeWebSocket(), FakeWebSocket()
+    manager = realtime.WebSocketManager()
+    manager._connections = [
+        realtime.ManagedConnection(websocket=ws1, token="token-a"),
+        realtime.ManagedConnection(websocket=ws2, token="token-b"),
+    ]
+    monkeypatch.setattr(realtime, "ws_manager", manager)
+
+    asyncio.run(realtime.broadcast_reauth_required())
+
+    expected_event = {"type": "reauth_required", "reason": "credentials_updated"}
+    assert ws1.sent == [expected_event]
+    assert ws2.sent == [expected_event]
+    assert ws1.closed == [(4001, "Session invalidated")]
+    assert ws2.closed == [(4001, "Session invalidated")]
+    assert manager._connections == []
+
+
+def test_broadcast_reauth_required_is_noop_without_connections(monkeypatch):
+    from app.services import realtime
+
+    manager = realtime.WebSocketManager()
+    monkeypatch.setattr(realtime, "ws_manager", manager)
+
+    asyncio.run(realtime.broadcast_reauth_required())
+    assert manager._connections == []
+
+
+def test_broadcast_reauth_required_survives_broken_connection(monkeypatch):
+    from app.services import realtime
+
+    class BrokenWebSocket:
+        def __init__(self) -> None:
+            self.closed: list[tuple[int, str]] = []
+
+        async def send_json(self, payload: dict[str, object]) -> None:
+            del payload
+            raise RuntimeError("socket vanished")
+
+        async def close(self, code: int, reason: str = "") -> None:
+            self.closed.append((code, reason))
+
+    ws = BrokenWebSocket()
+    manager = realtime.WebSocketManager()
+    manager._connections = [realtime.ManagedConnection(websocket=ws, token="token-a")]
+    monkeypatch.setattr(realtime, "ws_manager", manager)
+
+    asyncio.run(realtime.broadcast_reauth_required())
+
+    # The send failure is swallowed; the connection is still torn down.
+    assert ws.closed == [(4001, "Session invalidated")]
+    assert manager._connections == []

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from app.services import browser_service
@@ -32,21 +32,42 @@ router = APIRouter()
 @router.get("/bundles/{bundle_set_id}/oid-index")
 def bundle_oid_index(
     bundle_set_id: int,
+    request: Request,
     x_auth_token: str | None = Header(default=None),
 ) -> Response:
-    """Stream a bundle set's oid_index.json sidecar from disk."""
+    """Stream a bundle set's oid_index.json sidecar from disk.
+
+    BRW-06: bundle sets are immutable once compiled and the id is part of the
+    URL, so the payload is served with a strong ETag (id + size + mtime) and
+    immutable caching — repeat hits answer 304 without re-reading the file.
+    """
     _require_authenticated_user(x_auth_token)
-    _settings, _state, bundle_service = _ctx()
+    from app.db.session import create_session_factory
     from app.models import BundleSet
 
-    with bundle_service.session_factory() as session:
+    # BRW-06: this is a static-file stream — a plain session factory is
+    # enough, without constructing the full service/state context.
+    with create_session_factory()() as session:
         bundle = session.get(BundleSet, bundle_set_id)
     oid_index_path = bundle.oid_index_path if bundle is not None else None
     if not oid_index_path or not Path(oid_index_path).exists():
         raise HTTPException(status_code=404, detail="Bundle set oid-index sidecar not found.")
+
+    file_path = Path(oid_index_path)
+    stat = file_path.stat()
+    etag = f'"{bundle_set_id}-{stat.st_size}-{int(stat.st_mtime)}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=86400, immutable",
+        })
     return Response(
-        content=Path(oid_index_path).read_bytes(),
+        content=file_path.read_bytes(),
         media_type="application/json",
+        headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=86400, immutable",
+        },
     )
 
 
@@ -59,6 +80,28 @@ def browse_modules(
     _settings, _state, bundle_service = _ctx()
     payload["active_bundle_id"] = (bundle_service.get_effective_bundle_summary() or {}).get("id")
     return payload
+
+
+@router.get("/mibs/bundle-summary")
+def bundle_summary(
+    x_auth_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """BRW-27: lightweight manifest summary for the browser's detail notice.
+
+    Reads only the effective bundle's manifest and pointer rows — no source
+    inventory scan like /api/mibs/status — so the browser can check
+    recompile_recommended on entry and on every mibs broadcast cheaply.
+    """
+    _require_authenticated_user(x_auth_token)
+    _settings, _state, bundle_service = _ctx()
+    manifest = bundle_service.get_effective_bundle_manifest_summary() or {}
+    bundle = bundle_service.get_effective_bundle_summary() or {}
+    return {
+        "active_bundle_id": bundle.get("id"),
+        "producer_version": manifest.get("producer_version"),
+        "missing_capabilities": manifest.get("missing_capabilities") or [],
+        "recompile_recommended": bool(manifest.get("recompile_recommended")),
+    }
 
 
 @router.get("/mibs/browse/tree/module")

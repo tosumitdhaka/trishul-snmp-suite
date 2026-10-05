@@ -70,6 +70,7 @@ def _make_mutation_service(
     reload_error: Exception | None = None,
     active_maps: list[dict[str, dict[str, object]]] | None = None,
     promotions: list[dict[str, object]] | None = None,
+    materialize_result: dict[str, str] | None = None,
 ):
     from app.services.mib_mutations import ShellMibMutationService
     from app.services.state_store import _MIB_RELOAD_COUNT_KEY
@@ -165,10 +166,19 @@ def _make_mutation_service(
             return active_map_queue.pop(0)
         return dict(active_map_queue[0])
 
+    reload_calls: list[int] = []
+
     def _reload_uploaded_mibs():
+        reload_calls.append(1)
         if reload_error is not None:
             raise reload_error
         return dependency_status
+
+    materialize_payload = dict(materialize_result or {})
+
+    def _materialize(modules, bundle_set_id=None):
+        materialized.append((list(modules), bundle_set_id))
+        return dict(materialize_payload)
 
     service = ShellMibMutationService(
         error_cls=RuntimeError,
@@ -188,7 +198,7 @@ def _make_mutation_service(
         compile_target_mib_names=lambda mib_names: _unique_names(mib_names),
         compile_source_dirs=lambda: [str(upload_root), str(settings.bundled_mibs_dir)],
         uploaded_bundle_label=lambda source_group: f"{source_group}-upload-label",
-        materialize_cached_remote_modules=lambda modules, bundle_set_id=None: materialized.append((list(modules), bundle_set_id)),
+        materialize_cached_remote_modules=_materialize,
         upload_result_rows=_row_payload,
         dependency_fetch_payload=_dependency_payload,
         missing_dependencies_from_error=lambda text: ["MISSING-DEP-MIB"] if "MISSING-DEP-MIB" in str(text) else [],
@@ -206,6 +216,7 @@ def _make_mutation_service(
         "logs": logs,
         "counter_calls": counter_calls,
         "materialized": materialized,
+        "reload_calls": reload_calls,
         "reset_calls": reset_calls,
         "upload_root": upload_root,
     }
@@ -685,8 +696,116 @@ def test_delete_helpers_and_fetch_dependencies_cover_rollbacks_and_promotions(is
         "auto_enabled": False,
         "using_default_sources": False,
         "sources": [],
+        "attempted": ["CACHED-MIB", "MISSING-MIB"],
         "resolved": [],
         "downloaded": [],
         "cached": ["CACHED-MIB"],
         "failed": ["MISSING-MIB"],
     }
+    # Auto-fetch disabled: nothing was compiled, materialized, or reloaded.
+    assert not service.bundle_service.compile_requests
+    assert not _ctx["materialized"]
+    assert not _ctx["reload_calls"]
+
+
+def test_fetch_dependencies_with_auto_fetch_compiles_online_and_reloads(isolated_db):
+    service, _settings, bundle_service, ctx = _make_mutation_service(
+        isolated_db,
+        remote_policy={
+            "enabled": True,
+            "auto_enabled": True,
+            "using_default_sources": True,
+            "sources": [],
+        },
+        materialize_result={"MISSING-MIB": "/uploads/auto-fetched/MISSING-MIB.mib"},
+    )
+
+    result = service.fetch_dependencies(["CACHED-MIB", "MISSING-MIB", "MISSING-MIB"])
+
+    assert result["cached"] == ["CACHED-MIB"]
+    assert result["downloaded"] == ["MISSING-MIB"]
+    assert result["failed"] == []
+    assert result["enabled"] is True
+    assert result["auto_enabled"] is True
+    assert result["using_default_sources"] is True
+
+    # The fetch ran one non-activating online compile targeting the missing dep.
+    assert len(bundle_service.compile_requests) == 1
+    request = bundle_service.compile_requests[0]
+    assert request.online is True
+    assert request.activate is False
+    assert "MISSING-MIB" in request.mib_names
+
+    # Compile-result modules are materialized, then the raw-cache retry pass.
+    assert ctx["materialized"] == [([], 101), (["MISSING-MIB"], None)]
+    # The bundle was rebuilt because something new was fetched.
+    assert ctx["reload_calls"] == [1]
+
+
+def test_fetch_dependencies_without_reload_rebuild_does_not_reload(isolated_db):
+    service, _settings, _bundle_service, ctx = _make_mutation_service(
+        isolated_db,
+        remote_policy={
+            "enabled": True,
+            "auto_enabled": True,
+            "using_default_sources": False,
+            "sources": ["https://example.invalid/mibs/@mib@"],
+        },
+        materialize_result={"MISSING-MIB": "/uploads/auto-fetched/MISSING-MIB.mib"},
+    )
+
+    result = service.fetch_dependencies(["MISSING-MIB"], reload_after_fetch=False)
+
+    assert result["downloaded"] == ["MISSING-MIB"]
+    assert result["failed"] == []
+    assert result["sources"] == ["https://example.invalid/mibs/@mib@"]
+    assert ctx["reload_calls"] == []
+
+
+def test_fetch_dependencies_survives_compile_failure_and_reports_failed(isolated_db):
+    from app.services.bundles import BundleServiceError
+
+    service, _settings, _bundle_service, ctx = _make_mutation_service(
+        isolated_db,
+        remote_policy={
+            "enabled": True,
+            "auto_enabled": True,
+            "using_default_sources": False,
+            "sources": [],
+        },
+        materialize_result={"AVAILABLE-REMOTE-MIB": "/uploads/auto-fetched/AVAILABLE-REMOTE-MIB.mib"},
+    )
+    service.bundle_service.compile_error = BundleServiceError("tsmi compile failed")
+
+    result = service.fetch_dependencies(["AVAILABLE-REMOTE-MIB", "TRULY-MISSING-MIB"])
+
+    # Whatever landed in the raw cache still counts as downloaded.
+    assert result["downloaded"] == ["AVAILABLE-REMOTE-MIB"]
+    assert result["failed"] == ["TRULY-MISSING-MIB"]
+    # A failed compile must not abort the materialize pass or the reload.
+    assert ctx["materialized"] == [(
+        ["AVAILABLE-REMOTE-MIB", "TRULY-MISSING-MIB"],
+        None,
+    )]
+    assert ctx["reload_calls"] == [1]
+
+
+def test_fetch_dependencies_all_cached_neither_compiles_nor_reloads(isolated_db):
+    service, _settings, bundle_service, ctx = _make_mutation_service(
+        isolated_db,
+        remote_policy={
+            "enabled": True,
+            "auto_enabled": True,
+            "using_default_sources": False,
+            "sources": [],
+        },
+    )
+
+    result = service.fetch_dependencies(["CACHED-MIB", "IF-MIB"])
+
+    assert result["cached"] == ["CACHED-MIB", "IF-MIB"]
+    assert result["downloaded"] == []
+    assert result["failed"] == []
+    assert not bundle_service.compile_requests
+    assert not ctx["materialized"]
+    assert not ctx["reload_calls"]

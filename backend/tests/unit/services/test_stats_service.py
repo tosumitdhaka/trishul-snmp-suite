@@ -167,3 +167,35 @@ async def test_reset_stats_clears_runtime_and_history(isolated_db):
     assert state.counter(_MIB_RELOAD_COUNT_KEY) == 0
     assert runtime_service.reset_calls == 1
     assert history_service.clear_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_reset_stats_clears_recorded_received_events(isolated_db):
+    """Reset Stats must empty the event store the traps page polls (RCV-03).
+
+    The traps page treats GET /api/traps/ as authoritative; after a stats
+    reset it must find zero received events, otherwise its cached copy would
+    disagree with the DB and deleted traps would resurrect on the next poll.
+    """
+    from app.services import stats_service
+    from app.services.history import EventHistoryService
+    from app.services.state_store import StateStore
+
+    history = EventHistoryService(isolated_db["settings"])
+    history.record_event(direction="received", pdu_type="trap", event={"varbinds": []})
+    history.record_event(direction="received", pdu_type="trap", event={"varbinds": []})
+
+    assert history.list_events(direction="received", limit=10)["total"] == 2
+
+    class StubRuntime:
+        async def reset_responder_counters(self):
+            return {"status": "reset"}
+
+    result = await stats_service.reset_stats(
+        state=StateStore(isolated_db["session_factory"]),
+        history_service=history,
+        runtime_service=StubRuntime(),
+    )
+
+    assert result == {"status": "reset"}
+    assert history.list_events(direction="received", limit=10)["total"] == 0

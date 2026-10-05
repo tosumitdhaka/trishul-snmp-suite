@@ -86,6 +86,27 @@ class WebSocketManager:
 ws_manager = WebSocketManager()
 
 
+async def broadcast_reauth_required() -> None:
+    """Notify every live client that its session was invalidated.
+
+    A credential update wipes every session row, so a regular broadcast (which
+    re-validates tokens against the session store) could never reach those
+    clients. Send an explicit reauth event and close each connection with the
+    4001 code so the UI returns to the login screen immediately instead of
+    waiting for the next REST 401.
+    """
+    connections = list(ws_manager._connections)
+    if not connections:
+        return
+    payload: dict[str, Any] = {"type": "reauth_required", "reason": "credentials_updated"}
+    for connection in connections:
+        try:
+            await connection.websocket.send_json(payload)
+        except Exception:
+            pass
+        await ws_manager._close_connection(connection, reason="Session invalidated")
+
+
 _MIB_SOURCE_EXTENSIONS = {".mib", ".txt", ".my"}
 
 

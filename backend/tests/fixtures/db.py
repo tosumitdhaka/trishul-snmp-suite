@@ -6,12 +6,14 @@ import pytest
 def _reset_test_runtime_state() -> None:
     from app.core.config import reset_settings_cache
     from app.db.session import reset_db_runtime
+    from app.services.app_settings import reset_settings_read_cache
     from app.services.bundle_state import set_bundle
     from app.services.mibs_service import _invalidate_source_cache
     from app.services.runtime import reset_runtime_service
     from app.services.state_store import reset_state_store
 
     reset_settings_cache()
+    reset_settings_read_cache()
     reset_db_runtime()
     reset_runtime_service()
     reset_state_store()

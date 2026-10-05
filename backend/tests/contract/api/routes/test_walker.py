@@ -132,3 +132,70 @@ def test_walk_route_requires_auth_and_translates_service_errors(isolated_db, mon
         )
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "walk failed"
+
+
+def test_walk_route_validates_and_passes_timeout_and_retries(isolated_db, monkeypatch):
+    # WLK-10: WalkBody carries timeout_ms (500-10000, default 2000) and
+    # retries (0-5, default 1); valid values pass through to the service,
+    # out-of-bounds values are rejected at the request model.
+    import asyncio as _asyncio
+
+    import app.services.runtime as runtime_module
+    import pydantic
+    from app.api.routes import walker as walker_module
+
+    del isolated_db
+    token = _login_token()
+    calls: list[dict[str, object]] = []
+
+    async def fake_execute(**kwargs):
+        calls.append(kwargs)
+        return {"mode": "raw", "count": 0, "data": []}
+
+    monkeypatch.setattr(runtime_module, "get_runtime_service", lambda: object())
+    monkeypatch.setattr(walker_module.walker_service, "execute", fake_execute)
+
+    _asyncio.run(
+        walker_module.execute_walk(
+            walker_module.WalkBody(
+                target="127.0.0.1",
+                port=1161,
+                community="public",
+                oid="1.3.6.1.2.1.1",
+            ),
+            x_auth_token=token,
+        )
+    )
+    assert calls[0]["timeout_ms"] == 2000
+    assert calls[0]["retries"] == 1
+
+    _asyncio.run(
+        walker_module.execute_walk(
+            walker_module.WalkBody(
+                target="127.0.0.1",
+                port=1161,
+                community="public",
+                oid="1.3.6.1.2.1.1",
+                timeout_ms=5000,
+                retries=4,
+            ),
+            x_auth_token=token,
+        )
+    )
+    assert calls[1]["timeout_ms"] == 5000
+    assert calls[1]["retries"] == 4
+
+    base = {
+        "target": "127.0.0.1",
+        "port": 1161,
+        "community": "public",
+        "oid": "1.3.6.1.2.1.1",
+    }
+    for overrides in (
+        {"timeout_ms": 100},
+        {"timeout_ms": 10001},
+        {"retries": -1},
+        {"retries": 6},
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            walker_module.WalkBody(**{**base, **overrides})

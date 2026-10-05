@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from trishul_snmp import MibBundle
-from trishul_snmp.errors import UnknownOidError, UnknownSymbolError
+from trishul_snmp.errors import (
+    InvalidOidError,
+    UnknownOidError,
+    UnknownSymbolError,
+)
 from trishul_snmp.mib.models import MibNode
 from trishul_snmp.mib.registry import oid_to_string, parse_oid
 
@@ -26,7 +30,9 @@ def _ui_type(node: MibNode) -> str:
     if ot == "MODULE-COMPLIANCE":
         return "ModuleCompliance"
     if ot == "MODULE-IDENTITY":
-        return "ModuleCompliance"  # closest visual match
+        # BRW-05: module identities are not compliances — give them their own
+        # label so the badge/icon don't mislead.
+        return "ModuleIdentity"
     if nt == "table":
         return "MibTable"
     if nt == "row":
@@ -91,7 +97,9 @@ def resolve(value: str, *, mode: str = "numeric", bundle: MibBundle | None) -> d
         else:
             output = oid_to_string(match.oid)
         return {"input": value, "output": output, "resolved": True}
-    except (UnknownOidError, Exception):
+    # BRW-04: only the expected lookup misses are graceful; real errors
+    # (storage, codec, ...) must surface instead of being swallowed.
+    except (UnknownOidError, InvalidOidError):
         pass
 
     # Try name-only search fallback
@@ -152,6 +160,7 @@ def get_module_tree(
 
     mod_names = [module] if module else sorted(bundle.modules.keys())
     result_modules = []
+    total_nodes = 0
     for mod_name in mod_names:
         nodes = list(bundle.iter_objects(module=mod_name))
         nodes += list(bundle.iter_notifications(module=mod_name))
@@ -159,6 +168,7 @@ def get_module_tree(
             nodes = [n for n in nodes if _ui_type(n) == type_filter]
         if not nodes:
             continue
+        total_nodes += len(nodes)
         nodes.sort(key=lambda n: n.oid)
 
         oid_set = {n.oid for n in nodes}
@@ -177,12 +187,17 @@ def get_module_tree(
             "module": mod_name,
             "oid": oid_to_string(nodes[0].oid) if nodes else "",
             "type": "Module",
+            # BRW-14: per-module object count (post-filter) so the module
+            # row badge can report objects, not just top-level roots.
+            "object_count": len(nodes),
             "children": [make_node(n) for n in top_level],
         })
 
     return {
         "modules": result_modules,
-        "count": sum(len(m["children"]) for m in result_modules),
+        # BRW-14: the count badge reports every object/notification in view,
+        # not just the top-level roots shown collapsed.
+        "count": total_nodes,
     }
 
 
@@ -209,7 +224,7 @@ def get_oid_tree(
     try:
         match = bundle.lookup(root_tuple)
         root_node = bundle.resolve_node(match.module, match.symbol)
-    except (UnknownOidError, Exception):
+    except (UnknownOidError, InvalidOidError):
         pass
 
     root_record = _node_to_record(root_node) if root_node else {
@@ -224,27 +239,31 @@ def get_oid_tree(
         all_nodes = [n for n in all_nodes if _ui_type(n) == type_filter]
 
     prefix_len = len(root_tuple)
-    children = []
+    # BRW-03: one pass over the node set. Direct children become records;
+    # deeper nodes mark their child-level ancestor so has_children is a set
+    # lookup instead of a re-scan of every node per child.
+    children: list[MibNode] = []
+    parents_with_descendants: set[tuple] = set()
+    descendants = 0
     for n in all_nodes:
-        if n.oid[:prefix_len] == root_tuple and len(n.oid) == prefix_len + 1:
-            record = _node_to_record(n)
-            child_prefix = n.oid
-            child_prefix_len = len(child_prefix)
-            record["has_children"] = any(
-                c.oid[:child_prefix_len] == child_prefix and len(c.oid) > child_prefix_len
-                for c in all_nodes
-            )
-            children.append(record)
-    children.sort(key=lambda r: r["oid"])
+        if n.oid[:prefix_len] != root_tuple or len(n.oid) <= prefix_len:
+            continue
+        descendants += 1
+        if len(n.oid) > prefix_len + 1:
+            parents_with_descendants.add(n.oid[: prefix_len + 1])
+            continue
+        children.append(n)
 
-    descendants = sum(
-        1 for n in all_nodes
-        if n.oid[:prefix_len] == root_tuple and len(n.oid) > prefix_len
-    )
+    child_records = []
+    for n in children:
+        record = _node_to_record(n)
+        record["has_children"] = n.oid in parents_with_descendants
+        child_records.append(record)
+    child_records.sort(key=lambda r: r["oid"])
 
     return {
         "root": root_record,
-        "children": children,
+        "children": child_records,
         "total_descendants": descendants,
     }
 
@@ -257,6 +276,7 @@ _UI_TYPE_TO_OBJECT_TYPE: dict[str, str] = {
     "MibTableColumn": "OBJECT-TYPE",
     "ObjectGroup": "OBJECT-GROUP",
     "ModuleCompliance": "MODULE-COMPLIANCE",
+    "ModuleIdentity": "MODULE-IDENTITY",
 }
 
 
@@ -274,10 +294,32 @@ def search_bundle(
         return {"results": [], "count": 0}
     # Translate UI type label to raw object_type for the bundle search
     raw_type_filter = _UI_TYPE_TO_OBJECT_TYPE.get(type_filter or "", type_filter) if type_filter else None
-    nodes = bundle.search(query, module=module, type_filter=raw_type_filter, limit=limit * 2)
-    # Post-filter by UI type when the mapping is many-to-one (e.g. MibScalar vs MibTable both map to OBJECT-TYPE)
-    if type_filter and type_filter in {"MibScalar", "MibTable", "MibTableRow", "MibTableColumn"}:
-        nodes = [n for n in nodes if _ui_type(n) == type_filter]
+    # The raw filter is many-to-one (four UI types map to OBJECT-TYPE), so the
+    # first page of raw matches can be dominated by nodes of the wrong UI
+    # type. Grow the fetch window until enough post-filter matches are
+    # collected or the underlying search is exhausted.
+    post_filter_type = (
+        type_filter
+        if type_filter in {"MibScalar", "MibTable", "MibTableRow", "MibTableColumn"}
+        else None
+    )
+
+    nodes: list[MibNode] = []
+    if post_filter_type:
+        fetch_limit = limit * 2
+        max_fetch_limit = max(limit * 10, 1000)
+        while True:
+            nodes = bundle.search(query, module=module, type_filter=raw_type_filter, limit=fetch_limit)
+            matches = [n for n in nodes if _ui_type(n) == post_filter_type]
+            if len(matches) >= limit or len(nodes) < fetch_limit:
+                nodes = matches
+                break
+            if fetch_limit >= max_fetch_limit:
+                nodes = matches
+                break
+            fetch_limit = min(fetch_limit * 4, max_fetch_limit)
+    else:
+        nodes = bundle.search(query, module=module, type_filter=raw_type_filter, limit=limit)
     results = [_node_to_record(n) for n in nodes[:limit]]
     results.sort(key=lambda r: (r["module"], r["name"]))
     return {"results": results, "count": len(results)}
@@ -346,7 +388,7 @@ def get_node(oid: str, *, module: str | None, bundle: MibBundle | None) -> dict[
         try:
             match = bundle.lookup(oid)
             node = bundle.resolve_node(match.module, match.symbol)
-        except (UnknownOidError, Exception):
+        except (UnknownOidError, InvalidOidError):
             pass
 
     node_record = _node_to_record(node) if node else None
@@ -366,7 +408,7 @@ def get_node(oid: str, *, module: str | None, bundle: MibBundle | None) -> dict[
                         "full_name": f"{parent.module}::{parent.name}",
                         "module": parent.module,
                     })
-            except (UnknownOidError, Exception):
+            except (UnknownOidError, InvalidOidError):
                 pass
 
     # Trap objects (notification members)

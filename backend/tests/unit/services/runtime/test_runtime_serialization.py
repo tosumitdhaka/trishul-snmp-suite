@@ -530,3 +530,399 @@ def test_runtime_validation_and_replay_paths_raise_clear_errors(
         )
         with pytest.raises(RuntimeServiceError, match=message):
             asyncio.run(service.replay_notification_event(event_id=99))
+
+
+def _build_v2c_get_datagram(*, version: int = 1, community: str = "public") -> bytes:
+    from trishul_snmp.wire.message import SnmpMessage, encode_message
+    from trishul_snmp.wire.pdu import Pdu, PduType, build_null_varbinds
+
+    return encode_message(
+        SnmpMessage(
+            version=version,
+            community=community,
+            pdu=Pdu(
+                pdu_type=PduType.GET,
+                request_id=7,
+                error_status=0,
+                error_index=0,
+                varbinds=build_null_varbinds(((1, 3, 6, 1, 2, 1, 1, 5, 0),)),
+            ),
+        )
+    )
+
+
+def _stub_responder_server(service, datagrams):
+    from types import SimpleNamespace
+
+    responder = service._create_responder(
+        host="127.0.0.1",
+        port=0,
+        communities=["public"],
+        source=None,
+        objects=(),
+        bundle=None,
+    )
+    sent: list[object] = []
+
+    class _FakeDatagram:
+        source_address = ("127.0.0.1", 50001)
+
+        def __init__(self, data):
+            self.data = data
+
+    received = [_FakeDatagram(item) for item in datagrams]
+
+    async def fake_receive():
+        if not received:
+            raise RuntimeError("no more datagrams")
+        return received.pop(0)
+
+    async def fake_sendto(encoded, address):
+        sent.append((encoded, address))
+
+    responder._server = SimpleNamespace(receive=fake_receive, sendto=fake_sendto)
+    responder._communities = ["public"]
+    return responder, sent
+
+
+def test_responder_survives_encode_failure_and_records_last_error(isolated_db):
+    from app.services.runtime import RuntimeService
+    from trishul_snmp.errors import ProtocolError
+
+    service = RuntimeService(isolated_db["settings"])
+    responder, _sent = _stub_responder_server(service, [_build_v2c_get_datagram()])
+
+    def broken_build(message):
+        del message
+        raise ProtocolError("value cannot be encoded")
+
+    responder._build_response_message = broken_build
+
+    # The encode failure must not terminate the service loop; the fake server
+    # exhausting its datagrams ends the loop instead.
+    with pytest.raises(RuntimeError, match="no more datagrams"):
+        asyncio.run(responder.handle_request())
+    assert "could not be encoded" in (service._responder_last_error or "")
+
+
+def test_responder_drops_snmpv1_traffic_at_the_boundary(isolated_db):
+    from app.services.runtime import RuntimeService
+
+    service = RuntimeService(isolated_db["settings"])
+    responder, sent = _stub_responder_server(service, [_build_v2c_get_datagram(version=0)])
+
+    with pytest.raises(RuntimeError, match="no more datagrams"):
+        asyncio.run(responder.handle_request())
+    assert sent == []
+
+
+def test_start_responder_resets_request_counters_and_last_activity(isolated_db, monkeypatch):
+    from app.services import runtime as runtime_module
+    from app.services.runtime import RuntimeService
+
+    _activate_runtime_bundle(isolated_db)
+
+    class FakeResponder:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.local_address = (kwargs.get("host") or "127.0.0.1", kwargs.get("port") or 0)
+            self.closed = False
+
+        async def open(self):
+            return None
+
+        async def close(self):
+            self.closed = True
+
+        async def serve_forever(self):
+            while not self.closed:
+                await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(runtime_module, "V2cResponder", FakeResponder)
+
+    async def scenario():
+        service = RuntimeService(isolated_db["settings"])
+        service._responder_request_count = 42
+        service._responder_last_activity = "2026-10-05T00:00:00+00:00"
+        await service.start_responder(
+            host="127.0.0.1",
+            port=1163,
+            communities=["public"],
+            objects=[
+                {
+                    "target": "SNMPv2-MIB::sysName.0",
+                    "value": {"type": "octet-string", "value": "demo"},
+                }
+            ],
+        )
+        assert service._responder_request_count == 0
+        assert service._responder_last_activity is None
+        await service.stop_responder()
+
+    asyncio.run(scenario())
+
+
+def test_start_responder_failure_on_new_port_keeps_running_responder(isolated_db, monkeypatch):
+    from app.services import runtime as runtime_module
+    from app.services.runtime import RuntimeService, RuntimeServiceError
+
+    _activate_runtime_bundle(isolated_db)
+
+    class FlakyResponder:
+        instances: list["FlakyResponder"] = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+            self.local_address = (kwargs.get("host") or "127.0.0.1", kwargs.get("port") or 0)
+            FlakyResponder.instances.append(self)
+
+        async def open(self):
+            if len(FlakyResponder.instances) > 1:
+                raise OSError("address already in use")
+            return None
+
+        async def close(self):
+            self.closed = True
+
+        async def serve_forever(self):
+            while not self.closed:
+                await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(runtime_module, "V2cResponder", FlakyResponder)
+
+    async def scenario():
+        service = RuntimeService(isolated_db["settings"])
+        await service.start_responder(
+            host="127.0.0.1",
+            port=2161,
+            communities=["public"],
+            objects=[],
+        )
+        running = service._responder
+        assert running is not None
+
+        with pytest.raises(RuntimeServiceError, match="address already in use"):
+            await service.start_responder(
+                host="127.0.0.1",
+                port=2162,
+                communities=["public"],
+                objects=[],
+            )
+
+        # A failed bind on a NEW address must not tear down the running responder.
+        assert service._responder is running
+        assert not running.closed
+        await service.stop_responder()
+
+    asyncio.run(scenario())
+
+
+def test_start_responder_swap_stops_old_responder_on_new_port(isolated_db, monkeypatch):
+    from app.services import runtime as runtime_module
+    from app.services.runtime import RuntimeService
+
+    _activate_runtime_bundle(isolated_db)
+
+    class SwapResponder:
+        instances: list["SwapResponder"] = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+            self.local_address = (kwargs.get("host") or "127.0.0.1", kwargs.get("port") or 0)
+            SwapResponder.instances.append(self)
+
+        async def open(self):
+            return None
+
+        async def close(self):
+            self.closed = True
+
+        async def serve_forever(self):
+            while not self.closed:
+                await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(runtime_module, "V2cResponder", SwapResponder)
+
+    async def scenario():
+        service = RuntimeService(isolated_db["settings"])
+        await service.start_responder(
+            host="127.0.0.1",
+            port=3161,
+            communities=["public"],
+            objects=[],
+        )
+        first = service._responder
+        assert first is not None
+
+        # A successful start on a NEW address must swap the old responder out.
+        await service.start_responder(
+            host="127.0.0.1",
+            port=3162,
+            communities=["public"],
+            objects=[],
+        )
+        second = service._responder
+        assert second is not None
+        assert second is not first
+        assert first.closed
+        assert service._responder_binding.port == 3162
+        assert service._responder_binding.host == "127.0.0.1"
+
+        # stop_responder stops exactly one responder (the new one).
+        assert len(SwapResponder.instances) == 2
+        assert not second.closed
+        await service.stop_responder()
+        assert second.closed
+        assert service._responder is None
+
+    asyncio.run(scenario())
+
+
+def test_start_listener_failure_on_new_port_keeps_running_listener(isolated_db, monkeypatch):
+    from app.services import runtime as runtime_module
+    from app.services.runtime import RuntimeService, RuntimeServiceError
+
+    _activate_runtime_bundle(isolated_db)
+
+    class FlakyListener:
+        instances: list["FlakyListener"] = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+            self.local_address = (kwargs.get("host") or "127.0.0.1", kwargs.get("port") or 0)
+            FlakyListener.instances.append(self)
+
+        async def open(self):
+            if len(FlakyListener.instances) > 1:
+                raise OSError("address already in use")
+            return None
+
+        async def close(self):
+            self.closed = True
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            while not self.closed:
+                await asyncio.sleep(0.05)
+            raise StopAsyncIteration
+
+    monkeypatch.setattr(runtime_module, "V2cNotificationListener", FlakyListener)
+
+    async def scenario():
+        service = RuntimeService(isolated_db["settings"])
+        await service.start_listener(host="127.0.0.1", port=2163, communities=["public"])
+        running = service._listener
+        assert running is not None
+
+        with pytest.raises(RuntimeServiceError, match="address already in use"):
+            await service.start_listener(host="127.0.0.1", port=2164, communities=["public"])
+
+        assert service._listener is running
+        assert not running.closed
+        await service.stop_listener()
+
+    asyncio.run(scenario())
+
+
+def test_responder_state_reports_restart_required_when_bundle_changed(isolated_db, monkeypatch):
+    from app.services import runtime as runtime_module
+    from app.services.runtime import RuntimeBinding, RuntimeService
+
+    active_bundle = _activate_runtime_bundle(isolated_db)
+
+    class FakeResponder:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.local_address = (kwargs.get("host") or "127.0.0.1", kwargs.get("port") or 0)
+            self.closed = False
+
+        async def open(self):
+            return None
+
+        async def close(self):
+            self.closed = True
+
+        async def serve_forever(self):
+            while not self.closed:
+                await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(runtime_module, "V2cResponder", FakeResponder)
+
+    async def scenario():
+        service = RuntimeService(isolated_db["settings"])
+        await service.start_responder(
+            host="127.0.0.1",
+            port=1165,
+            communities=["public"],
+            objects=[],
+        )
+        state = await service.get_state()
+        assert state["responder"]["restart_required"] is False
+
+        # The active bundle changed underneath the responder (recompile/activate).
+        async with service._lock:
+            service._responder_binding = RuntimeBinding(
+                host="127.0.0.1",
+                port=1165,
+                communities=("public",),
+                bundle_set_id=active_bundle["id"] + 999,
+            )
+        state = await service.get_state()
+        assert state["responder"]["restart_required"] is True
+        await service.stop_responder()
+
+    asyncio.run(scenario())
+
+
+def test_get_responder_status_is_lightweight_and_reports_restart_required(isolated_db, monkeypatch):
+    """SIM-13: the status endpoint must not pay for full object/rule serialization."""
+    from app.services import runtime as runtime_module
+    from app.services.runtime import RuntimeBinding, RuntimeService
+
+    active_bundle = _activate_runtime_bundle(isolated_db)
+
+    class FakeResponder:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.local_address = (kwargs.get("host") or "127.0.0.1", kwargs.get("port") or 0)
+            self.closed = False
+
+        async def open(self):
+            return None
+
+        async def close(self):
+            self.closed = True
+
+        async def serve_forever(self):
+            while not self.closed:
+                await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(runtime_module, "V2cResponder", FakeResponder)
+
+    async def scenario():
+        service = RuntimeService(isolated_db["settings"])
+        await service.start_responder(
+            host="127.0.0.1",
+            port=1165,
+            communities=["public"],
+            objects=[{"target": "1.3.6.1.2.1.1.1.0", "value": {"type": "octet-string", "value": "x"}}],
+        )
+        status = await service.get_responder_status()
+        # Scalars the simulator status payload consumes.
+        assert status["running"] is True
+        assert status["port"] == 1165
+        assert status["communities"] == ["public"]
+        assert status["request_count"] == 0
+        assert status["restart_required"] is False
+        # The lightweight view must not serialize every configured object/rule.
+        assert status["configured_objects"] is None
+        assert status["configured_rules"] is None
+        assert status["configured_object_count"] is None
+        await service.stop_responder()
+
+    asyncio.run(scenario())

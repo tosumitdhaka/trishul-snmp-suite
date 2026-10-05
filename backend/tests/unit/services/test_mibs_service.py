@@ -417,6 +417,9 @@ def test_status_surfaces_active_bundle_producer_capabilities(isolated_db):
     assert status["producer_version"] == "0.5.3"
     assert status["recompile_recommended"] is False
     assert status["missing_capabilities"] == []
+    assert status["active_bundle_id"] is not None
+    assert status["active_bundle_label"]
+    assert status["loaded"] == len(status["mibs"])
 
 
 def test_reload_without_uploaded_mibs_reverts_to_bundled_starter_bundle(isolated_db):
@@ -574,6 +577,94 @@ END
     assert status["failed_modules"][0]["status"] == "invalid"
     inventory_by_file = {row["file"]: row for row in status["source_inventory"]}
     assert inventory_by_file["common/BROKEN-MIB.mib"]["status"] == "invalid"
+
+
+def test_status_surfaces_failed_runs_beyond_the_recent_window(isolated_db):
+    from app.models import CompileRun
+    from app.services import mibs_service
+    from app.services.bundles import BundleService
+    from app.services.state_store import StateStore
+
+    settings = isolated_db["settings"]
+    session_factory = isolated_db["session_factory"]
+    state = StateStore(session_factory)
+    bundle_service = BundleService(settings)
+
+    stale_path = settings.data_dir / "mibs" / "common" / "STALE-FAIL-MIB.mib"
+    stale_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_path.write_text(
+        "STALE-FAIL-MIB DEFINITIONS ::= BEGIN\n"
+        "staleFailNode OBJECT IDENTIFIER ::= { 1 3 6 1 4 1 99999 70 }\n"
+        "END\n"
+    )
+
+    with session_factory() as session:
+        for index in range(7):
+            names = ["STALE-FAIL-MIB"] if index == 0 else ["NEWER-FAIL-MIB"]
+            session.add(
+                CompileRun(
+                    requested_mib_names_json=names,
+                    source_dirs_json=[],
+                    status="failed",
+                    error_text="simulated compile failure",
+                )
+            )
+        session.commit()
+
+    status = mibs_service.get_status(
+        settings=settings,
+        state=state,
+        bundle_service=bundle_service,
+    )
+
+    # MGR-09: only the 5 most-recent failed runs used to be scanned, so the
+    # oldest failure's file sat "pending" forever. The widened scan window
+    # surfaces it as failed.
+    inventory_by_file = {row["file"]: row for row in status["source_inventory"]}
+    assert inventory_by_file["common/STALE-FAIL-MIB.mib"]["status"] == "failed"
+    assert status["failed"] == 1
+    assert status["failed_modules"][0]["name"] == "STALE-FAIL-MIB"
+
+
+def test_source_service_singleton_construction_is_thread_safe(isolated_db):
+    import threading
+
+    from app.services import mibs_service
+    from app.services.bundles import BundleService
+    from app.services.state_store import StateStore
+
+    settings = isolated_db["settings"]
+    state = StateStore(isolated_db["session_factory"])
+    bundle_service = BundleService(settings)
+
+    mibs_service._invalidate_source_cache()
+    results: list[object] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(4)
+
+    def build():
+        try:
+            barrier.wait()
+            results.append(mibs_service._make_source_service(settings, state, bundle_service))
+        except BaseException as exc:  # pragma: no cover - failure diagnostics
+            errors.append(exc)
+
+    threads = [threading.Thread(target=build) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # MGR-10: racing callers must observe one singleton, never two instances
+    # or a torn-down cache holder.
+    assert errors == []
+    assert len({id(item) for item in results}) == 1
+
+    # Invalidation is serialized too: dropping the instance and rebuilding
+    # yields a fresh working service, not the stale one.
+    mibs_service._invalidate_source_cache()
+    rebuilt = mibs_service._make_source_service(settings, state, bundle_service)
+    assert rebuilt is not results[0]
 
 
 def test_status_uses_compile_run_source_path_for_failed_duplicates(isolated_db):

@@ -123,6 +123,12 @@ class SessionService:
             if not self._verify_password(current_password, stored["password"]):
                 raise SessionServiceError("Current password incorrect.", status_code=403)
 
+            if normalized_username != stored["username"]:
+                raise SessionServiceError(
+                    "The username is fixed and cannot be changed.",
+                    status_code=400,
+                )
+
             self._store_credentials(
                 session,
                 username=normalized_username,

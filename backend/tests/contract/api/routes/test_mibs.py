@@ -13,8 +13,10 @@ class DummyUploadFile:
         self.filename = filename
         self._content = content
 
-    async def read(self) -> bytes:
-        return self._content
+    async def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._content
+        return self._content[:size]
 
 
 def _login_token() -> str:
@@ -77,6 +79,7 @@ def test_mib_routes_report_empty_catalog_shapes_when_no_bundle(isolated_db):
         "recompile_recommended": False,
         "missing_capabilities": [],
         "active_bundle_id": None,
+        "active_bundle_label": "active-bundle",
     }
     assert mibs_module.get_mib_objects(x_auth_token=token) == {"objects": []}
     assert mibs_module.get_mib_traps(x_auth_token=token) == {"traps": []}
@@ -123,6 +126,58 @@ def test_validate_upload_route_reads_files_and_forwards_source_group(isolated_db
         state,
         bundle_service,
     )
+
+
+def test_upload_routes_reject_oversized_files(isolated_db, monkeypatch):
+    from app.api.routes import mibs as mibs_module
+
+    token = _login_token()
+    cap = mibs_module.MAX_UPLOAD_FILE_BYTES
+
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            mibs_module.validate_batch(
+                files=[DummyUploadFile("huge.mib", b"x" * (cap + 1))],
+                source_group=None,
+                x_auth_token=token,
+            )
+        )
+    assert excinfo.value.status_code == 413
+    assert "huge.mib" in excinfo.value.detail
+    assert "size limit" in excinfo.value.detail
+
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            mibs_module.upload_mibs(
+                files=[DummyUploadFile("huge.mib", b"x" * (cap + 1))],
+                x_auth_token=token,
+            )
+        )
+    assert excinfo.value.status_code == 413
+
+    # Exactly at the cap still reaches the service layer intact.
+    settings = isolated_db["settings"]
+    state = object()
+    bundle_service = object()
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(mibs_module, "_ctx", lambda: (settings, state, bundle_service))
+
+    def fake_validate_upload_batch(uploaded, *, source_group, settings, state, bundle_service):
+        captured["uploaded"] = uploaded
+        return {"can_upload": True, "files": []}
+
+    monkeypatch.setattr(mibs_module.mibs_service, "validate_upload_batch", fake_validate_upload_batch)
+
+    at_cap = b"x" * cap
+    payload = asyncio.run(
+        mibs_module.validate_batch(
+            files=[DummyUploadFile("edge.mib", at_cap)],
+            source_group=None,
+            x_auth_token=token,
+        )
+    )
+    assert payload == {"can_upload": True, "files": []}
+    assert captured["uploaded"] == [("edge.mib", at_cap)]
 
 
 def test_upload_route_parses_compile_targets_and_broadcasts(isolated_db, monkeypatch):
@@ -333,8 +388,8 @@ def test_mib_mutation_routes_delegate_and_broadcast(isolated_db, monkeypatch):
         captured["reload"] = (settings, state, bundle_service)
         return {"loaded": 4, "failed": 0}
 
-    def fake_fetch_dependencies(dependencies, *, settings, state, bundle_service):
-        captured["fetch"] = (dependencies, settings, state, bundle_service)
+    def fake_fetch_dependencies(dependencies, *, reload_after_fetch=True, settings, state, bundle_service):
+        captured["fetch"] = (dependencies, reload_after_fetch, settings, state, bundle_service)
         return {"resolved": dependencies}
 
     def fake_delete_mib(path, *, settings, state, bundle_service):
@@ -361,12 +416,25 @@ def test_mib_mutation_routes_delegate_and_broadcast(isolated_db, monkeypatch):
     assert asyncio.run(mibs_module.reload_mibs(x_auth_token=token)) == {"loaded": 4, "failed": 0}
     assert captured["reload"] == (settings, state, bundle_service)
 
-    fetched = mibs_module.fetch_dependencies(
-        mibs_module.DependencyFetchBody(dependencies=["MISSING-DEP-MIB"], reload_after_fetch=False),
-        x_auth_token=token,
+    fetched = asyncio.run(
+        mibs_module.fetch_dependencies(
+            mibs_module.DependencyFetchBody(dependencies=["MISSING-DEP-MIB"], reload_after_fetch=False),
+            x_auth_token=token,
+        )
     )
     assert fetched == {"resolved": ["MISSING-DEP-MIB"]}
-    assert captured["fetch"] == (["MISSING-DEP-MIB"], settings, state, bundle_service)
+    assert captured["fetch"] == (["MISSING-DEP-MIB"], False, settings, state, bundle_service)
+
+    fetched_with_reload = asyncio.run(
+        mibs_module.fetch_dependencies(
+            mibs_module.DependencyFetchBody(dependencies=["MISSING-DEP-MIB"]),
+            x_auth_token=token,
+        )
+    )
+    assert fetched_with_reload == {"resolved": ["MISSING-DEP-MIB"]}
+    assert captured["fetch"] == (["MISSING-DEP-MIB"], True, settings, state, bundle_service)
+    # The fetch broadcast a MIB refresh so other tabs re-sync.
+    assert ("mibs", settings) in broadcasts
 
     assert asyncio.run(
         mibs_module.delete_mib_file(path="vendor/TEST-MIB.mib", x_auth_token=token)
@@ -395,6 +463,12 @@ def test_mib_mutation_routes_delegate_and_broadcast(isolated_db, monkeypatch):
     assert broadcasts == [
         ("mibs", settings),
         ("stats", settings),
+        ("mibs", settings),
+        ("stats", settings),
+        # fetch-dependencies broadcast (reload_after_fetch=False variant)
+        ("mibs", settings),
+        ("stats", settings),
+        # fetch-dependencies broadcast (default reload_after_fetch variant)
         ("mibs", settings),
         ("stats", settings),
         ("mibs", settings),

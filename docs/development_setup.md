@@ -1,6 +1,6 @@
 # Development Setup
 
-This repo targets the `2.1.0` runtime built from:
+This repo targets the `2.2.0` runtime built from:
 
 - `backend/app` — FastAPI application with flat service architecture
 - `frontend/` — static operator shell built into `frontend/dist`
@@ -14,7 +14,7 @@ This repo targets the `2.1.0` runtime built from:
 - Python `3.12` or newer for native backend work
 - Node `20` or newer for frontend builds
 
-Net-SNMP CLI tools are not required. The `2.1.0` runtime uses an in-process
+Net-SNMP CLI tools are not required. The `2.2.0` runtime uses an in-process
 SNMP stack.
 
 ## Recommended Daily Workflow

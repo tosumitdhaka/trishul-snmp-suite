@@ -160,13 +160,17 @@ def test_runtime_objects_from_custom_data_and_load_custom_data_cover_coercion_pa
     custom_data_path = settings.config_dir / "custom_data.json"
 
     custom_data_path.write_text('{"1.3.6.1.2.1.1.5.0": "demo-agent"}\n')
-    assert load_custom_data(settings) == {"1.3.6.1.2.1.1.5.0": "demo-agent"}
+    assert load_custom_data(settings) == ({"1.3.6.1.2.1.1.5.0": "demo-agent"}, None)
 
     custom_data_path.write_text('["not-a-dict"]\n')
-    assert load_custom_data(settings) == {}
+    payload, warning = load_custom_data(settings)
+    assert payload == {}
+    assert "does not contain a JSON object" in warning
 
     custom_data_path.write_text("{invalid json\n")
-    assert load_custom_data(settings) == {}
+    payload, warning = load_custom_data(settings)
+    assert payload == {}
+    assert "not valid JSON" in warning
 
     objects, warnings = _runtime_objects_from_custom_data(
         {
@@ -268,7 +272,7 @@ def test_custom_value_validation_errors_are_explicit():
         constraints=ranged_node.constraints,
     )
     assert in_range_error is None
-    assert in_range_spec == {"type": "gauge32", "value": 50}
+    assert in_range_spec == {"type": "integer", "value": 50}
 
     class _Bundle:
         def resolve_node(self, module, symbol):
@@ -324,6 +328,133 @@ def test_default_value_for_syntax_resolves_type_level_constraints():
         assert 5 <= result["value"] <= 8
 
 
+def test_default_value_for_syntax_bits_nodes_default_to_octet_string():
+    from types import SimpleNamespace
+
+    from app.services.simulator_service import _default_value_for_syntax
+
+    # SIM-10: BITS-typed nodes share the enum label→number map, but their
+    # value is an octet string, not the integer bit number.
+    bits_node = SimpleNamespace(
+        module="STUB-MIB",
+        syntax="BITS",
+        enums={"bit0": 0, "bit1": 1},
+        constraints=None,
+    )
+    result = _default_value_for_syntax("BITS", "statusBits", index=1, node=bits_node)
+    assert result == {"type": "octet-string", "value": ""}
+
+    old_style_bits = SimpleNamespace(
+        module="STUB-MIB",
+        syntax="BITS",
+        enums=None,
+        constraints={"kind": "bits", "data": [["bit0", 0], ["bit1", 1]]},
+    )
+    result = _default_value_for_syntax("BITS", "statusBits", index=1, node=old_style_bits)
+    assert result == {"type": "octet-string", "value": ""}
+
+
+def test_default_value_for_syntax_mac_clamped_by_byte_size_not_characters():
+    from types import SimpleNamespace
+
+    from app.services.simulator_service import _default_value_for_syntax
+
+    # SIM-11: PhysAddress/MacAddress size constraints count bytes, not display
+    # characters. "00:11:22:33:44:01" is 6 bytes but 17 characters; clamping
+    # by character count would truncate it to "00:11:".
+    mac_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "size", "data": [[6, 6]]},
+    )
+    result = _default_value_for_syntax("MacAddress", "ifPhysAddress", index=1, node=mac_node)
+    assert result["type"] == "octet-string"
+    assert result["value"] == "00:11:22:33:44:01"
+
+    short_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "size", "data": [[0, 4]]},
+    )
+    result = _default_value_for_syntax("MacAddress", "ifPhysAddress", index=1, node=short_node)
+    assert result["value"] == "00:11:22:33"
+
+
+def test_coerce_custom_value_rejects_fractional_integers():
+    from app.services.simulator_service import _coerce_custom_value
+
+    # SIM-16: int(float("3.7")) silently truncates to 3; reject instead.
+    spec, error = _coerce_custom_value("IF-MIB::node.0", "3.7", "Integer32")
+    assert spec is None
+    assert "is not a whole number" in error
+
+    spec, error = _coerce_custom_value("IF-MIB::node.0", "3", "Integer32")
+    assert error is None
+    assert spec == {"type": "integer", "value": 3}
+
+    spec, error = _coerce_custom_value("IF-MIB::node.0", 42, "Integer32")
+    assert error is None
+    assert spec == {"type": "integer", "value": 42}
+
+    spec, error = _coerce_custom_value("IF-MIB::node.0", "3.0", "Gauge32")
+    assert error is None
+    assert spec == {"type": "gauge32", "value": 3}
+
+
+def test_get_status_uses_lightweight_responder_accessor(isolated_db, monkeypatch):
+    """SIM-13: get_status must not serialize every object+rule via get_state."""
+    from app.services import simulator_service
+    from app.services.state_store import StateStore
+
+    settings = isolated_db["settings"]
+    state = StateStore(isolated_db["session_factory"])
+    calls: list[str] = []
+
+    class _LightweightRuntime:
+        async def get_responder_status(self) -> dict[str, object]:
+            calls.append("get_responder_status")
+            return {
+                "running": True,
+                "port": 1161,
+                "communities": ["public"],
+                "request_count": 7,
+                "last_activity": "2026-10-05T00:00:00+00:00",
+                "restart_required": False,
+            }
+
+        async def get_state(self) -> dict[str, object]:
+            calls.append("get_state")
+            raise AssertionError("get_state must not be called by get_status")
+
+    status = asyncio.run(
+        simulator_service.get_status(state=state, runtime_service=_LightweightRuntime())
+    )
+    assert calls == ["get_responder_status"]
+    assert status["running"] is True
+    assert status["port"] == 1161
+    assert status["community"] == "public"
+    assert status["requests"] == 7
+    assert status["restart_required"] is False
+
+    # Fallback: runtimes that only expose get_state (test stubs, older
+    # contracts) still work through the full state path.
+    class _StateOnlyRuntime:
+        async def get_state(self) -> dict[str, object]:
+            return {
+                "responder": {
+                    "running": False,
+                    "port": None,
+                    "communities": [],
+                    "request_count": 0,
+                    "last_activity": None,
+                    "restart_required": False,
+                }
+            }
+
+    status = asyncio.run(
+        simulator_service.get_status(state=state, runtime_service=_StateOnlyRuntime())
+    )
+    assert status["running"] is False
+
+
 def test_get_status_start_and_stop_persist_state_and_broadcast(isolated_db, monkeypatch):
     from app.services import simulator_service
     from app.services.state_store import (
@@ -356,7 +487,7 @@ def test_get_status_start_and_stop_persist_state_and_broadcast(isolated_db, monk
     monkeypatch.setattr(
         simulator_service,
         "load_custom_data",
-        lambda runtime_settings: {"1.3.6.1.2.1.1.1.0": "override", "1.3.6.1.2.1.1.5.0": "agent-name"},
+        lambda runtime_settings: ({"1.3.6.1.2.1.1.1.0": "override", "1.3.6.1.2.1.1.5.0": "agent-name"}, None),
     )
     monkeypatch.setattr(
         simulator_service,
@@ -547,7 +678,7 @@ def test_simulator_service_translates_runtime_errors_for_lifecycle_and_logs(isol
             raise RuntimeServiceError("clear failed")
 
     monkeypatch.setattr(simulator_service, "_bundle_objects", lambda runtime_settings: [])
-    monkeypatch.setattr(simulator_service, "load_custom_data", lambda runtime_settings: {})
+    monkeypatch.setattr(simulator_service, "load_custom_data", lambda runtime_settings: ({}, None))
 
     with pytest.raises(SimulatorError, match="start failed"):
         asyncio.run(
@@ -593,3 +724,66 @@ def test_simulator_service_translates_runtime_errors_for_lifecycle_and_logs(isol
 
     with pytest.raises(SimulatorError, match="clear failed"):
         asyncio.run(simulator_service.clear_logs(runtime_service=_FailingSetRuntime()))
+
+
+def test_numeric_oid_custom_data_resolves_node_type_and_dedupes_symbolic_twins(isolated_db):
+    from app.services.bundles import BundleCompileRequest, BundleService
+    from app.services.simulator_service import _runtime_objects_from_custom_data
+    from trishul_snmp.mib import load_bundle
+
+    active = BundleService(isolated_db["settings"]).compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+    bundle = load_bundle(active["activation"]["bundle"]["storage_path"])
+
+    objects, warnings = _runtime_objects_from_custom_data(
+        {
+            # Numeric OID must resolve the owning node's type (INTEGER), not
+            # fall back to the default gauge32 guess.
+            "1.3.6.1.2.1.2.2.1.7.2": "1",      # IF-MIB::ifAdminStatus.2
+            "IF-MIB::ifAdminStatus.2": "2",    # symbolic twin of the same OID
+            "1.3.6.1.2.1.2.2.1.2.1": "eth0",   # IF-MIB::ifDescr.1
+            "1.3.6.1.2.1.1.5.0": "agent-a",    # SNMPv2-MIB::sysName.0
+        },
+        bundle=bundle,
+    )
+    assert warnings == []
+    by_target = {item["target"]: item["value"] for item in objects}
+    # Symbolic + numeric spellings of ifAdminStatus canonicalize to the SAME
+    # numeric target (last wins in the obj_map merge), so state counts do not
+    # double; the raw list keeps both entries, the merge collapses them.
+    assert by_target["1.3.6.1.2.1.2.2.1.7.2"] == {"type": "integer", "value": 2}
+    assert by_target["1.3.6.1.2.1.2.2.1.2.1"] == {"type": "octet-string", "value": "eth0"}
+    assert by_target["1.3.6.1.2.1.1.5.0"] == {"type": "octet-string", "value": "agent-a"}
+    assert len({item["target"] for item in objects}) == 3
+
+
+def test_start_surfaces_corrupt_custom_data_warning(isolated_db, monkeypatch):
+    from app.services import simulator_service
+    from app.services.state_store import StateStore
+
+    settings = isolated_db["settings"]
+    state = StateStore(isolated_db["session_factory"])
+    runtime = _SimulatorRuntimeStub()
+
+    (settings.config_dir / "custom_data.json").write_text("{invalid json\n")
+
+    monkeypatch.setattr(simulator_service, "_bundle_objects", lambda runtime_settings: [])
+    monkeypatch.setattr(
+        simulator_service,
+        "_runtime_objects_from_custom_data",
+        lambda payload, bundle=None, **kwargs: ([], []),
+    )
+
+    started = asyncio.run(
+        simulator_service.start(
+            port=2161,
+            community="public",
+            settings=settings,
+            state=state,
+            runtime_service=runtime,
+        )
+    )
+    assert started["status"] == "started"
+    assert started["custom_data_warnings"]
+    assert "not valid JSON" in started["custom_data_warnings"][0]

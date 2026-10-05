@@ -13,7 +13,18 @@ window.MibsModule = {
     // MGR-20: module names whose revision/metadata cards are expanded; keeps
     // the cards open across list re-renders (selection toggles, refreshes).
     expandedModuleMetadata: new Set(),
+    // MGR-04: bundle lifecycle state for the Bundles section.
+    bundles: [],
+    // MGR-26: pointer state from GET /api/bundles, used to diff the active
+    // bundle against its predecessor (the default diff target is the active
+    // bundle itself, which the API rejects as a self-diff).
+    activeBundleId: null,
+    previousActiveBundleId: null,
+    _bundlesRequestInFlight: false,
+    _bundleDiffModal: null,
     _domListeners: [],
+    _windowListeners: [],
+    _mibsBroadcastTimer: null,
     _statusCacheValid: false,
     _trapCacheValid: false,
     _statusRequestId: 0,
@@ -37,6 +48,18 @@ window.MibsModule = {
         })}</td></tr>`;
     },
 
+    // MGR-13: build an Error carrying the HTTP status and, when available,
+    // the server's detail message — so failed responses surface as real
+    // errors instead of rendering as misleading empty states.
+    _httpError: async function(res) {
+        let detail = '';
+        try {
+            const body = await res.json();
+            if (body && body.detail) detail = `: ${body.detail}`;
+        } catch (_error) {}
+        return new Error(`HTTP ${res.status}${detail || `: ${res.statusText}`}`);
+    },
+
     init: function() {
         this.destroy();
         this.uploadModal = new bootstrap.Modal(document.getElementById('uploadModal'));
@@ -44,6 +67,7 @@ window.MibsModule = {
         this.trapDetailsModal = new bootstrap.Modal(document.getElementById('trapDetailsModal'));
 
         this.bindDomListeners();
+        this.bindWindowListeners();
         this.initDropzone();
         this._updateTrapSortHeaders();
 
@@ -57,6 +81,8 @@ window.MibsModule = {
         } else {
             this.applyTrapSnapshot(this.allTraps);
         }
+        this._bundleDiffModal = new bootstrap.Modal(document.getElementById('bundleDiffModal'));
+        this.loadBundles();
     },
 
     destroy: function() {
@@ -68,12 +94,52 @@ window.MibsModule = {
             } catch (_error) {}
         });
         this._domListeners = [];
+        this._windowListeners.forEach(([type, handler]) => {
+            window.removeEventListener(type, handler);
+        });
+        this._windowListeners = [];
+        if (this._mibsBroadcastTimer) {
+            clearTimeout(this._mibsBroadcastTimer);
+            this._mibsBroadcastTimer = null;
+        }
         try { this.uploadModal?.hide(); } catch (_error) {}
         try { this.failedMibsModal?.hide(); } catch (_error) {}
         try { this.trapDetailsModal?.hide(); } catch (_error) {}
+        try { this._bundleDiffModal?.hide(); } catch (_error) {}
         this.uploadModal = null;
         this.failedMibsModal = null;
         this.trapDetailsModal = null;
+        this._bundleDiffModal = null;
+    },
+
+    bindWindowEvent: function(type, handler) {
+        window.addEventListener(type, handler);
+        this._windowListeners.push([type, handler]);
+    },
+
+    bindWindowListeners: function() {
+        // MGR-12: MIB mutations broadcast over WS from every client —
+        // including other tabs — so the cached snapshots must refresh.
+        this.bindWindowEvent('trishul:ws:mibs', () => this.handleMibsBroadcast());
+        // A reconnect may have missed broadcasts while the socket was down.
+        this.bindWindowEvent('trishul:ws:open', () => this.handleMibsBroadcast());
+    },
+
+    handleMibsBroadcast: function() {
+        this._statusCacheValid = false;
+        this._trapCacheValid = false;
+        // Coalesce the broadcast burst that follows a single mutation, and
+        // let this tab's own post-mutation refresh win when it is already
+        // running (it re-marks the caches valid on completion).
+        if (this._mibsBroadcastTimer) {
+            clearTimeout(this._mibsBroadcastTimer);
+        }
+        this._mibsBroadcastTimer = setTimeout(() => {
+            this._mibsBroadcastTimer = null;
+            if (!this._statusCacheValid) this.loadStatus();
+            if (!this._trapCacheValid) this.loadTraps();
+            this.loadBundles();
+        }, 250);
     },
 
     bindDomEvent: function(element, type, handler, options) {
@@ -313,6 +379,9 @@ window.MibsModule = {
 
         try {
             const res  = await fetch('/api/mibs/status');
+            if (!res.ok) {
+                throw await this._httpError(res);
+            }
             const data = await res.json();
             if (requestId !== this._statusRequestId) return;
 
@@ -389,6 +458,7 @@ window.MibsModule = {
                         <div class="mib-item-title-row">
                             <i class="fas fa-book app-header-icon is-success"></i>
                             <strong class="mib-item-title">${esc(mib.name)}</strong>
+                            ${this.renderModuleVersionBadge(mib)}
                             ${this.renderSourceBadge(mib)}
                             ${this.renderInventoryStatusBadge(mib)}
                             ${mib.source_group && !['bundled', 'auto-fetched'].includes(String(mib.source_group).toLowerCase()) ? `<span class="badge app-badge is-light">${esc(mib.source_group)}</span>` : ''}
@@ -625,7 +695,11 @@ window.MibsModule = {
     },
 
     handleMibFilterChange: function() {
-        this.selectedMibPaths.clear();
+        // MGR-22: a filter keystroke must not silently wipe the multi-select.
+        // reconcileMibSelection prunes paths that no longer exist, but a
+        // still-valid selection survives the filter change (it stays selected
+        // for export/delete; the summary hints when the filter hides it).
+        this.reconcileMibSelection();
         this.renderMibList();
     },
 
@@ -680,6 +754,11 @@ window.MibsModule = {
             let text = filteredText;
             if (visibleSelectable.length > 0) {
                 text += ` · ${selectedVisibleCount} selected`;
+            }
+            // MGR-22: when a filter hides some (or all) selected rows, say so
+            // instead of silently dropping the selection from the count.
+            if (totalSelected > 0 && selectedVisibleCount < totalSelected) {
+                text += ` · ${totalSelected - selectedVisibleCount} selected (hidden by filter)`;
             }
             summary.textContent = text;
         }
@@ -772,6 +851,17 @@ window.MibsModule = {
         return '';
     },
 
+    // MGR-25: per-module compiled-version hint from the module metadata's
+    // LAST-UPDATED timestamp (the module's declared version).
+    renderModuleVersionBadge: function(mib) {
+        const esc = TrishulUtils.escapeHtml;
+        const lastupdated = String(mib && mib.module_metadata && mib.module_metadata.lastupdated || '').trim();
+        if (!lastupdated) return '';
+        const dateMatch = lastupdated.match(/^(\d{4})(\d{2})(\d{2})/);
+        const version = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : lastupdated;
+        return `<span class="badge app-badge is-light" title="Module last updated: ${esc(lastupdated)}">v${esc(version)}</span>`;
+    },
+
     toggleModuleMetadata: function(button, moduleName) {
         const mib = (this.allMibs || []).find(item => item && item.name === moduleName);
         const panel = button ? button.closest('.mib-list-item')?.querySelector('.mib-module-meta-panel') : null;
@@ -791,27 +881,45 @@ window.MibsModule = {
         }
     },
 
+    // MGR-21: humanize a SMIv2 revision timestamp (`200005090000Z`) into
+    // `YYYY-MM-DD [HH:MM]Z`. Unknown shapes pass through unchanged.
+    formatRevisionDate: function(raw) {
+        const value = String(raw || '').trim();
+        if (!value) return '';
+        const match = value.match(/^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?/);
+        if (!match) return value;
+        const date = `${match[1]}-${match[2]}-${match[3]}`;
+        const time = match[4] ? ` ${match[4]}:${match[5] || '00'}` : '';
+        return `${date}${time}Z`;
+    },
+
     buildModuleMetadataCard: function(metadata) {
         const esc = TrishulUtils.escapeHtml;
         const revisions = Array.isArray(metadata && metadata.revisions) ? metadata.revisions : [];
+        // MGR-21: newest revision first — SMIv2 dates are fixed-width
+        // `YYYYMMDDHHMMZ`, so a plain string compare is chronologically exact.
+        const sortedRevisions = revisions
+            .slice()
+            .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')));
         return `
             <div class="mib-module-meta-card p-2 mt-2 small">
                 ${metadata.organization ? `
                     <div class="mb-1"><span class="text-muted fw-bold">Organization:</span> ${esc(metadata.organization)}</div>
                 ` : ''}
                 ${metadata.lastupdated ? `
-                    <div class="mb-1"><span class="text-muted fw-bold">Last updated:</span> ${esc(metadata.lastupdated)}</div>
+                    <div class="mb-1"><span class="text-muted fw-bold">Last updated:</span> ${esc(this.formatRevisionDate(metadata.lastupdated))}</div>
                 ` : ''}
                 ${metadata.contactinfo ? `
                     <div class="mb-1 text-muted app-break-word"><span class="fw-bold">Contact:</span> ${esc(metadata.contactinfo)}</div>
                 ` : ''}
-                ${revisions.length > 0 ? `
+                ${sortedRevisions.length > 0 ? `
                     <div class="mt-1">
                         <div class="text-muted fw-bold mb-1">Revisions</div>
                         <ul class="list-unstyled mb-0 app-scroll-panel app-max-h-150">
-                            ${revisions.map(rev => `
+                            ${sortedRevisions.map((rev, index) => `
                                 <li class="mb-1">
-                                    <code class="small">${esc(rev.date || '')}</code>
+                                    <code class="small">${esc(this.formatRevisionDate(rev.date))}</code>
+                                    ${index === 0 ? '<span class="badge app-badge is-success ms-1 app-fs-60">Latest</span>' : ''}
                                     ${rev.description ? `<div class="text-muted app-fs-75">${esc(rev.description)}</div>` : ''}
                                 </li>
                             `).join('')}
@@ -823,6 +931,240 @@ window.MibsModule = {
                 ` : ''}
             </div>
         `;
+    },
+
+    // ==================== Bundle Lifecycle (MGR-04) ====================
+
+    loadBundles: async function() {
+        if (this._bundlesRequestInFlight) return;
+        this._bundlesRequestInFlight = true;
+        try {
+            const res = await fetch('/api/bundles');
+            if (!res.ok) throw await this._httpError(res);
+            const data = await res.json();
+            this.bundles = Array.isArray(data.bundles) ? data.bundles : [];
+            this.activeBundleId = data.active_bundle_id != null ? Number(data.active_bundle_id) : null;
+            this.previousActiveBundleId = data.previous_active_bundle_id != null
+                ? Number(data.previous_active_bundle_id)
+                : null;
+            this.renderBundleList();
+        } catch (e) {
+            console.error('Failed to load bundles:', e);
+            const container = document.getElementById('bundles-list');
+            if (container) {
+                container.innerHTML = `<div class="p-3 text-center text-muted small">Bundles unavailable: ${TrishulUtils.escapeHtml(e.message || String(e))}</div>`;
+            }
+        } finally {
+            this._bundlesRequestInFlight = false;
+        }
+    },
+
+    renderBundleList: function() {
+        const container = document.getElementById('bundles-list');
+        if (!container) return;
+        const esc = TrishulUtils.escapeHtml;
+        if (this.bundles.length === 0) {
+            container.innerHTML = TrishulUtils.buildPanelPlaceholder({
+                icon: 'fa-boxes-stacked',
+                title: 'No bundles yet',
+                copy: 'Compile a bundle from the MIB sources above to see bundle sets here.',
+                compact: true,
+            });
+            return;
+        }
+        container.innerHTML = `<div class="list-group list-group-flush small">${this.bundles.map(bundle => {
+            const label = String(bundle.label || `Bundle ${bundle.id}`);
+            const producer = bundle.producer_version ? `v${esc(bundle.producer_version)}` : '--';
+            const hash = bundle.content_hash
+                ? `<code class="small" title="${esc(bundle.content_hash)}">${esc(bundle.content_hash.slice(0, 12))}…</code>`
+                : '<span class="text-muted">--</span>';
+            const activeBadge = bundle.is_active
+                ? '<span class="badge app-status-badge is-live ms-1">Active</span>'
+                : '';
+            const isActiveBundle = Boolean(bundle.is_active)
+                || (this.activeBundleId != null && Number(bundle.id) === this.activeBundleId);
+            let diffButton;
+            if (isActiveBundle) {
+                const previousId = this.previousActiveBundleId;
+                if (previousId != null && Number(previousId) !== Number(bundle.id)) {
+                    diffButton = `
+                        <button type="button" class="btn btn-sm btn-app-secondary"
+                                onclick="MibsModule.viewBundleDiff(${Number(bundle.id)}, ${Number(previousId)})"
+                                title="Diff against the previous active bundle" aria-label="View diff for ${esc(label)}">
+                            <i class="fas fa-code-compare me-1"></i> Diff
+                        </button>`;
+                } else {
+                    diffButton = `
+                        <button type="button" class="btn btn-sm btn-app-secondary" disabled
+                                title="No previous bundle to diff against — this bundle has no predecessor."
+                                aria-label="Diff unavailable: no previous bundle to diff against">
+                            <i class="fas fa-code-compare me-1"></i> Diff
+                        </button>`;
+                }
+            } else {
+                diffButton = `
+                    <button type="button" class="btn btn-sm btn-app-secondary"
+                            onclick="MibsModule.viewBundleDiff(${Number(bundle.id)})"
+                            title="Diff against the active bundle" aria-label="View diff for ${esc(label)}">
+                        <i class="fas fa-code-compare me-1"></i> Diff
+                    </button>`;
+            }
+            return `
+                <div class="list-group-item py-2">
+                    <div class="d-flex align-items-start gap-2">
+                        <div class="flex-grow-1 min-w-0">
+                            <div class="d-flex align-items-center gap-2">
+                                <strong class="app-truncate-line" title="${esc(label)}">${esc(label)}</strong>
+                                ${activeBadge}
+                            </div>
+                            <div class="small text-muted">
+                                <span>${esc(this._formatBundleDate(bundle.created_at))}</span>
+                                <span class="app-meta-sep">·</span>
+                                <span>producer ${producer}</span>
+                                <span class="app-meta-sep">·</span>
+                                <span>${Number(bundle.module_count || 0)} modules</span>
+                                <span class="app-meta-sep">·</span>
+                                <span>${hash}</span>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-1">
+                            ${diffButton}
+                            ${bundle.is_active ? '' : `
+                                <button type="button" class="btn btn-sm btn-app-primary"
+                                        onclick="MibsModule.activateBundle(${Number(bundle.id)})"
+                                        title="Activate (roll back to) this bundle" aria-label="Activate ${esc(label)}">
+                                    <i class="fas fa-power-off me-1"></i> Activate
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('')}</div>`;
+    },
+
+    activateBundle: function(bundleId) {
+        const bundle = (this.bundles || []).find(item => item && item.id === bundleId);
+        if (!bundle) return;
+        const label = String(bundle.label || `Bundle ${bundleId}`);
+        TrishulUtils.confirmDialog({
+            title: `Activate "${label}"?`,
+            message: 'This bundle becomes the active MIB catalog. The currently active bundle remains recoverable via rollback.',
+            confirmLabel: 'Activate',
+            variant: 'primary',
+            confirmIcon: 'fa-power-off',
+        }).then(async (confirmed) => {
+            if (!confirmed) return;
+            try {
+                const res = await fetch(`/api/bundles/${bundleId}/activate`, { method: 'POST' });
+                if (!res.ok) throw await this._httpError(res);
+                const data = await res.json();
+                TrishulUtils.showNotification(
+                    data.bundle && data.bundle.label
+                        ? `Activated bundle "${data.bundle.label}"`
+                        : 'Bundle activated',
+                    'success'
+                );
+                this.loadBundles();
+                // Refresh the module catalog + recompile banner for the new active bundle.
+                this._statusCacheValid = false;
+                this._trapCacheValid = false;
+                this.loadStatus();
+                this.loadTraps();
+            } catch (e) {
+                console.error('Bundle activation failed:', e);
+                TrishulUtils.showNotification(`Bundle activation failed: ${e.message}`, 'error');
+            }
+        });
+    },
+
+    viewBundleDiff: async function(bundleId, against) {
+        const body = document.getElementById('bundle-diff-body');
+        if (!body) return;
+        body.innerHTML = '<div class="p-3 text-center text-muted small">Loading diff…</div>';
+        if (this._bundleDiffModal) this._bundleDiffModal.show();
+        try {
+            // MGR-26: the diff route defaults `against` to the active bundle,
+            // which is a rejected self-diff when the target IS the active
+            // bundle — pass its predecessor explicitly in that case.
+            const query = against != null ? `?against=${Number(against)}` : '';
+            const res = await fetch(`/api/bundles/${Number(bundleId)}/diff${query}`);
+            if (!res.ok) throw await this._httpError(res);
+            const diff = await res.json();
+            body.innerHTML = this.renderBundleDiff(diff);
+        } catch (e) {
+            console.error('Bundle diff failed:', e);
+            body.innerHTML = `<div class="alert alert-warning py-2 small mb-0" role="alert">Diff unavailable: ${TrishulUtils.escapeHtml(e.message)}</div>`;
+        }
+    },
+
+    renderBundleDiff: function(diff) {
+        const esc = TrishulUtils.escapeHtml;
+        const left = diff.left_bundle || {};
+        const right = diff.right_bundle || {};
+        const leftLabel = esc(left.label || `Bundle ${left.id}`);
+        const rightLabel = esc(right.label || `Bundle ${right.id}`);
+
+        if (diff.identical) {
+            return `
+                <div class="alert alert-success py-2 small mb-2" role="status">
+                    <i class="fas fa-circle-check me-1"></i>
+                    <strong>Bundles are identical.</strong>
+                    <span class="app-meta-sep">·</span> <code class="small">${esc(diff.hash || '')}</code>
+                </div>
+                <div class="small text-muted">
+                    Diffing <strong>${leftLabel}</strong> vs <strong>${rightLabel}</strong> — identical content hashes (${Number(left.module_count || 0)} modules each).
+                </div>
+            `;
+        }
+
+        const modules = (diff.summary && diff.summary.modules) || {};
+        const addedNames = (diff.modules_added || []).map(item => item.module_name);
+        const removedNames = (diff.modules_removed || []).map(item => item.module_name);
+        const changedModules = diff.modules_changed || [];
+
+        return `
+            <div class="small text-muted mb-2">
+                Diffing <strong>${leftLabel}</strong> vs <strong>${rightLabel}</strong>
+            </div>
+            <div class="d-flex gap-2 mb-2 flex-wrap">
+                <span class="badge app-badge is-success">${Number(modules.added || 0)} modules added</span>
+                <span class="badge app-badge is-danger">${Number(modules.removed || 0)} modules removed</span>
+                <span class="badge app-badge is-warning">${Number(modules.changed || 0)} modules changed</span>
+            </div>
+            ${addedNames.length > 0 ? `
+                <div class="mb-1"><span class="badge app-badge is-success">Added modules</span></div>
+                <ul class="list-unstyled small mb-2">${addedNames.map(name => `<li><code>${esc(name)}</code></li>`).join('')}</ul>
+            ` : ''}
+            ${removedNames.length > 0 ? `
+                <div class="mb-1"><span class="badge app-badge is-danger">Removed modules</span></div>
+                <ul class="list-unstyled small mb-2">${removedNames.map(name => `<li><code>${esc(name)}</code></li>`).join('')}</ul>
+            ` : ''}
+            ${changedModules.length > 0 ? `
+                <div class="mb-1"><span class="badge app-badge is-warning">Changed modules</span></div>
+                <div class="app-scroll-panel app-max-h-300">
+                    ${changedModules.map(change => `
+                        <div class="border rounded p-2 mb-2">
+                            <code class="small">${esc(change.module_name)}</code>
+                            <div class="small text-muted mt-1">
+                                <span>${Number((change.objects || {}).added || 0)} objects added</span>
+                                <span class="app-meta-sep">·</span>
+                                <span>${Number((change.objects || {}).removed || 0)} removed</span>
+                                <span class="app-meta-sep">·</span>
+                                <span>${Number((change.objects || {}).changed || 0)} changed</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+        `;
+    },
+
+    _formatBundleDate: function(iso) {
+        if (!iso) return '--';
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return '--';
+        return date.toLocaleString();
     },
 
     renderFailedMibs: function(errors) {
@@ -909,8 +1251,13 @@ window.MibsModule = {
             TrishulUtils.showNotification('No deletable failed MIBs', 'warning');
             return;
         }
-        await this.deleteMibs(paths);
-        this.failedMibsModal.hide();
+        const deleted = await this.deleteMibs(paths);
+        // MGR-15: keep the modal open when the delete failed (deleteMibs
+        // already surfaced the error via toast) instead of hiding it as if
+        // the files were gone.
+        if (deleted) {
+            this.failedMibsModal.hide();
+        }
     },
 
     applyTrapSnapshot: function(traps) {
@@ -945,6 +1292,9 @@ window.MibsModule = {
 
         try {
             const res  = await fetch('/api/mibs/traps');
+            if (!res.ok) {
+                throw await this._httpError(res);
+            }
             const data = await res.json();
             if (requestId !== this._trapRequestId) return;
 
@@ -1043,8 +1393,20 @@ window.MibsModule = {
         const key  = this._trapSortKey;
         const dir  = this._trapSortDir === 'asc' ? 1 : -1;
         return list.slice().sort((a, b) => {
-            const left  = key === 'oid' ? String(a.oid  || '') : String(a.name || '');
-            const right = key === 'oid' ? String(b.oid  || '') : String(b.name || '');
+            // MGR-24: the Module/Objects columns sort too — Objects is a
+            // numeric sort over the varbind count, everything else is a
+            // locale-aware string compare.
+            if (key === 'objects') {
+                const left  = Number((a.objects || []).length);
+                const right = Number((b.objects || []).length);
+                return (left - right) * dir;
+            }
+            const left  = key === 'oid' ? String(a.oid || '')
+                : key === 'module' ? String(a.module || '')
+                : String(a.name || '');
+            const right = key === 'oid' ? String(b.oid || '')
+                : key === 'module' ? String(b.module || '')
+                : String(b.name || '');
             return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }) * dir;
         });
     },
@@ -1067,8 +1429,10 @@ window.MibsModule = {
 
     _updateTrapSortHeaders: function() {
         const configs = [
-            { key: 'name', thId: 'trap-th-name' },
-            { key: 'oid',  thId: 'trap-th-oid' },
+            { key: 'name',    thId: 'trap-th-name' },
+            { key: 'oid',     thId: 'trap-th-oid' },
+            { key: 'module',  thId: 'trap-th-module' },
+            { key: 'objects', thId: 'trap-th-objects' },
         ];
         configs.forEach(config => {
             const th = document.getElementById(config.thId);
@@ -1227,7 +1591,7 @@ window.MibsModule = {
     validateFiles: async function() {
         const input = document.getElementById('mib-upload-input');
         if (!input.files || input.files.length === 0) {
-            alert('Please select at least one file');
+            TrishulUtils.showNotification('Please select at least one file', 'warning');
             return;
         }
 
@@ -1255,6 +1619,9 @@ window.MibsModule = {
             formData.append('source_group', this.getSelectedSourceGroup());
 
             const res  = await fetch('/api/mibs/validate-batch', { method: 'POST', body: formData });
+            if (!res.ok) {
+                throw await this._httpError(res);
+            }
             const data = await res.json();
             const esc = TrishulUtils.escapeHtml;
             this.validationState = data;
@@ -1371,7 +1738,7 @@ window.MibsModule = {
 
         } catch (e) {
             console.error('Validation error:', e);
-            alert('Validation failed: ' + e.message);
+            TrishulUtils.showNotification(`Validation failed: ${e.message}`, 'error', 5000);
         } finally {
             indicator.classList.add('d-none');
         }
@@ -1438,55 +1805,52 @@ window.MibsModule = {
             const selectedCount = input.files ? input.files.length : data.results.length;
             const processedCount = data.results.length;
 
-            let message = normalizedMode === 'partial'
-                ? `Partial Compile Complete!\n\n✓ Successfully loaded: ${loaded}\n`
-                : `Upload Complete!\n\n✓ Successfully loaded: ${loaded}\n`;
-            if (data.source_group) message += `Source group: ${data.source_group}\n`;
+            // MGR-17: report the upload outcome via toast (consistent with the
+            // rest of the page) instead of a blocking alert(). The summary is
+            // compact; per-file failure details live in the Failed MIBs list.
+            const summary = [
+                normalizedMode === 'partial'
+                    ? `Partial compile complete: ${loaded} loaded`
+                    : `Upload complete: ${loaded} loaded`,
+            ];
+            if (data.source_group) summary.push(`source group ${data.source_group}`);
             if (processedCount !== selectedCount) {
-                message += `Files processed: ${processedCount} of ${selectedCount}\n`;
+                summary.push(`${processedCount} of ${selectedCount} files processed`);
             }
-            if (skipped > 0) message += `➜ Skipped for now: ${skipped}\n`;
-            if (failed > 0) message += `⚠ Failed to load: ${failed}\n`;
-            if (errors > 0) message += `✗ Upload errors: ${errors}\n`;
+            if (skipped > 0) summary.push(`${skipped} skipped`);
+            if (failed > 0) summary.push(`${failed} failed`);
+            if (errors > 0) summary.push(`${errors} upload errors`);
             if (data.dependency_fetch && data.dependency_fetch.enabled) {
                 const resolvedDeps = (data.dependency_fetch.resolved || data.dependency_fetch.downloaded || []).length;
                 const unresolvedDeps = (data.dependency_fetch.failed || [])
                     .map(name => String(name || '').trim())
                     .filter(Boolean);
-                const failedDeps = unresolvedDeps.length;
-                const unresolvedPreview = failedDeps > 12
-                    ? `${unresolvedDeps.slice(0, 12).join(', ')}, +${failedDeps - 12} more`
-                    : unresolvedDeps.join(', ');
-                message += `\nRemote dependency fetch: ${resolvedDeps} resolved`;
+                summary.push(`remote deps ${resolvedDeps} resolved`);
                 if (data.dependency_fetch.using_default_sources) {
-                    message += ' via tsmi defaults';
+                    summary.push('via defaults');
                 }
-                if (failedDeps > 0) message += `, ${failedDeps} unresolved`;
-                message += '\n';
-                if (failedDeps > 0 && failed === 0 && errors === 0) {
-                    message += 'No MIB modules failed to load; one or more remote dependencies remained unresolved.\n';
-                }
-                if (failedDeps > 0) {
-                    message += `Unresolved dependencies: ${unresolvedPreview}\n`;
+                if (unresolvedDeps.length > 0) {
+                    const unresolvedPreview = unresolvedDeps.length > 5
+                        ? `${unresolvedDeps.slice(0, 5).join(', ')}, +${unresolvedDeps.length - 5} more`
+                        : unresolvedDeps.join(', ');
+                    summary.push(`${unresolvedDeps.length} unresolved (${unresolvedPreview})`);
                 }
             }
-
             const problemFiles = data.results.filter(r => r.status === 'failed' || r.status === 'error' || r.status === 'skipped');
             if (problemFiles.length > 0) {
-                message += `\nDetails:\n`;
-                problemFiles.forEach(r => { message += `• ${r.filename}: ${r.error || 'Unknown error'}\n`; });
+                summary.push(`${problemFiles.length} files need attention — see Failed MIBs`);
             }
 
             restoreControls();
             this.uploadModal.hide();
-            alert(message);
+            TrishulUtils.showNotification(summary.join(' · '), 'success', 7000);
             this._statusCacheValid = false;
             await this.loadStatus();
             await this.loadTraps();
 
         } catch (e) {
             console.error('Upload error:', e);
-            alert('Upload failed:\n\n' + e.message);
+            TrishulUtils.showNotification(`Upload failed: ${e.message}`, 'error', 5000);
         } finally {
             restoreControls();
         }
@@ -1615,7 +1979,7 @@ window.MibsModule = {
 
         if (normalized.length === 0) {
             TrishulUtils.showNotification('Select at least one MIB to delete', 'warning');
-            return;
+            return false;
         }
 
         const title = normalized.length === 1 ? `Delete ${normalized[0]}?` : `Delete ${normalized.length} MIB files?`;
@@ -1631,7 +1995,7 @@ window.MibsModule = {
             confirmLabel: 'Delete',
             variant: 'danger',
         });
-        if (!confirmed) return;
+        if (!confirmed) return false;
 
         normalized.forEach(path => this.deletingMibPaths.add(path));
         this.renderMibList();
@@ -1674,12 +2038,14 @@ window.MibsModule = {
                 }
             }
             TrishulUtils.showNotification(notification, 'success', 5000);
+            return true;
         } catch (e) {
             console.error('Delete failed:', e);
             normalized.forEach(path => this.deletingMibPaths.delete(path));
             this.renderMibList();
             this.renderFailedMibs(this.getFailedMibs());
-            alert(`Delete failed: ${e.message}`);
+            TrishulUtils.showNotification(`Delete failed: ${e.message}`, 'error', 5000);
+            return false;
         }
     },
 
@@ -1840,61 +2206,20 @@ window.MibsModule = {
     },
 
     showDependencyHelp: function() {
-        alert(
-            'How to resolve missing dependencies:\n\n' +
-            '1. Upload the missing MIBs manually using this dialog\n' +
-            '2. Or use partial compile for the ready MIBs only\n' +
-            '3. Reload after the dependencies are available\n\n' +
-            'Validation never performs remote fetches. Auto-fetch, if enabled in Settings, only runs during upload/reload.'
+        // MGR-17: help text via toast (non-blocking) instead of alert().
+        TrishulUtils.showNotification(
+            'Missing dependencies: 1) upload the missing MIBs manually, ' +
+            '2) use partial compile for the ready MIBs, or ' +
+            '3) reload after the dependencies are available. ' +
+            'Validation never fetches remotely — auto-fetch (if enabled in Settings) only runs during upload/reload.',
+            'info',
+            8000
         );
     },
 
-    fetchDependenciesFromElement: async function(button) {
-        const deps = TrishulUtils.decodeDataAttr(button?.dataset?.deps || '', []);
-        await this.fetchDependencies(deps);
-    },
-
-    fetchDependenciesFromValidation: async function() {
-        const button = document.getElementById('btn-fetch-dependencies');
-        const deps = TrishulUtils.decodeDataAttr(button?.dataset?.deps || '', []);
-        await this.fetchDependencies(deps);
-    },
-
-    fetchDependencies: async function(dependencies) {
-        const deps = Array.isArray(dependencies) ? dependencies.filter(Boolean) : [];
-        if (deps.length === 0) {
-            TrishulUtils.showNotification('No missing dependencies to fetch', 'warning');
-            return;
-        }
-
-        try {
-            const res = await fetch('/api/mibs/fetch-dependencies', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dependencies: deps, reload_after_fetch: true })
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.detail || 'Dependency fetch failed');
-            }
-
-            const downloaded = (data.downloaded || []).length;
-            const cached = (data.cached || []).length;
-            const failed = (data.failed || []).length;
-            let message = `Dependency fetch complete: ${downloaded} downloaded`;
-            if (cached > 0) message += `, ${cached} cached`;
-            if (failed > 0) message += `, ${failed} failed`;
-            TrishulUtils.showNotification(message, failed > 0 ? 'warning' : 'success', 5000);
-            this._statusCacheValid = false; await this.loadStatus();
-            await this.loadTraps();
-            const input = document.getElementById('mib-upload-input');
-            if (input && input.files && input.files.length > 0) {
-                await this.validateFiles();
-            }
-        } catch (e) {
-            console.error('Dependency fetch failed:', e);
-            TrishulUtils.showNotification(`Dependency fetch failed: ${e.message}`, 'error', 5000);
-        }
-    }
+    // MGR-16: the standalone fetch-dependencies UI handlers were removed —
+    // no button on the page references them (the dependency alert only offers
+    // "How to resolve?", and auto-fetch runs inside upload/reload). Dead code
+    // deleted rather than kept pointing at a non-existent button.
 
 };

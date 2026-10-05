@@ -33,7 +33,11 @@ def _runtime_objects_from_custom_data(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Convert custom data dict (OID → value) to runtime object spec dicts.
 
-    Type is inherited from the bundle node for the target OID. If the bundle
+    Type is inherited from the bundle node for the target OID — symbolic
+    targets resolve by name, numeric OIDs by lookup — so numeric targets are
+    typed like their symbolic equivalents instead of falling back to a default.
+    Targets are canonicalized to their numeric OID form, so symbolic and
+    numeric spellings of the same OID merge into a single entry. If the bundle
     has no type info for the target, the value is skipped with a warning rather
     than guessed. If a dict value with an explicit 'type' key is provided it
     is used as-is (advanced override). Values that cannot be coerced or that
@@ -45,6 +49,7 @@ def _runtime_objects_from_custom_data(
     """
     from app.services.bundle_state import get_bundle as _get_bundle
     from app.services.mib_metadata import effective_constraints
+    from trishul_snmp.mib.registry import oid_to_string
 
     active_bundle = bundle if bundle is not None else _get_bundle()
 
@@ -60,23 +65,31 @@ def _runtime_objects_from_custom_data(
             objects.append({"target": target_str, "value": value})
             continue
 
-        # Resolve syntax from bundle
+        # Resolve syntax + constraints from the bundle node, and canonicalize
+        # the target to its numeric OID form so symbolic and numeric spellings
+        # of the same OID merge into one entry.
         syntax: str | None = None
         constraints = None
+        canonical_target = target_str.lstrip(".")
         if active_bundle is not None:
             try:
-                # Strip instance suffix (.0, .1, .2) to look up the node
-                base = target_str.split(".")[0] if "::" in target_str else target_str
-                # Try symbolic resolution
-                if "::" in base:
-                    mod, sym = base.split("::", 1)
+                if "::" in target_str:
+                    mod, rest = target_str.split("::", 1)
+                    sym, _, instance = rest.partition(".")
                     node = active_bundle.resolve_node(mod, sym)
                     if node is not None:
                         syntax = node.syntax
                         constraints = effective_constraints(node, bundle=active_bundle)
+                        node_oid = oid_to_string(node.oid)
+                        canonical_target = f"{node_oid}.{instance}" if instance else node_oid
                 else:
-                    # Numeric OID — look up by iterating (best-effort)
-                    pass
+                    # Numeric OID — look up the owning node so the value gets
+                    # the node's declared type instead of a default gauge32.
+                    match = active_bundle.lookup(target_str)
+                    node = active_bundle.resolve_node(match.module, match.symbol)
+                    if node is not None:
+                        syntax = node.syntax
+                        constraints = effective_constraints(node, bundle=active_bundle)
             except Exception:
                 pass
 
@@ -94,7 +107,7 @@ def _runtime_objects_from_custom_data(
             warnings.append(message)
             continue
         if spec is not None:
-            objects.append({"target": target_str, "value": spec})
+            objects.append({"target": canonical_target, "value": spec})
 
     return objects, warnings
 
@@ -127,7 +140,9 @@ def _coerce_custom_value(
         snmp_type = "object-identifier"
     elif s in _IP_SYNTAXES:
         snmp_type = "ip-address"
-    elif s in _INTEGER_SYNTAXES or not s:
+    elif s in _INTEGER_SYNTAXES:
+        snmp_type = "integer"
+    elif not s:
         # No syntax info — treat numeric values as gauge32, strings as octet-string
         snmp_type = "gauge32" if _is_numeric(value) else "octet-string"
     else:
@@ -136,7 +151,16 @@ def _coerce_custom_value(
     # Coerce value
     try:
         if snmp_type in ("integer", "gauge32", "timeticks", "counter32", "counter64"):
-            numeric = int(float(str(value).strip()))
+            raw = str(value).strip()
+            try:
+                numeric = int(raw)
+            except ValueError:
+                # int(float("3.7")) would silently truncate a fractional
+                # value to 3; reject non-integer strings instead.
+                as_float = float(raw)
+                if not as_float.is_integer():
+                    return None, f"value {value!r} is not a whole number; {snmp_type} requires an integer"
+                numeric = int(as_float)
             message = constraint_violation(numeric, constraints)
             if message is not None:
                 return None, message
@@ -168,15 +192,31 @@ def _is_numeric(value: Any) -> bool:
         return False
 
 
-def load_custom_data(settings: Settings) -> dict[str, Any]:
+def load_custom_data(settings: Settings) -> tuple[dict[str, Any], str | None]:
+    """Load the persisted custom-data payload.
+
+    Returns ``(payload, warning)``; ``warning`` is set when the file exists but
+    cannot be parsed, so a corrupt ``custom_data.json`` is surfaced to the
+    operator instead of being silently treated as an empty override set.
+    """
     path = settings.config_dir / "custom_data.json"
     if not path.exists():
-        return {}
+        return {}, None
     try:
         payload = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    except OSError as exc:
+        warning = f"Could not read {path.name}: {exc}"
+        _log(f"Simulator custom data warning: {warning}", settings, level="WARNING")
+        return {}, warning
+    except json.JSONDecodeError as exc:
+        warning = f"{path.name} is not valid JSON ({exc}); custom overrides were not loaded."
+        _log(f"Simulator custom data warning: {warning}", settings, level="WARNING")
+        return {}, warning
+    if not isinstance(payload, dict):
+        warning = f"{path.name} does not contain a JSON object; custom overrides were not loaded."
+        _log(f"Simulator custom data warning: {warning}", settings, level="WARNING")
+        return {}, warning
+    return payload, None
 
 
 import random as _random
@@ -203,6 +243,7 @@ def _default_value_for_syntax(
     from app.services.mib_metadata import (
         effective_constraints,
         first_enum_value,
+        is_bits_node,
         range_bounds,
         size_bounds,
     )
@@ -210,6 +251,11 @@ def _default_value_for_syntax(
     s = (syntax or "").split("(")[0].strip()
     low = name.lower()
     constraints = effective_constraints(node, bundle=bundle)
+
+    # SIM-10: BITS-typed objects serve an octet string, not the integer bit
+    # number that the shared enum map would otherwise resolve to.
+    if is_bits_node(node, bundle=bundle):
+        return {"type": "octet-string", "value": ""}
 
     # Enum INTEGER: use first enum value regardless of object name
     enum_val = first_enum_value(node)
@@ -241,7 +287,7 @@ def _default_value_for_syntax(
         return {"type": "ip-address", "value": f"127.0.0.{index}"}
     if "phys" in low or "mac" in low or s == "PhysAddress" or s == "MacAddress":
         mac = f"00:11:22:33:44:{index:02x}"
-        return {"type": "octet-string", "value": _clamp_string_to_size(mac, constraints)}
+        return {"type": "octet-string", "value": _clamp_mac_to_size(mac, constraints)}
     if "descr" in low or "name" in low or "alias" in low:
         return {"type": "octet-string", "value": _clamp_string_to_size(f"{name}-{index}", constraints)}
     if s in _INTEGER_SYNTAXES:
@@ -264,6 +310,29 @@ def _clamp_string_to_size(value: str, constraints) -> str:
     if len(value) < min_len:
         return (value + "x" * min_len)[:min_len]
     return value
+
+
+def _clamp_mac_to_size(value: str, constraints) -> str:
+    """Trim or pad a display-format MAC/phys address to the declared size bounds.
+
+    PhysAddress/MacAddress size constraints count *bytes*, not display
+    characters: ``"00:11:22:33:44:01"`` is 6 bytes but 17 characters, so a
+    character-count clamp would truncate it to ``"00:11:"`` (a garbled MAC).
+    Octets are clamped/padded by byte count instead, so the display form stays
+    well-formed even when the type declares a byte-size bound.
+    """
+    from app.services.mib_metadata import size_bounds
+
+    bounds = size_bounds(constraints)
+    if not bounds:
+        return value
+    min_len, max_len = bounds[0]
+    octets = value.split(":")
+    if len(octets) > max_len:
+        octets = octets[:max_len]
+    while len(octets) < min_len:
+        octets.append("00")
+    return ":".join(octets)
 
 
 def _bundle_objects(settings: Settings) -> list[dict[str, Any]]:
@@ -307,8 +376,15 @@ def _bundle_objects(settings: Settings) -> list[dict[str, Any]]:
 
 
 async def get_status(*, state: StateStore, runtime_service) -> dict[str, Any]:
-    runtime_state = await runtime_service.get_state()
-    responder = runtime_state["responder"]
+    # SIM-13: prefer the lightweight responder status accessor over the full
+    # runtime state, which serializes every configured object and rule that
+    # the status payload discards.
+    get_responder_status = getattr(runtime_service, "get_responder_status", None)
+    if callable(get_responder_status):
+        responder = await get_responder_status()
+    else:
+        runtime_state = await runtime_service.get_state()
+        responder = runtime_state["responder"]
     communities = responder.get("communities") or []
     snap = state.snapshot()
     saved_port = state.coerce_port(snap.get(_SIMULATOR_PORT_KEY), default=1061)
@@ -321,6 +397,7 @@ async def get_status(*, state: StateStore, runtime_service) -> dict[str, Any]:
         "uptime_seconds": state.uptime_seconds(_SIMULATOR_STARTED_AT_KEY) if responder["running"] else None,
         "requests": int(responder.get("request_count") or 0),
         "last_activity": responder.get("last_activity"),
+        "restart_required": bool(responder.get("restart_required")),
     }
 
 
@@ -330,9 +407,12 @@ async def start(
     from app.services.runtime import RuntimeServiceError
     from app.services.bundle_state import get_bundle
     active_bundle = get_bundle()
-    custom = load_custom_data(settings)
+    custom, custom_warning = load_custom_data(settings)
     bundle_objs = _bundle_objects(settings)
     warnings: list[str] = []
+    if custom_warning:
+        warnings.append(custom_warning)
+        _log(f"Simulator custom data warning: {custom_warning}", settings, level="WARNING")
     if custom:
         # Merge: bundle objects form the base, custom data overrides specific OIDs.
         # Type is inherited from the bundle for each target; stale invalid values
@@ -398,7 +478,7 @@ async def restart(*, settings: Settings, state: StateStore, runtime_service) -> 
 
 
 def get_custom_data(*, settings: Settings) -> dict[str, Any]:
-    return load_custom_data(settings)
+    return load_custom_data(settings)[0]
 
 
 async def save_custom_data(

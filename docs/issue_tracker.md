@@ -12,7 +12,7 @@ Use implementation slice IDs for release-bound work: `S0` to `S13`.
 
 Use `POST-200-*` IDs for explicitly deferred work beyond `2.0.0`.
 
-Use `POST-210-*` IDs for planned `2.1.0` backend/frontend parity work.
+Use `POST-210-*` IDs for planned `2.2.0` backend/frontend parity work.
 
 ## 2.0.0 Slice Status
 
@@ -39,7 +39,7 @@ Use `POST-210-*` IDs for planned `2.1.0` backend/frontend parity work.
 - `POST-200-004` `Backlog` Add one-click ecosystem demo flows.
 - `POST-200-005` `Backlog` Add distributed polling or orchestration features.
 
-## Planned 2.1.0 Follow-Up
+## Planned 2.2.0 Follow-Up
 
 - `POST-210-001` `Backlog` Surface bundle list, detail, activate, rollback, and diff in the MIB Manager flow.
 - `POST-210-002` `Backlog` Add saved connection and simulator profiles to the operator pages.

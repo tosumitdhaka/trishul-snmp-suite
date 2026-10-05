@@ -578,24 +578,83 @@ class ShellMibMutationService:
             response["promoted_sources"] = promoted_sources
         return response
 
-    def fetch_dependencies(self, dependencies: list[str]) -> dict[str, Any]:
-        available = self.available_source_mib_names()
-        cached = [
+    def fetch_dependencies(
+        self,
+        dependencies: list[str],
+        *,
+        reload_after_fetch: bool = True,
+    ) -> dict[str, Any]:
+        """Resolve MIB dependencies, fetching them remotely when allowed.
+
+        Deps that are already available as sources count as cached. Missing
+        deps are fetched through a non-activating online compile (tsmi drops
+        the raw sources into its cache); whatever landed in the cache is then
+        materialized into the managed upload tree. When ``reload_after_fetch``
+        is set and anything new was fetched, the active bundle is rebuilt so
+        the fetched modules are actually served.
+        """
+        requested = [
             dep
             for dep in dict.fromkeys(str(dep).strip() for dep in dependencies if str(dep).strip())
-            if dep in available
         ]
-        return {
-            "enabled": False,
-            "auto_enabled": False,
-            "using_default_sources": False,
-            "sources": [],
-            "resolved": [],
-            "downloaded": [],
-            "cached": cached,
-            "failed": [
-                dep
-                for dep in dict.fromkeys(str(dep).strip() for dep in dependencies if str(dep).strip())
-                if dep not in available
-            ],
-        }
+        available = self.available_source_mib_names()
+        cached = [dep for dep in requested if dep in available]
+        missing = [dep for dep in requested if dep not in available]
+
+        policy = self.remote_fetch_policy()
+        if missing and policy["enabled"]:
+            self.emit_operation_log(
+                f"Fetching remote MIB dependencies: count={len(missing)} "
+                f"sources={'tsmi defaults' if policy['using_default_sources'] else 'configured'}",
+            )
+            try:
+                compile_result = self.bundle_service.compile_bundle(
+                    BundleCompileRequest(
+                        mib_names=self.compile_target_mib_names(missing),
+                        mib_dirs=self.compile_source_dirs(),
+                        activate=False,
+                        label=(
+                            "dependency-fetch-"
+                            f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+                        ),
+                        online=True,
+                        remote_sources=list(policy["sources"]),
+                    )
+                )
+                self.materialize_cached_remote_modules(
+                    compile_result.get("remote_modules") or [],
+                    bundle_set_id=(compile_result.get("bundle") or {}).get("id"),
+                )
+            except BundleServiceError as exc:
+                # A failed compile can still leave successfully downloaded
+                # modules in the raw cache — fall through to materialize
+                # whatever made it, and report the rest as failed.
+                self.emit_operation_log(
+                    f"Remote dependency fetch compile failed: {exc}",
+                    level="WARNING",
+                )
+
+        # Materialize from the raw cache regardless of compile outcome: this
+        # is what actually persists fetched sources as managed uploads.
+        persisted = self.materialize_cached_remote_modules(missing) if missing else {}
+        downloaded = [dep for dep in missing if dep in persisted]
+        failed = [dep for dep in missing if dep not in persisted]
+
+        if downloaded and reload_after_fetch:
+            self.emit_operation_log(
+                f"Reloading MIB bundle after dependency fetch: downloaded={len(downloaded)}",
+            )
+            self.reload_uploaded_mibs()
+
+        payload = self.dependency_fetch_payload(
+            policy=policy,
+            attempted=requested,
+            resolved=downloaded,
+            failed=failed,
+        )
+        # The payload builder infers "failed" as attempted-minus-resolved, which
+        # would misreport already-cached deps as failures — both cached and
+        # failed are computed precisely above, so pin them.
+        payload["cached"] = cached
+        payload["failed"] = failed
+        return payload

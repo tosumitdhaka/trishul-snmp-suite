@@ -36,11 +36,12 @@
                         <input type="text" id="browser-search-input" class="form-control"
                                placeholder="Search names, OIDs, or descriptions..."
                                aria-label="Search MIBs"
-                               onkeyup="BrowserModule.debounceSearch()">
+                               oninput="BrowserModule.debounceSearch()">
                         <button type="button" class="btn btn-app-secondary btn-icon d-none"
                                 onclick="BrowserModule.clearSearch()"
                                 id="btn-clear-search"
-                                title="Clear search">
+                                title="Clear search"
+                                aria-label="Clear search">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>

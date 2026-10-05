@@ -17,6 +17,8 @@ class _TrapRuntimeStub:
         self.start_calls: list[dict[str, object]] = []
         self.stop_calls = 0
         self.send_calls: list[dict[str, object]] = []
+        self.replay_calls: list[dict[str, object]] = []
+        self.decode_calls: list[dict[str, object]] = []
 
     async def get_state(self) -> dict[str, object]:
         return {"notifications": {"listener": dict(self.listener)}}
@@ -29,6 +31,27 @@ class _TrapRuntimeStub:
 
     async def send_trap(self, **kwargs) -> None:
         self.send_calls.append(kwargs)
+
+    async def send_inform(self, **kwargs) -> dict[str, object]:
+        self.send_calls.append(kwargs)
+        return {
+            "request_id": 42,
+            "response": {
+                "request_id": 42,
+                "error_status": "noError",
+                "error_status_code": 0,
+                "error_index": 0,
+                "varbinds": [],
+            },
+        }
+
+    async def replay_notification_event(self, **kwargs) -> dict[str, object]:
+        self.replay_calls.append(kwargs)
+        return {"operation": "trap", "target": {"host": kwargs.get("host"), "port": kwargs.get("port")}}
+
+    async def decode_notification_payload(self, **kwargs) -> dict[str, object]:
+        self.decode_calls.append(kwargs)
+        return {"active_bundle": None, "event": {"pdu_type": "snmpv2-trap"}}
 
 
 def _activate_trap_bundle(isolated_db):
@@ -101,6 +124,111 @@ def test_varbind_to_runtime_rejects_short_object_identifier_values():
             {"oid": "1.3.6.1.2.1.1.3.0", "type": "OID", "value": "1"},
             index=1,
         )
+
+
+def test_varbind_to_runtime_rejects_bad_numeric_values_instead_of_coercing_to_zero():
+    from app.services.traps_service import TrapsError, _varbind_to_runtime
+
+    bad_values = [
+        {"oid": "1.3.6.1.2.1.1.7.0", "type": "Integer", "value": "abc"},
+        {"oid": "1.3.6.1.2.1.1.7.0", "type": "Integer", "value": None},
+        {"oid": "1.3.6.1.2.1.1.7.0", "type": "Integer", "value": ""},
+        {"oid": "1.3.6.1.2.1.1.7.0", "type": "Integer", "value": 3.7},
+        {"oid": "1.3.6.1.2.1.2.1.0", "type": "Counter", "value": "nope"},
+        {"oid": "1.3.6.1.2.1.2.1.0", "type": "Gauge", "value": None},
+        {"oid": "1.3.6.1.2.1.2.1.0", "type": "TimeTicks", "value": "3.7"},
+        {"oid": "1.3.6.1.2.1.31.1.1.1.6.1", "type": "Counter64", "value": "12x"},
+    ]
+    for index, item in enumerate(bad_values, 1):
+        with pytest.raises(TrapsError, match="is not a valid"):
+            _varbind_to_runtime(item, index=index)
+
+    # Integral floats remain acceptable (no fractional truncation occurs).
+    ok = _varbind_to_runtime(
+        {"oid": "1.3.6.1.2.1.1.7.0", "type": "Integer", "value": 3.0},
+        index=9,
+    )
+    assert ok["value"] == {"type": "integer", "value": 3}
+
+
+def test_send_trap_rejects_non_member_enum_values(isolated_db):
+    from app.services import traps_service
+    from app.services.traps_service import TrapsError
+
+    _activate_trap_bundle(isolated_db)
+    settings = isolated_db["settings"]
+    runtime = _TrapRuntimeStub()
+
+    # ifAdminStatus is an INTEGER enum (up=1, down=2, testing=3); 5 is not a member.
+    with pytest.raises(TrapsError, match="not a member of the declared enum"):
+        asyncio.run(
+            traps_service.send_trap(
+                target="127.0.0.1",
+                port=2162,
+                community="public",
+                oid="IF-MIB::linkDown",
+                varbinds=[
+                    {"oid": "1.3.6.1.2.1.2.2.1.7.1", "type": "Integer", "value": 5},
+                ],
+                settings=settings,
+                runtime_service=runtime,
+            )
+        )
+    assert runtime.send_calls == []
+
+    # A member value (down=2) passes through to the runtime.
+    asyncio.run(
+        traps_service.send_trap(
+            target="127.0.0.1",
+            port=2162,
+            community="public",
+            oid="IF-MIB::linkDown",
+            varbinds=[
+                {"oid": "1.3.6.1.2.1.2.2.1.7.1", "type": "Integer", "value": 2},
+            ],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    assert runtime.send_calls[0]["varbinds"][0]["value"] == {"type": "integer", "value": 2}
+
+
+def test_clear_events_purges_fts_rows(isolated_db):
+    from app.services import traps_service
+    from app.services.history import EventHistoryService
+    from sqlalchemy import text
+
+    history = EventHistoryService(isolated_db["settings"])
+
+    history.record_event(
+        direction="received",
+        pdu_type="trap",
+        notification_oid="1.3.6.1.6.3.1.1.5.3",
+        notification_name="IF-MIB::linkDown",
+        event={"varbinds": [{"oid": "1.3.6.1.2.1.1.3.0", "value": 321}]},
+    )
+    history.record_event(
+        direction="sent",
+        pdu_type="trap",
+        event={"varbinds": []},
+    )
+
+    traps_service.clear_events(history_service=history)
+
+    with isolated_db["session_factory"]() as session:
+        received_fts = session.execute(
+            text("SELECT COUNT(*) FROM notification_event_search WHERE direction = 'received'")
+        ).scalar()
+        sent_fts = session.execute(
+            text("SELECT COUNT(*) FROM notification_event_search WHERE direction = 'sent'")
+        ).scalar()
+
+    assert received_fts == 0
+    assert sent_fts == 1
+
+    # The orphaned row must no longer be findable through FTS search.
+    listed = history.list_events(direction="received", q="linkDown")
+    assert listed["total"] == 0
 
 
 def test_format_trap_event_accepts_runtime_event_payload(isolated_db):
@@ -309,6 +437,9 @@ def test_list_snapshot_and_clear_events_cover_history_paths(isolated_db):
     history = _HistoryList(session_factory)
     listed = traps_service.list_events(state=state, history_service=history, limit=5)
     assert listed["count"] == 1
+    assert listed["total"] == 1
+    assert listed["limit"] == 5
+    assert listed["offset"] == 0
     assert listed["data"][0]["source"] == "127.0.0.1"
     assert listed["data"][0]["trap_type"] == "1.3.6.1.6.3.1.1.5.3"
     assert listed["data"][0]["resolve_mibs"] is False
@@ -317,7 +448,7 @@ def test_list_snapshot_and_clear_events_cover_history_paths(isolated_db):
 
     snapshot = traps_service.get_trap_event_snapshot(item, state=state, history_service=history)
     assert snapshot["id"] == 5
-    assert snapshot["time_str"] == "06:06:00"
+    assert snapshot["time_str"] == "2026-05-13 06:06:00"  # RCV-06: full date + time
     assert snapshot["resolve_mibs"] is False
 
     with session_factory() as session:
@@ -397,5 +528,303 @@ def test_traps_service_translates_runtime_errors(isolated_db):
                 varbinds=[],
                 settings=settings,
                 runtime_service=_FailingTrapRuntime(),
+            )
+        )
+
+
+def test_send_trap_log_redacts_community_string(isolated_db, monkeypatch):
+    from app.services import traps_service
+
+    _activate_trap_bundle(isolated_db)
+    settings = isolated_db["settings"]
+    runtime = _TrapRuntimeStub()
+
+    logged_messages: list[str] = []
+
+    def fake_emit(message, *, level="INFO", logger_name=None, settings=None):
+        logged_messages.append(str(message))
+
+    monkeypatch.setattr(traps_service, "emit_backend_log", fake_emit)
+
+    asyncio.run(
+        traps_service.send_trap(
+            target="127.0.0.1",
+            port=2162,
+            community="super-secret",
+            oid="IF-MIB::linkDown",
+            varbinds=[],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    send_log = next(line for line in logged_messages if line.startswith("Trap sent to"))
+    assert "super-secret" not in send_log
+    assert "community=***" in send_log
+
+
+def test_send_inform_delegates_to_runtime_and_returns_ack(isolated_db):
+    from app.services import traps_service
+
+    _activate_trap_bundle(isolated_db)
+    settings = isolated_db["settings"]
+    runtime = _TrapRuntimeStub()
+
+    result = asyncio.run(
+        traps_service.send_inform(
+            target="127.0.0.1",
+            port=2162,
+            community="public",
+            oid="IF-MIB::linkDown",
+            varbinds=[
+                {"oid": "1.3.6.1.2.1.1.3.0", "type": "TimeTicks", "value": "321"},
+                {"oid": "1.3.6.1.2.1.31.1.1.1.6.1", "type": "Counter64", "value": "999"},
+            ],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    assert result["status"] == "sent"
+    assert result["operation"] == "inform"
+    assert result["target"] == "127.0.0.1"
+    assert result["port"] == 2162
+
+    call = runtime.send_calls[0]
+    assert call["notification"] == "1.3.6.1.6.3.1.1.5.3"
+    assert call["varbinds"][0]["value"] == {"type": "timeticks", "value": 321}
+    assert call["varbinds"][1]["value"] == {"type": "counter64", "value": 999}
+
+
+def test_send_inform_translates_runtime_ack_failure(isolated_db):
+    from app.services import traps_service
+    from app.services.runtime import RuntimeServiceError
+    from app.services.traps_service import TrapsError
+
+    _activate_trap_bundle(isolated_db)
+
+    class _NoAckRuntime(_TrapRuntimeStub):
+        async def send_inform(self, **kwargs) -> None:
+            del kwargs
+            raise RuntimeServiceError("No acknowledgement received from 127.0.0.1:2162 (timeout)")
+
+    with pytest.raises(TrapsError, match="acknowledgement"):
+        asyncio.run(
+            traps_service.send_inform(
+                target="127.0.0.1",
+                port=2162,
+                community="public",
+                oid="IF-MIB::linkDown",
+                varbinds=[],
+                settings=isolated_db["settings"],
+                runtime_service=_NoAckRuntime(),
+            )
+        )
+
+
+def test_replay_event_defaults_host_to_source_for_received_traps(isolated_db):
+    from app.services import traps_service
+    from app.services.history import EventHistoryService
+
+    history = EventHistoryService(isolated_db["settings"])
+    stored = history.record_event(
+        direction="received",
+        pdu_type="snmpv2-trap",
+        community="lab",
+        source_host="192.0.2.44",
+        source_port=40162,
+        notification_oid="1.3.6.1.6.3.1.1.5.3",
+        notification_name="IF-MIB::linkDown",
+        event={"varbinds": [], "community": "lab", "pdu_type": "snmpv2-trap"},
+    )
+    runtime = _TrapRuntimeStub()
+
+    result = asyncio.run(
+        traps_service.replay_event(
+            event_id=stored["event_id"],
+            host=None,
+            port=None,
+            community=None,
+            timeout=None,
+            retries=None,
+            settings=isolated_db["settings"],
+            runtime_service=runtime,
+        )
+    )
+    assert result["operation"] == "trap"
+    # Received events have no stored target; the replay defaults to the source
+    # host so the event can be sent back to where it came from (TRP-07).
+    assert runtime.replay_calls[0]["host"] == "192.0.2.44"
+    assert runtime.replay_calls[0]["port"] is None
+    assert runtime.replay_calls[0]["community"] is None
+
+
+def test_replay_event_passes_overrides_and_rejects_missing_events(isolated_db):
+    from app.services import traps_service
+    from app.services.traps_service import TrapsError
+
+    runtime = _TrapRuntimeStub()
+    asyncio.run(
+        traps_service.replay_event(
+            event_id=1,
+            host="203.0.113.20",
+            port=1162,
+            community="lab",
+            timeout=3.0,
+            retries=2,
+            settings=isolated_db["settings"],
+            runtime_service=runtime,
+        )
+    )
+    assert runtime.replay_calls[0]["host"] == "203.0.113.20"
+    assert runtime.replay_calls[0]["port"] == 1162
+    assert runtime.replay_calls[0]["community"] == "lab"
+    assert runtime.replay_calls[0]["timeout"] == 3.0
+    assert runtime.replay_calls[0]["retries"] == 2
+
+    # No stored event and no override: the replay cannot pick a target.
+    with pytest.raises(TrapsError, match="does not exist"):
+        asyncio.run(
+            traps_service.replay_event(
+                event_id=999999,
+                host=None,
+                port=None,
+                community=None,
+                timeout=None,
+                retries=None,
+                settings=isolated_db["settings"],
+                runtime_service=_TrapRuntimeStub(),
+            )
+        )
+
+
+def test_delete_event_removes_single_received_trap_and_fts_row(isolated_db):
+    from app.models import NotificationEvent
+    from app.services import traps_service
+    from app.services.history import EventHistoryService
+    from app.services.traps_service import TrapsError
+    from sqlalchemy import select, text
+
+    history = EventHistoryService(isolated_db["settings"])
+    received = history.record_event(
+        direction="received",
+        pdu_type="trap",
+        notification_oid="1.3.6.1.6.3.1.1.5.3",
+        notification_name="IF-MIB::linkDown",
+        event={"varbinds": []},
+    )
+    sent = history.record_event(
+        direction="sent",
+        pdu_type="trap",
+        event={"varbinds": []},
+    )
+    received_id = received["event_id"]
+
+    deleted = traps_service.delete_event(history_service=history, event_id=received_id)
+    assert deleted == {"status": "deleted", "id": received_id}
+
+    with isolated_db["session_factory"]() as session:
+        rows = session.scalars(select(NotificationEvent).order_by(NotificationEvent.id)).all()
+        fts_rows = session.execute(
+            text("SELECT COUNT(*) FROM notification_event_search WHERE event_id = :event_id"),
+            {"event_id": str(received_id)},
+        ).scalar()
+    assert [row.id for row in rows] == [sent["event_id"]]
+    assert fts_rows == 0
+
+    # Sent events are not deletable through the per-trap path.
+    with pytest.raises(TrapsError, match="not a received trap"):
+        traps_service.delete_event(history_service=history, event_id=sent["event_id"])
+
+    with pytest.raises(TrapsError, match="not a received trap"):
+        traps_service.delete_event(history_service=history, event_id=999999)
+
+
+def test_list_events_redacts_community_in_payload(isolated_db):
+    """RCV-15: GET /api/traps list payloads carry a mask, never the community."""
+    import json
+
+    from app.services import traps_service
+    from app.services.state_store import StateStore, _TRAP_RESOLVE_MIBS_KEY
+    from app.services.traps_service import _COMMUNITY_MASK
+
+    settings = isolated_db["settings"]
+    state = StateStore(isolated_db["session_factory"])
+    state.set_value(_TRAP_RESOLVE_MIBS_KEY, True)
+
+    item = {
+        "id": 21,
+        "recorded_at": "2026-05-13T06:06:00Z",
+        "notification_oid": "1.3.6.1.6.3.1.1.5.3",
+        "resolve_mibs": False,
+        "community": "top-secret",
+        "event": {"varbinds": [], "community": "top-secret"},
+    }
+
+    class _HistoryList:
+        def __init__(self, session_factory) -> None:
+            self.session_factory = session_factory
+
+        def list_events(self, *, direction: str, limit: int, offset: int) -> dict[str, object]:
+            return {"items": [item], "total": 1}
+
+    listed = traps_service.list_events(
+        state=state, history_service=_HistoryList(isolated_db["session_factory"]), limit=100
+    )
+    assert listed["data"][0]["community"] == _COMMUNITY_MASK
+    serialized = json.dumps(listed, ensure_ascii=False)
+    assert "top-secret" not in serialized
+    assert _COMMUNITY_MASK in serialized
+
+
+def test_format_trap_event_redacts_community_and_keeps_full_timestamp(isolated_db):
+    """RCV-15 + RCV-06: masked community, dated time_str, precise timestamp."""
+    from app.services.bundle_state import get_bundle
+    from app.services.traps_service import _COMMUNITY_MASK, _format_trap_event
+
+    payload = _format_trap_event(
+        {
+            "event_id": 13,
+            "recorded_at": "2026-05-13T06:06:00+00:00",
+            "source_address": {"host": "127.0.0.1", "port": 51589},
+            "notification_oid": "1.3.6.1.6.3.1.1.5.3",
+            "notification_name": "IF-MIB::linkDown",
+            "community": "lab-secret",
+            "event": {"varbinds": [], "community": "lab-secret"},
+        },
+        resolve_mibs=True,
+        bundle=get_bundle(),
+    )
+
+    assert payload["community"] == _COMMUNITY_MASK
+    assert "lab-secret" not in str(payload)
+    assert payload["time_str"] == "2026-05-13 06:06:00"
+    assert payload["timestamp"] == "2026-05-13T06:06:00+00:00"
+
+    no_community = _format_trap_event(
+        {"event_id": 14, "event": {"varbinds": []}},
+        resolve_mibs=False,
+        bundle=get_bundle(),
+    )
+    assert no_community["community"] is None
+
+
+def test_decode_payload_translates_runtime_errors(isolated_db):
+    from app.services import traps_service
+    from app.services.runtime import RuntimeServiceError
+    from app.services.traps_service import TrapsError
+
+    class _BadDecodeRuntime(_TrapRuntimeStub):
+        async def decode_notification_payload(self, **kwargs) -> None:
+            del kwargs
+            raise RuntimeServiceError("Hex-encoded byte values must contain valid hexadecimal text")
+
+    with pytest.raises(TrapsError, match="hexadecimal"):
+        asyncio.run(
+            traps_service.decode_payload(
+                payload="not-hex",
+                encoding="hex",
+                source_host=None,
+                source_port=None,
+                settings=isolated_db["settings"],
+                runtime_service=_BadDecodeRuntime(),
             )
         )

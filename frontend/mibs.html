@@ -229,8 +229,18 @@
                                         OID <i class="fas fa-sort th-sort-icon" aria-hidden="true"></i>
                                     </button>
                                 </th>
-                                <th scope="col" class="text-center">Module</th>
-                                <th scope="col" class="text-center">Objects</th>
+                                <th scope="col" id="trap-th-module" aria-sort="none">
+                                    <button type="button" class="th-sort-btn bg-transparent border-0 p-0 text-reset fw-bold"
+                                            data-sort-key="module" onclick="MibsModule.toggleTrapSort('module')">
+                                        Module <i class="fas fa-sort th-sort-icon" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th scope="col" id="trap-th-objects" aria-sort="none" class="text-center">
+                                    <button type="button" class="th-sort-btn bg-transparent border-0 p-0 text-reset fw-bold"
+                                            data-sort-key="objects" onclick="MibsModule.toggleTrapSort('objects')">
+                                        Objects <i class="fas fa-sort th-sort-icon" aria-hidden="true"></i>
+                                    </button>
+                                </th>
                                 <th scope="col" class="text-center">Actions</th>
                             </tr>
                         </thead>
@@ -317,6 +327,28 @@
     </div>
 </div>
 
+<!-- Bundles (bundle lifecycle: list / diff / activate-rollback) -->
+<div class="card shadow-sm mb-3">
+    <div class="card-header">
+        <div class="app-card-header-main">
+            <h2 class="mb-0 fw-semibold text-reset" style="font-size:0.875rem;line-height:inherit">
+                <i class="fas fa-boxes-stacked me-2 app-header-icon is-info"></i> Bundles
+            </h2>
+        </div>
+        <div class="app-card-header-actions">
+            <button type="button" class="btn btn-sm btn-app-secondary btn-icon" onclick="MibsModule.loadBundles()"
+                    title="Refresh bundles" aria-label="Refresh bundles">
+                <i class="fas fa-sync"></i>
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div id="bundles-list" class="app-scroll-panel app-max-h-400">
+            <div class="p-3 text-center text-muted small">Loading bundles…</div>
+        </div>
+    </div>
+</div>
+
 <!-- Failed MIBs Modal -->
 <div class="modal fade" id="failedMibsModal" tabindex="-1" aria-labelledby="failed-mibs-modal-title">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -336,6 +368,24 @@
                 <button type="button" class="btn btn-sm btn-app-danger-outline" onclick="MibsModule.deleteAllFailed()" id="mib-delete-all-failed-btn">
                     <i class="fas fa-trash me-1"></i> Delete All Failed
                 </button>
+                <button type="button" class="btn btn-sm btn-app-secondary-solid" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bundle Diff Modal -->
+<div class="modal fade" id="bundleDiffModal" tabindex="-1" aria-labelledby="bundle-diff-modal-title">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h2 class="modal-title h6 mb-0" id="bundle-diff-modal-title">
+                    <i class="fas fa-code-compare me-2 app-header-icon is-primary"></i> Bundle Diff
+                </h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-2" id="bundle-diff-body"></div>
+            <div class="modal-footer py-2">
                 <button type="button" class="btn btn-sm btn-app-secondary-solid" data-bs-dismiss="modal">Close</button>
             </div>
         </div>

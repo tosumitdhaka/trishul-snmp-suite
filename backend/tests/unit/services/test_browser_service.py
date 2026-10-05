@@ -218,3 +218,191 @@ def test_input_type_mapping_and_trap_catalog_cover_trap_sender_metadata(isolated
     assert link_down["oid"] == "1.3.6.1.6.3.1.1.5.3"
     assert enum_member["input_type"] == "Integer"
     assert enum_member["enum_values"][0] == {"label": "up", "value": 1}
+
+
+def test_type_filtered_search_grows_fetch_window_until_limit_satisfied(isolated_db):
+    from types import SimpleNamespace
+
+    from app.services import browser_service
+
+    def _node(name: str, nodetype: str, index: int):
+        return SimpleNamespace(
+            name=name,
+            module="TEST-MIB",
+            oid=(1, 3, 6, 1, 4, 1, 999, 1 if nodetype == "scalar" else 2, index),
+            object_type="OBJECT-TYPE",
+            nodetype=nodetype,
+            syntax="INTEGER",
+            max_access="read-only",
+            status="current",
+            description="",
+            index=None,
+            members=[],
+            constraints=None,
+            enums=None,
+            units=None,
+        )
+
+    # 150 table columns match the raw OBJECT-TYPE filter before the 30
+    # scalars the caller actually asked for. A single limit*2 fetch stops
+    # among the columns and silently drops every scalar.
+    nodes = [_node(f"colNode{i}", "column", i) for i in range(150)]
+    nodes += [_node(f"scalarNode{i}", "scalar", i) for i in range(30)]
+
+    class _PaginatingBundle:
+        def __init__(self, nodes):
+            self._nodes = nodes
+            self.fetch_limits: list[int] = []
+
+        def search(self, query, *, module=None, type_filter=None, limit=100):
+            self.fetch_limits.append(limit)
+            matched = [n for n in self._nodes if query in n.name]
+            if type_filter:
+                matched = [n for n in matched if n.object_type == type_filter]
+            return matched[:limit]
+
+    bundle = _PaginatingBundle(nodes)
+
+    payload = browser_service.search_bundle(
+        query="Node",
+        module=None,
+        type_filter="MibScalar",
+        limit=25,
+        bundle=bundle,
+    )
+
+    assert bundle.fetch_limits == [50, 200]
+    assert payload["count"] == 25
+    assert all(result["type"] == "MibScalar" for result in payload["results"])
+    assert all(result["name"].startswith("scalarNode") for result in payload["results"])
+
+
+def test_type_filtered_search_reports_partial_results_when_exhausted(isolated_db):
+    from types import SimpleNamespace
+
+    from app.services import browser_service
+
+    def _node(name: str, nodetype: str):
+        return SimpleNamespace(
+            name=name,
+            module="TEST-MIB",
+            oid=(1, 3, 6, 1, 4, 1, 999, 1 if nodetype == "scalar" else 2, 0),
+            object_type="OBJECT-TYPE",
+            nodetype=nodetype,
+            syntax="INTEGER",
+            max_access="read-only",
+            status="current",
+            description="",
+            index=None,
+            members=[],
+            constraints=None,
+            enums=None,
+            units=None,
+        )
+
+    class _ExhaustedBundle:
+        def __init__(self, nodes):
+            self._nodes = nodes
+            self.fetch_limits: list[int] = []
+
+        def search(self, query, *, module=None, type_filter=None, limit=100):
+            self.fetch_limits.append(limit)
+            matched = [n for n in self._nodes if query in n.name]
+            if type_filter:
+                matched = [n for n in matched if n.object_type == type_filter]
+            return matched[:limit]
+
+    # Only 3 true matches exist; the window must stop growing once the
+    # underlying search is exhausted instead of looping to the cap.
+    bundle = _ExhaustedBundle([_node(f"colNode{i}", "column") for i in range(40)])
+    bundle._nodes += [_node(f"scalarNode{i}", "scalar") for i in range(3)]
+
+    payload = browser_service.search_bundle(
+        query="Node",
+        module=None,
+        type_filter="MibScalar",
+        limit=25,
+        bundle=bundle,
+    )
+
+    assert bundle.fetch_limits == [50]
+    assert payload["count"] == 3
+    assert all(result["type"] == "MibScalar" for result in payload["results"])
+
+
+def test_module_identity_nodes_get_their_own_ui_label(isolated_db):
+    from app.services import browser_service
+
+    bundle = _activate_browser_bundle(isolated_db)
+
+    # IF-MIB::ifMIB is a MODULE-IDENTITY node (previously mislabeled
+    # "ModuleCompliance").
+    payload = browser_service.get_node("IF-MIB::ifMIB", module=None, bundle=bundle)
+    assert payload["node"]["type"] == "ModuleIdentity"
+
+    # The type-filtered search path maps the new label back to the raw token.
+    filtered = browser_service.search_bundle(
+        query="ifMIB",
+        module="IF-MIB",
+        type_filter="ModuleIdentity",
+        limit=10,
+        bundle=bundle,
+    )
+    assert any(result["type"] == "ModuleIdentity" for result in filtered["results"])
+
+
+def test_module_tree_count_reports_total_objects_not_top_level_roots(isolated_db):
+    from app.services import browser_service
+
+    bundle = _activate_browser_bundle(isolated_db)
+    tree = browser_service.get_module_tree(module=None, type_filter=None, bundle=bundle)
+
+    total_nodes = 0
+    for module in tree["modules"]:
+        total_nodes += len(list(bundle.iter_objects(module=module["name"])))
+        total_nodes += len(list(bundle.iter_notifications(module=module["name"])))
+
+    top_level = sum(len(module["children"]) for module in tree["modules"])
+    assert tree["count"] == total_nodes
+    assert tree["count"] > top_level
+    # Per-module rows carry the same object count the badge renders.
+    for module in tree["modules"]:
+        module_total = len(list(bundle.iter_objects(module=module["name"])))
+        module_total += len(list(bundle.iter_notifications(module=module["name"])))
+        assert module["object_count"] == module_total
+
+
+def test_lookup_misses_stay_graceful_but_real_errors_surface(isolated_db):
+    from app.services import browser_service
+
+    bundle = _activate_browser_bundle(isolated_db)
+
+    # Malformed and unknown OIDs resolve to "unresolved", never a 500.
+    for bad in ("1.2.abc", "garbage", "999.999"):
+        result = browser_service.resolve(bad, bundle=bundle)
+        assert result["resolved"] is False
+
+    # A genuine backend error inside lookup must propagate instead of being
+    # swallowed by a catch-all (BRW-04).
+    class _ExplodingBundle:
+        def lookup(self, _value):
+            raise RuntimeError("storage exploded")
+
+    with pytest.raises(RuntimeError, match="storage exploded"):
+        browser_service.resolve("1.3.6.1", bundle=_ExplodingBundle())
+
+
+def test_oid_tree_has_children_flags_are_precise_after_single_pass_scan(isolated_db):
+    from app.services import browser_service
+
+    bundle = _activate_browser_bundle(isolated_db)
+
+    tree = browser_service.get_oid_tree(
+        root_oid="1.3.6.1.2.1.2", depth=1, module="IF-MIB", type_filter=None, bundle=bundle
+    )
+    children = {child["name"]: child for child in tree["children"]}
+    # ifTable nests (rows/columns below it); ifNumber is a plain scalar.
+    assert children["ifTable"]["has_children"] is True
+    assert children["ifNumber"]["has_children"] is False
+    # Descendants include the direct children themselves.
+    assert tree["total_descendants"] >= len(tree["children"])

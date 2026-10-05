@@ -62,7 +62,12 @@ from trishul_snmp.types import (
     TimeTicksValue,
     VarBind,
 )
-from trishul_snmp.wire.message import SnmpMessage, decode_message, encode_message
+from trishul_snmp.wire.message import (
+    SNMP_V2C_VERSION,
+    SnmpMessage,
+    decode_message,
+    encode_message,
+)
 
 EVENT_BUFFER_LIMIT = 200
 _RULE_KIND_ALIASES = {
@@ -212,6 +217,13 @@ class RuntimeService:
             )
             responder["request_count"] = self._responder_request_count
             responder["last_activity"] = self._responder_last_activity
+            responder["restart_required"] = (
+                responder["running"]
+                and self._responder_binding is not None
+                and self._responder_binding.bundle_set_id is not None
+                and active_bundle is not None
+                and self._responder_binding.bundle_set_id != active_bundle.get("id")
+            )
             listener = self._serialize_binding_state(
                 binding=self._listener_binding,
                 running=self._listener is not None and self._listener_task is not None and not self._listener_task.done(),
@@ -233,6 +245,41 @@ class RuntimeService:
             },
         }
 
+    async def get_responder_status(self) -> dict[str, Any]:
+        """Lightweight responder scalars for the simulator status endpoint.
+
+        Unlike :meth:`get_state`, this does not serialize the configured
+        objects and rules (which the status payload discards anyway); it only
+        carries the scalar fields the status endpoint actually consumes.
+        """
+        active_bundle = self._get_active_bundle_identity()
+        async with self._lock:
+            binding = self._responder_binding
+            running = (
+                self._responder is not None
+                and self._responder_task is not None
+                and not self._responder_task.done()
+            )
+            responder = self._serialize_binding_state(
+                binding=binding,
+                running=running,
+                local_address=self._responder.local_address if self._responder is not None else None,
+                last_error=self._responder_last_error,
+                configured_objects=None,
+                configured_rules=None,
+                active_bundle=active_bundle,
+            )
+            responder["request_count"] = self._responder_request_count
+            responder["last_activity"] = self._responder_last_activity
+            responder["restart_required"] = (
+                running
+                and binding is not None
+                and binding.bundle_set_id is not None
+                and active_bundle is not None
+                and binding.bundle_set_id != active_bundle.get("id")
+            )
+        return responder
+
     def _create_responder(
         self,
         *,
@@ -245,11 +292,13 @@ class RuntimeService:
     ) -> V2cResponder:
         base_class = V2cResponder
         on_request = self._record_responder_request
+        on_encode_error = self._record_responder_encode_error
 
         class ResponderWithActivity(base_class):
-            def __init__(self, *, on_request=None, **kwargs):
+            def __init__(self, *, on_request=None, on_encode_error=None, **kwargs):
                 super().__init__(**kwargs)
                 self._on_request = on_request
+                self._on_encode_error = on_encode_error
 
             async def handle_request(self):  # type: ignore[override]
                 if not hasattr(self, "_server") or not hasattr(self, "_communities"):
@@ -261,14 +310,29 @@ class RuntimeService:
                         message = decode_message(datagram.data)
                     except ProtocolError:
                         continue
+                    if message.version != SNMP_V2C_VERSION:
+                        # The responder is v2c-only: answering an SNMPv1 request
+                        # (including v1 GETBULK, which has no meaning in v1) with
+                        # v2-only exception values would produce an invalid v1
+                        # response, so v1 traffic is dropped at the boundary.
+                        continue
                     if not _community_allowed(self._communities, community=message.community):
                         continue
 
-                    response = self._build_response_message(message)
-                    if response is None:
+                    try:
+                        response = self._build_response_message(message)
+                        if response is None:
+                            continue
+                        encoded = encode_message(response)
+                    except ProtocolError:
+                        # A simulated value that cannot be encoded must not
+                        # terminate the service loop: record the failure so the
+                        # operator can fix the offending object, then keep serving.
+                        if self._on_encode_error is not None:
+                            self._on_encode_error()
                         continue
 
-                    await self._server.sendto(encode_message(response), datagram.source_address)
+                    await self._server.sendto(encoded, datagram.source_address)
                     if self._on_request is not None:
                         self._on_request(message, response)
                     return None
@@ -281,6 +345,7 @@ class RuntimeService:
             objects=objects,
             bundle=bundle,
             on_request=on_request,
+            on_encode_error=on_encode_error,
         )
 
     async def start_responder(
@@ -304,11 +369,10 @@ class RuntimeService:
             else await self._current_responder_rules()
         )
 
-        await self._shutdown_responder(clear_error=False)
-
         normalized_communities = self._normalize_communities(communities)
+        responder_source: InMemoryObjectSource | None = None
+        responder: V2cResponder | None = None
         try:
-            responder_source: InMemoryObjectSource | None = None
             if prepared_rules:
                 responder_source = InMemoryObjectSource(bundle=bundle)
                 for spec in prepared_objects:
@@ -324,7 +388,17 @@ class RuntimeService:
                 objects=() if responder_source is not None else self._runtime_object_inputs(prepared_objects),
                 bundle=bundle,
             )
-            await responder.open()
+            try:
+                await responder.open()
+            except (OSError, ProtocolError, RuntimeError, TransportError, ValueError):
+                # The only expected bind conflict is a responder already bound
+                # to this exact address (restart-in-place). Free it and retry
+                # the bind once; a failure on a NEW address leaves the running
+                # responder untouched.
+                if not await self._same_responder_address(host=host, port=port):
+                    raise
+                await self._shutdown_responder(clear_error=False)
+                await responder.open()
         except (
             BundleValidationError,
             OSError,
@@ -334,8 +408,17 @@ class RuntimeService:
             UnknownSymbolError,
             ValueError,
         ) as exc:
+            if responder is not None and hasattr(responder, "close"):
+                try:
+                    await responder.close()
+                except (OSError, TransportError):
+                    pass
             raise RuntimeServiceError(str(exc)) from exc
 
+        # The new responder is bound and ready — swap out the previous one so a
+        # restart on a different address does not leave the old responder
+        # serving stale objects on the old port.
+        await self._shutdown_responder(clear_error=False)
         task = asyncio.create_task(
             self._run_responder(responder),
             name="trishul-runtime-responder",
@@ -353,6 +436,8 @@ class RuntimeService:
             self._responder_objects = list(prepared_objects)
             self._responder_rules = list(prepared_rules)
             self._responder_last_error = None
+            self._responder_request_count = 0
+            self._responder_last_activity = None
 
         state = await self.get_state()
         self._append_simulator_activity(
@@ -374,6 +459,39 @@ class RuntimeService:
         self._append_simulator_activity(activity)
         self._emit_runtime_log(str(activity.get("message") or "Simulator request served."))
         schedule_stats_broadcast(settings=self.settings)
+
+    def _record_responder_encode_error(self) -> None:
+        message = (
+            "Simulator response could not be encoded for a requested OID "
+            "(invalid value in the configured objects); the request was dropped."
+        )
+        self._responder_last_error = message
+        self._append_simulator_activity(
+            {
+                "level": "error",
+                "message": message,
+                "request_type": "REQUEST",
+            }
+        )
+        self._emit_runtime_log(message, level="ERROR")
+
+    async def _same_responder_address(self, *, host: str, port: int) -> bool:
+        async with self._lock:
+            binding = self._responder_binding
+            return (
+                binding is not None
+                and binding.port == port
+                and (binding.host == host or host in ("0.0.0.0", ""))
+            )
+
+    async def _same_listener_address(self, *, host: str, port: int) -> bool:
+        async with self._lock:
+            binding = self._listener_binding
+            return (
+                binding is not None
+                and binding.port == port
+                and (binding.host == host or host in ("0.0.0.0", ""))
+            )
 
     async def stop_responder(self) -> dict[str, Any]:
         was_running = False
@@ -586,9 +704,12 @@ class RuntimeService:
     ) -> dict[str, Any]:
         bundle, active_bundle = self._load_active_bundle()
 
-        await self._shutdown_listener(clear_error=False)
-
         normalized_communities = self._normalize_communities(communities)
+
+        # Bind the new listener socket first so a failed bind does not tear
+        # down a running receiver; the existing listener is only swapped out
+        # once the new socket is open.
+        listener: V2cNotificationListener | None = None
         try:
             listener = V2cNotificationListener(
                 host=host,
@@ -596,7 +717,15 @@ class RuntimeService:
                 communities=normalized_communities,
                 bundle=bundle,
             )
-            await listener.open()
+            try:
+                await listener.open()
+            except (OSError, ProtocolError, RuntimeError, TransportError, ValueError):
+                # The only expected conflict is a listener already bound to
+                # this exact address (restart-in-place). Free it and retry once.
+                if not await self._same_listener_address(host=host, port=port):
+                    raise
+                await self._shutdown_listener(clear_error=False)
+                await listener.open()
         except (
             BundleValidationError,
             OSError,
@@ -606,8 +735,14 @@ class RuntimeService:
             UnknownSymbolError,
             ValueError,
         ) as exc:
+            if listener is not None and hasattr(listener, "close"):
+                try:
+                    await listener.close()
+                except (OSError, TransportError):
+                    pass
             raise RuntimeServiceError(str(exc)) from exc
 
+        await self._shutdown_listener(clear_error=False)
         task = asyncio.create_task(
             self._run_listener(listener),
             name="trishul-runtime-listener",

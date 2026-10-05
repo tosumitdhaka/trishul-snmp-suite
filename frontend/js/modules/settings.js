@@ -11,7 +11,19 @@ window.SettingsModule = {
             const stored = sessionStorage.getItem('snmp_username');
             if (stored) usernameEl.value = stored;
         }
+        // Phase 2C — inline validation while typing, not only at save time
+        const timeoutEl = document.getElementById('set-session-timeout');
+        if (timeoutEl) {
+            timeoutEl.addEventListener('input', () => this.validateSessionTimeout());
+            timeoutEl.addEventListener('blur', () => this.validateSessionTimeout());
+        }
+        const sourcesEl = document.getElementById('set-mib-remote-sources');
+        if (sourcesEl) {
+            sourcesEl.addEventListener('input', () => this.validateRemoteSources());
+            sourcesEl.addEventListener('blur', () => this.validateRemoteSources());
+        }
         // Phase 2A — load persisted settings + about info
+        this._settingsLoaded = false;
         this.loadAppSettings();
         this.loadAbout();
     },
@@ -107,9 +119,11 @@ window.SettingsModule = {
     // ------------------------------------------------------------------ //
 
     loadAppSettings: async function() {
+        const msgBox   = document.getElementById('app-settings-msg');
+        const saveBtn  = document.getElementById('set-save-settings-btn');
         try {
             const res = await fetch('/api/settings/app');
-            if (!res.ok) return;
+            if (!res.ok) throw new Error('HTTP ' + res.status);
             const data   = await res.json();
             const simEl  = document.getElementById('set-auto-start-sim');
             const trapEl = document.getElementById('set-auto-start-trap');
@@ -121,12 +135,99 @@ window.SettingsModule = {
             if (toEl)   toEl.value    = data.session_timeout ?? 3600;
             if (fetchEl) fetchEl.checked = !!data.mib_auto_fetch;
             if (sourcesEl) sourcesEl.value = Array.isArray(data.mib_remote_sources) ? data.mib_remote_sources.join('\n') : '';
+            // SET-12: the server re-derives restart_required from the persisted
+            // autostart flags vs runtime state, so the badge survives navigation.
+            const badge = document.getElementById('settings-restart-badge');
+            if (badge) badge.classList.toggle('d-none', !data.restart_required);
+            this._settingsLoaded = true;
+            if (saveBtn) saveBtn.disabled = false;
+            if (msgBox) msgBox.classList.add('d-none');
+            this.validateSessionTimeout();
+            this.validateRemoteSources();
         } catch (err) {
             console.error('Failed to load app settings', err);
+            // Load failure must never be silent: the HTML defaults would be
+            // persisted over the real values on Save. Block Save instead.
+            this._settingsLoaded = false;
+            if (saveBtn) saveBtn.disabled = true;
+            if (msgBox) {
+                TrishulUtils.setAlertState(msgBox, 'danger',
+                    'Failed to load current settings. Saving is disabled to avoid overwriting real values. Reload the page to retry.');
+            }
         }
     },
 
+    // SET-13: flag an out-of-range session timeout as soon as it is typed.
+    validateSessionTimeout: function() {
+        const toEl = document.getElementById('set-session-timeout');
+        if (!toEl) return true;
+        const timeout = parseInt(toEl.value, 10);
+        const valid = Number.isInteger(timeout) && timeout >= 60 && timeout <= 86400;
+        toEl.classList.toggle('is-invalid', !valid);
+        toEl.setAttribute('aria-invalid', valid ? 'false' : 'true');
+        const errorEl = document.getElementById('set-session-timeout-error');
+        if (errorEl) errorEl.classList.toggle('d-none', valid);
+        return valid;
+    },
+
+    // SET-11: mirror the backend's validate_remote_sources rules per line.
+    validateRemoteSourceLine: function(raw) {
+        const value = String(raw).trim();
+        if (!value) return null; // blank lines are dropped, not errors
+        if (!value.includes('@mib@')) {
+            return "must include the '@mib@' placeholder";
+        }
+        if (!/^https?:\/\/[^/\s]+/i.test(value)) {
+            return 'must be an http(s) URL';
+        }
+        return null;
+    },
+
+    // SET-11: mark invalid remote-source lines inline on input/blur.
+    validateRemoteSources: function() {
+        const sourcesEl = document.getElementById('set-mib-remote-sources');
+        if (!sourcesEl) return true;
+        const errorsEl = document.getElementById('set-mib-source-errors');
+        const invalid = [];
+        String(sourcesEl.value || '').split('\n').forEach((raw, index) => {
+            const message = this.validateRemoteSourceLine(raw);
+            if (message) invalid.push({ line: index + 1, message: message });
+        });
+        const valid = invalid.length === 0;
+        sourcesEl.classList.toggle('is-invalid', !valid);
+        sourcesEl.setAttribute('aria-invalid', valid ? 'false' : 'true');
+        if (errorsEl) {
+            errorsEl.innerHTML = '';
+            if (valid) {
+                errorsEl.classList.add('d-none');
+            } else {
+                const list = document.createElement('ul');
+                list.className = 'mb-0 ps-3';
+                invalid.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = 'Line ' + item.line + ': ' + item.message;
+                    list.appendChild(li);
+                });
+                errorsEl.appendChild(list);
+                errorsEl.classList.remove('d-none');
+            }
+        }
+        return valid;
+    },
+
     saveAppSettings: async function() {
+        const saveBtn = document.getElementById('set-save-settings-btn');
+        const originalHTML = saveBtn ? saveBtn.innerHTML : '';
+
+        if (!this._settingsLoaded) {
+            const msgBox = document.getElementById('app-settings-msg');
+            if (msgBox) {
+                TrishulUtils.setAlertState(msgBox, 'danger',
+                    'Settings could not be loaded, so saving is disabled to avoid overwriting real values. Reload the page to retry.');
+            }
+            return;
+        }
+
         const simEl  = document.getElementById('set-auto-start-sim');
         const trapEl = document.getElementById('set-auto-start-trap');
         const toEl   = document.getElementById('set-session-timeout');
@@ -141,16 +242,21 @@ window.SettingsModule = {
             .map(line => line.trim())
             .filter(Boolean);
         const autoFetchEnabled = fetchEl?.checked ?? false;
-        if (isNaN(timeout) || timeout < 60 || timeout > 86400) {
+        if (!this.validateSessionTimeout()) {
             TrishulUtils.setAlertState(msgBox, 'danger', 'Session timeout must be between 60 and 86400 seconds.');
             return;
         }
-        if (sources.some(source => !source.includes('@mib@'))) {
-            TrishulUtils.setAlertState(msgBox, 'danger', 'Every remote source entry must include @mib@.');
+        if (!this.validateRemoteSources()) {
+            TrishulUtils.setAlertState(msgBox, 'danger', 'Fix the highlighted remote source lines before saving.');
             return;
         }
 
         msgBox.classList.add('d-none');
+
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Saving...';
+        }
 
         try {
             const res = await fetch('/api/settings/app', {
@@ -176,6 +282,11 @@ window.SettingsModule = {
         } catch (err) {
             console.error(err);
             TrishulUtils.setAlertState(msgBox, 'danger', 'Connection error. Please try again.');
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalHTML;
+            }
         }
     },
 
@@ -235,6 +346,13 @@ window.SettingsModule = {
     // ------------------------------------------------------------------ //
 
     loadAbout: async function() {
+        await Promise.all([
+            this.loadAppMeta(),
+            this.loadBundleStatus(),
+        ]);
+    },
+
+    loadAppMeta: async function() {
         try {
             const res = await fetch('/api/meta');
             if (!res.ok) return;
@@ -249,6 +367,30 @@ window.SettingsModule = {
             set('about-app-desc',    data.description);
         } catch (err) {
             console.error('Failed to load app meta', err);
+        }
+    },
+
+    // SET-14: About card shows the active MIB bundle identity from the status
+    // payload (bundle label, producer version, module count) plus a subtle
+    // hint pointing at the MIB Manager when a recompile is recommended.
+    loadBundleStatus: async function() {
+        try {
+            const res = await fetch('/api/mibs/status');
+            if (!res.ok) return;
+            const data = await res.json();
+            const set  = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val || '\u2014';
+            };
+            set('about-bundle-label',    data.active_bundle_label);
+            set('about-bundle-producer', data.producer_version);
+            set('about-bundle-modules',  typeof data.loaded === 'number' ? String(data.loaded) : '');
+            const hint = document.getElementById('about-bundle-hint');
+            if (hint) {
+                hint.classList.toggle('d-none', !data.recompile_recommended);
+            }
+        } catch (err) {
+            console.error('Failed to load MIB bundle status', err);
         }
     }
 };

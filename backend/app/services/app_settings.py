@@ -2,10 +2,47 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 from app.core.config import Settings, get_settings
 from app.db.session import create_session_factory
 from app.models import AppSetting
+
+_REMOTE_SOURCE_PLACEHOLDER = "@mib@"
+
+# Simple per-database resolved-values cache (SET-05). Settings change rarely
+# but are read on every authenticated request, so cache the resolved values
+# and invalidate the entry whenever update_settings persists a change.
+_SETTINGS_READ_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def reset_settings_read_cache() -> None:
+    """Drop every cached settings snapshot (used by tests and restart flows)."""
+    _SETTINGS_READ_CACHE.clear()
+
+
+def validate_remote_sources(entries: list[str]) -> tuple[list[str], str | None]:
+    """Validate approved remote MIB source URL templates.
+
+    Each entry must be a non-empty HTTP(S) URL template containing the
+    ``@mib@`` placeholder, matching how tsmi's HttpReader consumes them.
+    Blank lines are dropped. Returns ``(normalized_entries, None)`` on success
+    or ``([], error_message)`` for the first invalid entry.
+    """
+    normalized: list[str] = []
+    for entry in entries:
+        value = str(entry).strip()
+        if not value:
+            continue
+        if _REMOTE_SOURCE_PLACEHOLDER not in value:
+            return [], (
+                f"Remote source '{value}' must include the '@mib@' placeholder."
+            )
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return [], f"Remote source '{value}' must be an http(s) URL."
+        normalized.append(value)
+    return normalized, None
 
 
 class AppSettingsServiceError(RuntimeError):
@@ -93,6 +130,7 @@ class AppSettingsService:
                 else:
                     row.value_json = normalized_value
             session.commit()
+            _SETTINGS_READ_CACHE.pop(self.settings.database_url, None)
             values = self._resolved_values(session)
             return {
                 "items": [self._item_payload(key, values[key]) for key in self._definitions],
@@ -100,6 +138,10 @@ class AppSettingsService:
             }
 
     def _resolved_values(self, session) -> dict[str, Any]:
+        cache_key = self.settings.database_url
+        cached = _SETTINGS_READ_CACHE.get(cache_key)
+        if cached is not None:
+            return dict(cached)
         values: dict[str, Any] = {}
         for key, definition in self._definitions.items():
             row = session.get(AppSetting, key)
@@ -110,6 +152,7 @@ class AppSettingsService:
                 values[key] = self._normalize_value(key, row.value_json)
             except AppSettingsServiceError:
                 values[key] = definition["default"]
+        _SETTINGS_READ_CACHE[cache_key] = dict(values)
         return values
 
     def _item_payload(self, key: str, value: Any) -> dict[str, Any]:

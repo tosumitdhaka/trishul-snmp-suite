@@ -34,7 +34,6 @@
                         <input type="text" id="ts-trap-select" class="form-control form-control-sm"
                                list="ts-trap-options" placeholder="Search trap library..."
                                autocomplete="off"
-                               oninput="TrapsModule.onTrapSelected()"
                                onchange="TrapsModule.onTrapSelected()">
                         <datalist id="ts-trap-options"></datalist>
                     </div>
@@ -52,6 +51,15 @@
                                 <i class="fas fa-search"></i>
                             </button>
                         </div>
+                    </div>
+
+                    <!-- Validation Error (TRP-18): sits above the scrollable
+                         varbind panel so send failures stay visible even when
+                         the panel overflows; sendTrap() also scrolls the first
+                         invalid row into view. -->
+                    <div id="ts-error" class="alert alert-danger py-2 small d-none mb-3" role="alert">
+                        <i class="fas fa-exclamation-circle me-1"></i>
+                        <span id="ts-error-text"></span>
                     </div>
 
                     <!-- VarBinds Section -->
@@ -76,14 +84,19 @@
                         </div>
                     </div>
 
-                    <!-- Validation Error -->
-                    <div id="ts-error" class="alert alert-danger py-2 small d-none mb-3" role="alert">
-                        <i class="fas fa-exclamation-circle me-1"></i>
-                        <span id="ts-error-text"></span>
+                    <!-- Send Result (ack / success) -->
+                    <div id="ts-result" class="alert alert-success py-2 small d-none mb-3" role="status">
+                        <i class="fas fa-check-circle me-1"></i>
+                        <span id="ts-result-text"></span>
                     </div>
 
                     <!-- Action Buttons -->
-                    <div class="d-flex justify-content-end gap-2">
+                    <div class="d-flex justify-content-end align-items-center gap-2 flex-wrap">
+                        <div class="form-check form-switch mb-0 me-auto">
+                            <input class="form-check-input" type="checkbox" id="ts-inform-toggle"
+                                   aria-describedby="ts-inform-hint">
+                            <label class="form-check-label small app-form-switch-label" for="ts-inform-toggle">Send as Inform</label>
+                        </div>
                         <button type="button" class="btn btn-sm btn-app-secondary-solid"
                                 onclick="TrapsModule.resetForm()">
                             <i class="fas fa-redo"></i> Reset
@@ -91,6 +104,9 @@
                         <button type="submit" class="btn btn-sm btn-app-primary" id="btn-send-trap">
                             <i class="fas fa-paper-plane"></i> Send Trap
                         </button>
+                    </div>
+                    <div class="small text-muted mt-1" id="ts-inform-hint">
+                        Inform requests wait for the receiver's acknowledgement before reporting success.
                     </div>
                 </form>
             </div>
@@ -190,6 +206,26 @@
                         <i class="fas fa-times"></i>
                     </button>
                     <button type="button" class="btn btn-sm btn-app-secondary"
+                            onclick="TrapsModule.loadTraps()"
+                            title="Refresh traps" aria-label="Refresh traps">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                    <button type="button" class="btn btn-sm btn-app-secondary" id="btn-tr-pause"
+                            onclick="TrapsModule.toggleLivePause()"
+                            title="Pause live updates" aria-label="Pause live updates">
+                        <i class="fas fa-pause"></i> Pause
+                    </button>
+                    <button type="button" class="btn btn-sm btn-app-secondary"
+                            onclick="TrapsModule.showDecodeModal()"
+                            title="Decode an offline trap payload" aria-label="Decode trap payload">
+                        <i class="fas fa-code"></i> Decode
+                    </button>
+                    <button type="button" class="btn btn-sm btn-app-secondary"
+                            onclick="TrapsModule.exportTrapsCsv()"
+                            title="Export current view as CSV" aria-label="Export current view as CSV">
+                        <i class="fas fa-file-csv"></i> CSV
+                    </button>
+                    <button type="button" class="btn btn-sm btn-app-secondary"
                             onclick="TrapsModule.downloadAllTraps()"
                             title="Download all traps" aria-label="Download all traps">
                         <i class="fas fa-download"></i> Download
@@ -237,6 +273,21 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Pager (RCV-05): older/newer paging over the persisted history -->
+            <div class="d-flex align-items-center justify-content-between gap-2 px-3 py-2 small border-top d-none" id="tr-pager">
+                <span id="tr-pager-info" class="text-muted"></span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-xs btn-app-secondary" id="btn-tr-newer"
+                            onclick="TrapsModule.pageTraps('newer')" disabled>
+                        <i class="fas fa-chevron-left"></i> Newer
+                    </button>
+                    <button type="button" class="btn btn-xs btn-app-secondary" id="btn-tr-older"
+                            onclick="TrapsModule.pageTraps('older')">
+                        Older <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
             </div>
         </div>
     </div>

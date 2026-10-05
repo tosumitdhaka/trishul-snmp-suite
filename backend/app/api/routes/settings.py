@@ -5,7 +5,12 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.app_settings import AppSettingsService
+from app.services.app_settings import (
+    AppSettingsService,
+    AppSettingsServiceError,
+    validate_remote_sources,
+)
+from app.services.realtime import broadcast_reauth_required
 from app.services.session import SessionService, SessionServiceError
 from app.services.state_store import (
     StateStore,
@@ -90,12 +95,12 @@ def check_session(x_auth_token: str | None = Header(default=None)) -> dict[str, 
 
 
 @router.post("/settings/auth")
-def update_auth(
+async def update_auth(
     body: AuthBody,
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, object]:
     try:
-        return _session().update_credentials(
+        result = _session().update_credentials(
             token=x_auth_token,
             current_password=body.current_password,
             username=body.username,
@@ -103,10 +108,14 @@ def update_auth(
         )
     except SessionServiceError as exc:
         _session_http(exc)
+    # The credential update just wiped every session row. Nudge every live WS
+    # client to log out now instead of waiting for its next REST 401.
+    await broadcast_reauth_required()
+    return result
 
 
 @router.get("/settings/app")
-def get_settings_app(
+async def get_settings_app(
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _require_auth(x_auth_token)
@@ -120,18 +129,45 @@ def get_settings_app(
         "session_timeout": int(values.get("session_timeout_seconds", 3600)),
         "mib_auto_fetch": bool(snap[_MIB_AUTO_FETCH_KEY]),
         "mib_remote_sources": list(snap[_MIB_REMOTE_SOURCES_KEY]),
+        # SET-12: persist the restart-required badge across navigation by
+        # re-deriving it from the SET-01 autostart-vs-runtime state on load.
+        "restart_required": await _restart_required(),
     }
 
 
+async def _restart_required() -> bool:
+    """True when a backend restart would change autostart behavior.
+
+    Compares the persisted autostart flags against the actual runtime state:
+    a restart is required when a service would start on boot that is not
+    running right now, or when a running service would be stopped by boot.
+    """
+    from app.services.runtime import get_runtime_service
+
+    state = _state()
+    snap = state.snapshot()
+    runtime_state = await get_runtime_service().get_state()
+    sim_running = bool(runtime_state["responder"]["running"])
+    trap_running = bool(runtime_state["notifications"]["listener"]["running"])
+    sim_flag = bool(snap[_AUTO_START_SIMULATOR_KEY])
+    trap_flag = bool(snap[_AUTO_START_TRAP_RECEIVER_KEY])
+    return (sim_flag != sim_running) or (trap_flag != trap_running)
+
+
 @router.post("/settings/app")
-def update_settings_app(
+async def update_settings_app(
     body: SettingsBody,
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _require_auth(x_auth_token)
     state = _state()
     app_settings = _app_settings()
-    from app.services.app_settings import AppSettingsServiceError
+    # Validate every input before persisting anything so a 400 (e.g. for
+    # malformed remote sources) never leaves the other settings already saved.
+    raw_sources = body.mib_remote_sources if isinstance(body.mib_remote_sources, list) else []
+    normalized_sources, source_error = validate_remote_sources(raw_sources)
+    if source_error is not None:
+        raise HTTPException(status_code=400, detail=source_error)
     try:
         app_settings.update_settings({"session_timeout_seconds": int(body.session_timeout)})
     except AppSettingsServiceError as exc:
@@ -139,9 +175,8 @@ def update_settings_app(
     state.set_value(_AUTO_START_SIMULATOR_KEY, bool(body.auto_start_simulator))
     state.set_value(_AUTO_START_TRAP_RECEIVER_KEY, bool(body.auto_start_trap_receiver))
     state.set_value(_MIB_AUTO_FETCH_KEY, bool(body.mib_auto_fetch))
-    raw_sources = body.mib_remote_sources if isinstance(body.mib_remote_sources, list) else []
-    state.set_value(_MIB_REMOTE_SOURCES_KEY, [s.strip() for s in raw_sources if s.strip()])
-    return {**get_settings_app(x_auth_token=x_auth_token), "restart_required": False}
+    state.set_value(_MIB_REMOTE_SOURCES_KEY, normalized_sources)
+    return await get_settings_app(x_auth_token=x_auth_token)
 
 
 @router.get("/healthz/ui")

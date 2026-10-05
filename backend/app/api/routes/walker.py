@@ -21,6 +21,8 @@ class WalkBody(BaseModel):
     parse: bool = True
     use_mibs: bool = True
     json_format: str = Field("flat", min_length=1)
+    timeout_ms: int = Field(2000, ge=500, le=10000)
+    retries: int = Field(1, ge=0, le=5)
 
 
 def _require_auth(token: str | None) -> None:
@@ -47,6 +49,8 @@ async def execute_walk(
             parse=body.parse,
             use_mibs=body.use_mibs,
             json_format=body.json_format,
+            timeout_ms=body.timeout_ms,
+            retries=body.retries,
             settings=get_settings(),
             state=get_state_store(),
             runtime_service=get_runtime_service(),

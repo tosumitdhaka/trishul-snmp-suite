@@ -60,6 +60,13 @@ class ShellMibSourceService:
         self.mib_auto_fetch_key = mib_auto_fetch_key
         self.mib_remote_sources_key = mib_remote_sources_key
         self._source_module_path_cache: dict[str, Path | None] = {}
+        self._source_path_cache_warmed = False
+        # MGR-05: the upload inventory scan reads every stored file once to
+        # extract the declared MIB name (and, since 2.2.0-C, its IMPORTS).
+        # The scan result is cached so `/api/mibs/status` does not re-read
+        # each file for the warm path cache or the per-row import lists.
+        self._source_inventory_cache: list[dict[str, Any]] | None = None
+        self._imports_cache: dict[Path, list[str]] = {}
 
     def analyze_upload_batch(
         self,
@@ -401,6 +408,12 @@ class ShellMibSourceService:
         return self.source_group_precedence_key(relative)
 
     def uploaded_source_inventory(self) -> list[dict[str, Any]]:
+        # MGR-05: the scan result is cached and reused by every caller within a
+        # cache generation (status, export, duplicate resolution, warm path
+        # cache). Mutations reset the caches, so the entries never go stale
+        # across an upload/delete/fetch cycle.
+        if self._source_inventory_cache is not None:
+            return list(self._source_inventory_cache)
         inventory: list[dict[str, Any]] = []
         for path in self.iter_source_files(self.upload_dir(), recursive=True):
             relative_path = self.relative_upload_path(path)
@@ -410,15 +423,44 @@ class ShellMibSourceService:
                 text = path.read_text(errors="ignore")
             except OSError:
                 text = ""
-            inventory.append(
-                {
-                    "path": path,
-                    "relative_path": relative_path,
-                    "group": self.relative_path_group(relative_path),
-                    "mib_name": self.extract_mib_name(path.name, text),
-                }
-            )
-        return inventory
+            imports = self.extract_imported_modules(text)
+            entry = {
+                "path": path,
+                "relative_path": relative_path,
+                "group": self.relative_path_group(relative_path),
+                "mib_name": self.extract_mib_name(path.name, text),
+                # One read per file carries both the declared name and the
+                # IMPORTS list, so downstream consumers never re-read the file.
+                "imports": imports,
+            }
+            inventory.append(entry)
+            self._imports_cache[path.resolve()] = imports
+        self._source_inventory_cache = inventory
+        return list(inventory)
+
+    def imports_for_source(self, source_path: Path | None) -> list[str]:
+        """IMPORTS for a source path, read at most once per cache generation.
+
+        Managed upload paths are covered by the inventory scan; any other path
+        (bundled/compiled/legacy run dir) is read on first use and memoized.
+        """
+        if source_path is None:
+            return []
+        try:
+            resolved = source_path.resolve()
+        except (OSError, RuntimeError):
+            resolved = source_path
+        cached = self._imports_cache.get(resolved)
+        if cached is not None:
+            return list(cached)
+        try:
+            text = source_path.read_text(errors="ignore")
+        except OSError:
+            imports: list[str] = []
+        else:
+            imports = self.extract_imported_modules(text)
+        self._imports_cache[resolved] = imports
+        return list(imports)
 
     def iter_source_files(self, directory: Path, *, recursive: bool = False) -> list[Path]:
         if not directory.exists():
@@ -496,7 +538,13 @@ class ShellMibSourceService:
             current = current.parent
 
     def reset_source_caches(self) -> None:
+        # Clear the warmed flag too: _warm_source_path_cache() is a no-op while
+        # the flag is set, so leaving it behind would make every post-reset
+        # lookup miss against a cache that never repopulates.
+        self._source_path_cache_warmed = False
         self._source_module_path_cache.clear()
+        self._source_inventory_cache = None
+        self._imports_cache.clear()
 
     def relative_upload_path(self, path: Path) -> str | None:
         try:
@@ -821,30 +869,38 @@ class ShellMibSourceService:
     def _warm_source_path_cache(self) -> None:
         """Scan all upload directories once and build a complete mib_name→path index.
 
-        For each file: indexes by stem (fast) AND reads content to extract the
-        declared MIB name. After this runs, source_path_for_module will always
-        hit the cache — no per-module disk scan needed.
+        The upload-dir portion reuses the inventory scan (MGR-05) — the
+        declared MIB name is already extracted there, so no second file read.
+        Bundled sources are read once and indexed by stem and declared name.
+        After this runs, source_path_for_module will always hit the cache — no
+        per-module disk scan needed.
         """
         if getattr(self, "_source_path_cache_warmed", False):
             return
         self._source_path_cache_warmed = True
 
-        for directory in self._source_search_directories():
-            if not directory.exists():
-                continue
-            for path in self.iter_source_files(directory, recursive=True):
-                stem = path.stem
-                # Always index by stem
-                if stem not in self._source_module_path_cache:
-                    self._source_module_path_cache[stem] = path
-                # Also index by declared MIB name from content
-                try:
-                    text = path.read_text(errors="ignore")
-                    declared = self.extract_mib_name(path.name, text)
-                    if declared and declared not in self._source_module_path_cache:
-                        self._source_module_path_cache[declared] = path
-                except OSError:
-                    pass
+        for entry in self.uploaded_source_inventory():
+            path = entry["path"]
+            stem = path.stem
+            # Always index by stem
+            if stem not in self._source_module_path_cache:
+                self._source_module_path_cache[stem] = path
+            # Also index by declared MIB name from the inventory scan
+            declared = str(entry.get("mib_name") or "").strip()
+            if declared and declared not in self._source_module_path_cache:
+                self._source_module_path_cache[declared] = path
+
+        for path in self.iter_source_files(self.bundled_mibs_dir(), recursive=True):
+            stem = path.stem
+            if stem not in self._source_module_path_cache:
+                self._source_module_path_cache[stem] = path
+            try:
+                text = path.read_text(errors="ignore")
+                declared = self.extract_mib_name(path.name, text)
+                if declared and declared not in self._source_module_path_cache:
+                    self._source_module_path_cache[declared] = path
+            except OSError:
+                pass
 
     def source_path_for_module(
         self,

@@ -6,6 +6,10 @@ window.WalkerModule = {
     walkHistory: [],
     MAX_HISTORY: 20,
     filteredData: null,
+    _progressHideTimer: null,
+    _activeWalkController: null,
+    _sortColumn: null,
+    _sortDir: 'asc',
     EMPTY_OUTPUT_HTML: '<span class="fs-2 mb-3 d-block text-center empty-state-icon"><i class="fas fa-walking"></i></span><h3 class="h6 fw-semibold d-block text-center mb-1 empty-state-title lh-base">No results yet</h3><span class="d-block text-center empty-state-copy">Configure a target and run a walk.</span>',
 
     init: function() { 
@@ -13,7 +17,20 @@ window.WalkerModule = {
         this.loadRecentTargets();
         this.loadWalkHistory();
         this.renderHistory();
-        
+        this.resetSort();
+
+        // Ctrl/Cmd+Enter anywhere in the config card runs the walk; plain
+        // Enter submits via the form wrapper.
+        const configCard = document.getElementById('walk-config-card');
+        if (configCard) {
+            configCard.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    this.execute();
+                }
+            });
+        }
+
         // Check if OID was passed from browser
         const browserOid = sessionStorage.getItem('walkerOid');
         if (browserOid) {
@@ -22,10 +39,28 @@ window.WalkerModule = {
             TrishulUtils.showNotification(`OID selected: ${browserOid}`, 'info');
         }
         
-        // Restore last result if exists
+        // Restore last result if exists. Corrupt storage must never abort
+        // page init — drop it and start from the empty state instead.
         const lastResult = sessionStorage.getItem('walkerLastResult');
+        let parsed = null;
         if (lastResult) {
-            const parsed = JSON.parse(lastResult);
+            try {
+                parsed = JSON.parse(lastResult);
+            } catch (e) {
+                console.warn('Discarding unreadable walkerLastResult:', e);
+            }
+            if (!parsed || typeof parsed !== 'object') {
+                if (lastResult) {
+                    try {
+                        sessionStorage.removeItem('walkerLastResult');
+                    } catch (e) {
+                        console.warn('Failed to remove unreadable walkerLastResult:', e);
+                    }
+                }
+                parsed = null;
+            }
+        }
+        if (parsed) {
             this.lastData = parsed.data;
             this.lastDisplayMode = parsed.mode;
             this.lastRawLines = parsed.rawLines;
@@ -42,6 +77,14 @@ window.WalkerModule = {
                 const jsonLayout = this.normalizeJsonLayout(parsed.json_format || 'flat');
                 jsonLayoutSelect.value = jsonLayout;
                 this.lastJsonFormat = jsonLayout;
+            }
+            const timeoutInput = document.getElementById('walk-timeout');
+            if (timeoutInput && Number.isFinite(parsed.timeout_ms)) {
+                timeoutInput.value = parsed.timeout_ms;
+            }
+            const retriesInput = document.getElementById('walk-retries');
+            if (retriesInput && Number.isFinite(parsed.retries)) {
+                retriesInput.value = parsed.retries;
             }
             this.toggleOptions();
             this.restoreLastResult();
@@ -110,6 +153,27 @@ window.WalkerModule = {
             return;
         }
 
+        if (state === 'loading') {
+            // Pane-level loading state: the progress bar lives in the config
+            // card, so the results pane carries its own feedback while the
+            // walk runs instead of going blank.
+            output.innerHTML = TrishulUtils.buildPanelPlaceholder({
+                state: 'loading',
+                title: 'Walking target…',
+                copy: 'Results will appear here when the walk completes.',
+            });
+            return;
+        }
+
+        if (state === 'cancelled') {
+            output.innerHTML = TrishulUtils.buildPanelPlaceholder({
+                title: 'Walk cancelled',
+                copy: 'The walk was stopped before completing. Adjust the target and re-run.',
+                icon: 'fa-ban',
+            });
+            return;
+        }
+
         if (state === 'ready') {
             this.renderData();
             return;
@@ -133,9 +197,21 @@ window.WalkerModule = {
 
         if (Array.isArray(data)) {
             if (data.length === 0) {
+                // Filter-miss states use the shared placeholder pattern —
+                // same component as every other panel on the page.
                 return Array.isArray(this.filteredData)
-                    ? '<span class="d-block text-center text-muted py-3">No results match your search.</span>'
-                    : '<span class="d-block text-center text-muted py-3">No results to display.</span>';
+                    ? TrishulUtils.buildPanelPlaceholder({
+                        title: 'No matching results',
+                        copy: 'No rows in this walk match the search. Adjust or clear the search to see the results again.',
+                        icon: 'fa-search',
+                        compact: true,
+                    })
+                    : TrishulUtils.buildPanelPlaceholder({
+                        title: 'No results to display',
+                        copy: 'Run a walk to populate this pane.',
+                        icon: 'fa-walking',
+                        compact: true,
+                    });
             }
             if (typeof data[0] === 'object' && data[0] !== null && !Array.isArray(data[0])) {
                 return this.buildObjectTable(data);
@@ -149,6 +225,76 @@ window.WalkerModule = {
         return `<pre class="m-0">${TrishulUtils.escapeHtml(text)}</pre>`;
     },
 
+    /**
+     * Count badge reflects what is on screen: the filtered row count while a
+     * search is active (info tone marks the filtered state), the walk total
+     * otherwise.
+     */
+    updateCountBadge: function() {
+        const countBadge = document.getElementById('walk-count');
+        if (!countBadge) return;
+        const isFiltered = Array.isArray(this.filteredData);
+        const data = isFiltered ? this.filteredData : this.lastData;
+        let count = 0;
+        if (Array.isArray(data)) {
+            count = data.length;
+        } else if (data && typeof data === 'object') {
+            count = Object.keys(data).length;
+        }
+        countBadge.className = isFiltered
+            ? 'badge app-badge is-info'
+            : 'badge badge-soft-light';
+        countBadge.textContent = `${count} items`;
+    },
+
+    // ==================== Column Sorting ====================
+
+    toggleSort: function(columnLabel) {
+        if (this._sortColumn === columnLabel) {
+            this._sortDir = this._sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            this._sortColumn = columnLabel;
+            this._sortDir = 'asc';
+        }
+        this.renderData();
+    },
+
+    resetSort: function() {
+        this._sortColumn = null;
+        this._sortDir = 'asc';
+    },
+
+    // Sortable header cell — same pattern as the traps receiver table:
+    // keyboard-operable button, aria-sort, fa-sort indicator.
+    sortableTh: function(label) {
+        const esc = TrishulUtils.escapeHtml;
+        const active = this._sortColumn === label;
+        const ariaSort = active ? (this._sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+        const icon = active ? (this._sortDir === 'asc' ? 'fa-sort-up' : 'fa-sort-down') : 'fa-sort';
+        return `<th scope="col" aria-sort="${ariaSort}">` +
+            `<button type="button" class="th-sort-btn bg-transparent border-0 p-0 text-reset fw-bold" ` +
+            `onclick="WalkerModule.toggleSort(${esc(JSON.stringify(label))})">` +
+            `${esc(label)} <i class="fas ${icon} th-sort-icon" aria-hidden="true"></i>` +
+            `</button></th>`;
+    },
+
+    sortRowsForColumn: function(rows, column) {
+        if (!column) return rows;
+        const dir = this._sortDir === 'asc' ? 1 : -1;
+        const key = column.sortGet || column.get;
+        return rows.slice().sort((a, b) => {
+            const av = key(a);
+            const bv = key(b);
+            if (typeof av === 'number' && typeof bv === 'number') {
+                return (av - bv) * dir;
+            }
+            if (av == null && bv == null) return 0;
+            if (av == null) return 1;
+            if (bv == null) return -1;
+            return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+        });
+    },
+
     buildRawLineTable: function(lines) {
         const esc = TrishulUtils.escapeHtml;
         const rows = lines.map(line => {
@@ -158,17 +304,22 @@ window.WalkerModule = {
             return { oid: text.slice(0, sep), value: text.slice(sep + 3) };
         });
 
+        const columns = [
+            { label: 'OID', get: r => r.oid },
+            { label: 'Value', get: r => r.value },
+        ];
+        const sortedRows = this.sortRowsForColumn(rows, columns.find(c => c.label === this._sortColumn));
+
         return `
             <table class="table table-sm table-hover mb-0 table-dense">
                 <caption class="visually-hidden">Walk results</caption>
                 <thead class="table-light sticky-top">
                     <tr>
-                        <th scope="col">OID</th>
-                        <th scope="col">Value</th>
+                        ${columns.map(c => this.sortableTh(c.label)).join('')}
                     </tr>
                 </thead>
                 <tbody>
-                    ${rows.map(r => `<tr><td>${esc(r.oid)}</td><td>${esc(r.value)}</td></tr>`).join('')}
+                    ${sortedRows.map(r => `<tr><td>${esc(r.oid)}</td><td>${esc(r.value)}</td></tr>`).join('')}
                 </tbody>
             </table>`;
     },
@@ -181,7 +332,12 @@ window.WalkerModule = {
         if (first && ('oid' in first || 'symbolic' in first)) {
             const hasType = rows.some(r => r.type != null && String(r.type) !== '');
             columns = [
-                { label: 'OID', get: r => r.symbolic || r.oid },
+                {
+                    label: 'OID',
+                    get: r => r.symbolic || r.oid,
+                    // Numeric OID on hover when a symbolic name is displayed.
+                    title: r => (r.symbolic && r.oid && r.symbolic !== r.oid) ? String(r.oid) : '',
+                },
                 ...(hasType ? [{ label: 'Type', get: r => r.type }] : []),
                 {
                     label: 'Value',
@@ -193,6 +349,8 @@ window.WalkerModule = {
                         units: r.units,
                         inline: true
                     }),
+                    // sort on the raw value, not the formatted HTML cell
+                    sortGet: r => r.value,
                 },
             ];
         } else if (first && 'metric_name' in first) {
@@ -203,29 +361,33 @@ window.WalkerModule = {
                 { label: 'Category', get: r => r.metric_category },
                 { label: 'Agent', get: r => r.agent_host },
                 { label: 'Timestamp', get: r => r.timestamp },
-                { label: 'Labels', get: r => r.labels },
+                { label: 'Labels', get: r => r.labels, sortGet: r => JSON.stringify(r.labels || {}) },
             ];
         } else {
             columns = Object.keys(first || {}).map(k => ({ label: k, get: r => r[k] }));
         }
 
         const cell = (r, c) => {
-            if (c.html) return c.get(r) || '';
+            const titleText = c.title ? c.title(r) : '';
+            const attrs = titleText ? ` title="${esc(titleText)}"` : '';
+            if (c.html) return `<td${attrs}>${c.get(r) || ''}</td>`;
             const v = c.get(r);
-            if (v === null || v === undefined) return '';
-            return esc(typeof v === 'object' ? JSON.stringify(v) : String(v));
+            if (v === null || v === undefined) return `<td${attrs}></td>`;
+            return `<td${attrs}>${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</td>`;
         };
+
+        const sortedRows = this.sortRowsForColumn(rows, columns.find(c => c.label === this._sortColumn));
 
         return `
             <table class="table table-sm table-hover mb-0 table-dense">
                 <caption class="visually-hidden">Walk results</caption>
                 <thead class="table-light sticky-top">
                     <tr>
-                        ${columns.map(c => `<th scope="col">${esc(c.label)}</th>`).join('')}
+                        ${columns.map(c => this.sortableTh(c.label)).join('')}
                     </tr>
                 </thead>
                 <tbody>
-                    ${rows.map(r => `<tr>${columns.map(c => `<td>${cell(r, c)}</td>`).join('')}</tr>`).join('')}
+                    ${sortedRows.map(r => `<tr>${columns.map(c => `<td>${cell(r, c)}</td>`).join('')}</tr>`).join('')}
                 </tbody>
             </table>`;
     },
@@ -246,7 +408,7 @@ window.WalkerModule = {
         }
     },
 
-    saveWalkHistory: function(target, port, oid, result, mode, count, useMibs, jsonFormat) {
+    saveWalkHistory: function(target, port, oid, result, mode, count, useMibs, jsonFormat, timeoutMs, retries) {
         const entry = {
             id: Date.now(),
             timestamp: new Date().toISOString(),
@@ -257,7 +419,9 @@ window.WalkerModule = {
             mode: mode,
             count: count,
             use_mibs: useMibs !== false,
-            json_format: this.normalizeJsonLayout(jsonFormat || 'flat')
+            json_format: this.normalizeJsonLayout(jsonFormat || 'flat'),
+            timeout_ms: Number.isInteger(timeoutMs) ? timeoutMs : 2000,
+            retries: Number.isInteger(retries) ? retries : 1
         };
         
         this.walkHistory.unshift(entry);
@@ -304,9 +468,9 @@ window.WalkerModule = {
             const isLabelFallback = item.mode === 'label';
             const jsonLayout = this.normalizeJsonLayout(item.json_format || 'flat');
             const isGrouped = isParsed && jsonLayout === 'grouped';
-            const modeBadgeClass = isLabelFallback
-                ? 'app-badge is-warning'
-                : (isGrouped ? 'app-badge is-info' : (isParsed ? 'app-badge is-success' : 'app-badge is-neutral'));
+            // Tone carries meaning only: modes are neutral, the warning tone
+            // is reserved for the degraded label-fallback output.
+            const modeBadgeClass = isLabelFallback ? 'app-badge is-warning' : 'app-badge is-neutral';
             const modeBadgeLabel = isLabelFallback
                 ? 'Label View'
                 : (isGrouped ? 'Grouped JSON' : (isParsed ? 'Flat JSON' : 'Raw'));
@@ -330,7 +494,7 @@ window.WalkerModule = {
                             </small>
                         </div>
                         <div class="text-end ms-2">
-                            <span class="badge app-badge is-info">${resultCount} items</span>
+                            <span class="badge badge-soft-light">${resultCount} items</span>
                             <!-- BUG FIX: was event.stopPropagation() only.
                                  stopPropagation() stops bubbling but does NOT cancel
                                  the parent <a href="#"> default navigation — the SPA
@@ -363,7 +527,24 @@ window.WalkerModule = {
         if (jsonLayoutSelect) {
             jsonLayoutSelect.value = this.normalizeJsonLayout(item.json_format || 'flat');
         }
+        const timeoutInput = document.getElementById('walk-timeout');
+        if (timeoutInput && Number.isInteger(item.timeout_ms)) {
+            timeoutInput.value = item.timeout_ms;
+        }
+        const retriesInput = document.getElementById('walk-retries');
+        if (retriesInput && Number.isInteger(item.retries)) {
+            retriesInput.value = item.retries;
+        }
         this.toggleOptions();
+        
+        // Drop any active result filter — the stale filteredData would
+        // otherwise show the previous walk's rows for the loaded walk.
+        this.filteredData = null;
+        const searchInput = document.getElementById('walk-result-search');
+        if (searchInput) searchInput.value = '';
+        const clearBtn = document.getElementById("btn-clear-result-search");
+        if (clearBtn) clearBtn.classList.add('d-none');
+        this.resetSort();
         
         // Restore result
         this.lastData = item.result;
@@ -435,7 +616,16 @@ window.WalkerModule = {
 
     // ==================== Walk Execution ====================
 
-    execute: async function() {
+    execute: async function(e) {
+        // Submit-event friendly: called from the form (plain Enter), from
+        // Ctrl/Cmd+Enter, and from the Run button's submit.
+        if (e && typeof e.preventDefault === 'function') {
+            e.preventDefault();
+        }
+        // The disabled submit button blocks plain Enter while a walk runs,
+        // but the Ctrl/Cmd+Enter path bypasses it — guard here too so a
+        // second concurrent walk can't clobber the active controller.
+        if (this._activeWalkController) return;
         const btn = document.getElementById("btn-walk-run");
         const countBadge = document.getElementById("walk-count");
         const progressEl = document.getElementById("walk-progress");
@@ -450,7 +640,7 @@ window.WalkerModule = {
         
         // Get Inputs
         const target = document.getElementById("walk-target").value.trim();
-        const port = parseInt(document.getElementById("walk-port").value) || 161;
+        const portInput = document.getElementById("walk-port").value.trim();
         const community = document.getElementById("walk-comm").value.trim() || "public";
         const oid = document.getElementById("walk-oid").value.trim();
         const parse = document.getElementById("walk-parse-toggle").checked;
@@ -460,6 +650,29 @@ window.WalkerModule = {
             ? this.normalizeJsonLayout(jsonLayoutEl && jsonLayoutEl.value ? jsonLayoutEl.value : 'flat')
             : 'flat';
 
+        // Validate target (client-side, so an empty host never reaches the API)
+        if (!target) {
+            errorText.textContent = "Please enter a target host or IP address";
+            errorEl.classList.remove('d-none');
+            document.getElementById("walk-target").focus();
+            return;
+        }
+
+        // Validate port (an out-of-range number would otherwise come back as
+        // a raw 422 validation payload)
+        let port;
+        if (portInput === "") {
+            port = 161;
+        } else {
+            port = Number(portInput);
+            if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                errorText.textContent = "Port must be a whole number between 1 and 65535";
+                errorEl.classList.remove('d-none');
+                document.getElementById("walk-port").focus();
+                return;
+            }
+        }
+
         // Validate OID
         if (!oid) {
             errorText.textContent = "Please enter an OID or MIB name";
@@ -467,8 +680,35 @@ window.WalkerModule = {
             return;
         }
 
-        // Basic OID/MIB format validation
-        const oidPattern = /^([0-9]+(\.[0-9]+)*|([A-Z][a-zA-Z0-9-]*)(::[a-zA-Z0-9-]+)*(\.[0-9]+)*)$/;
+        // Validate timeout (WLK-10)
+        const timeoutRaw = document.getElementById("walk-timeout").value.trim();
+        let timeout_ms = 2000;
+        if (timeoutRaw !== "") {
+            timeout_ms = Number(timeoutRaw);
+            if (!Number.isInteger(timeout_ms) || timeout_ms < 500 || timeout_ms > 10000) {
+                errorText.textContent = "Timeout must be a whole number between 500 and 10000 ms";
+                errorEl.classList.remove('d-none');
+                document.getElementById("walk-timeout").focus();
+                return;
+            }
+        }
+
+        // Validate retries (WLK-10)
+        const retriesRaw = document.getElementById("walk-retries").value.trim();
+        let retries = 1;
+        if (retriesRaw !== "") {
+            retries = Number(retriesRaw);
+            if (!Number.isInteger(retries) || retries < 0 || retries > 5) {
+                errorText.textContent = "Retries must be a whole number between 0 and 5";
+                errorEl.classList.remove('d-none');
+                document.getElementById("walk-retries").focus();
+                return;
+            }
+        }
+
+        // Basic OID/MIB format validation. The leading dot is optional — the
+        // backend's numeric OID parser accepts ".1.3.6..." forms.
+        const oidPattern = /^(\.?[0-9]+(\.[0-9]+)*|([A-Z][a-zA-Z0-9-]*)(::[a-zA-Z0-9-]+)*(\.[0-9]+)*)$/;
         if (!oidPattern.test(oid)) {
             errorText.textContent = "Invalid OID format. Use format like: 1.3.6.1 or IF-MIB::ifTable";
             errorEl.classList.remove('d-none');
@@ -478,31 +718,46 @@ window.WalkerModule = {
         // Save recent target
         this.saveRecentTarget(target);
 
+        // Cancel any pending progress-bar hide from a previous run so it
+        // cannot hide this walk's progress mid-flight.
+        if (this._progressHideTimer) {
+            clearTimeout(this._progressHideTimer);
+            this._progressHideTimer = null;
+        }
+
         // UI Loading State
         const originalText = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Running...';
         btn.disabled = true;
+        this.setWalkButtons(true);
+        this.resetSort();
         this.setOutputState('loading', '');
-        
-        // Show progress
+
+        // Cancellation handle for the in-flight request.
+        const controller = new AbortController();
+        this._activeWalkController = controller;
+
+        // Show progress. The walk has no intermediate milestones to report, so
+        // the bar runs indeterminate (animated stripes, no aria-valuenow) and
+        // only real outcomes — completion count or error — are announced.
         progressEl.classList.remove('d-none');
-        progressBar.style.width = '50%';
-        progressBar.setAttribute('aria-valuenow', '50');
+        progressBar.style.width = '100%';
+        progressBar.removeAttribute('aria-valuenow');
         progressText.textContent = `Walking ${oid}...`;
-        progressCount.textContent = "0 items";
+        progressCount.textContent = '';
 
         try {
             const res = await fetch('/api/walk/execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target, port, community, oid, parse, use_mibs, json_format })
+                body: JSON.stringify({ target, port, community, oid, parse, use_mibs, json_format, timeout_ms, retries }),
+                signal: controller.signal
             });
 
             const data = await res.json();
-            console.log("Walker API Response:", data);
 
             if (!res.ok) {
-                throw new Error(data.detail || "Walk failed");
+                throw new Error(this.formatApiError(data) || "Walk failed");
             }
 
             this.lastData = data.data;
@@ -510,20 +765,29 @@ window.WalkerModule = {
             this.lastRawLines = data.rawLines || null;
             this.lastJsonFormat = this.normalizeJsonLayout(data.json_format || json_format);
             this.filteredData = null;
-            
+
             countBadge.textContent = `${data.count} items`;
+            countBadge.className = 'badge badge-soft-light';
             progressCount.textContent = `${data.count} items`;
             progressBar.style.width = '100%';
             progressBar.setAttribute('aria-valuenow', '100');
-            
-            sessionStorage.setItem('walkerLastResult', JSON.stringify({
-                data: data.data,
-                mode: data.mode,
-                rawLines: data.rawLines,
-                use_mibs: use_mibs,
-                json_format: this.normalizeJsonLayout(data.json_format || json_format)
-            }));
-            
+
+            // Caching the result for reload must never turn a successful
+            // walk into a failure — quota errors are logged and ignored.
+            try {
+                sessionStorage.setItem('walkerLastResult', JSON.stringify({
+                    data: data.data,
+                    mode: data.mode,
+                    rawLines: data.rawLines,
+                    use_mibs: use_mibs,
+                    json_format: this.normalizeJsonLayout(data.json_format || json_format),
+                    timeout_ms: timeout_ms,
+                    retries: retries
+                }));
+            } catch (storageError) {
+                console.warn('Failed to cache walk result for reload:', storageError);
+            }
+
             if (data.mode === 'parsed') {
                 this.setOutputState('ready', JSON.stringify(data.data, null, 2));
             } else {
@@ -543,29 +807,96 @@ window.WalkerModule = {
                 data.count,
                 use_mibs,
                 this.normalizeJsonLayout(data.json_format || json_format),
+                timeout_ms,
+                retries,
             );
             TrishulUtils.showNotification(`Walk completed: ${data.count} items`, 'success');
 
         } catch (e) {
+            if (e && e.name === 'AbortError') {
+                // User-cancelled walk: a distinct pane state, never an error.
+                this.setOutputState('cancelled');
+                TrishulUtils.showNotification('Walk cancelled', 'info');
+                return;
+            }
             console.error("Walker Error:", e);
             errorText.textContent = this.formatErrorMessage(e.message);
             errorEl.classList.remove('d-none');
             this.setOutputState('error', `Error: ${e.message}`);
             countBadge.textContent = "0 items";
+            countBadge.className = 'badge badge-soft-light';
             this.lastData = null;
             this.lastDisplayMode = null;
             this.lastRawLines = null;
             this.lastJsonFormat = 'flat';
+            // The failed walk must not be resurrected by a page reload.
+            try {
+                sessionStorage.removeItem('walkerLastResult');
+            } catch (storageError) {
+                console.warn('Failed to drop cached walk result:', storageError);
+            }
             TrishulUtils.showNotification(e.message, 'error');
         } finally {
+            this._activeWalkController = null;
             btn.innerHTML = originalText;
             btn.disabled = false;
-            setTimeout(() => {
+            this.setWalkButtons(false);
+            if (this._progressHideTimer) {
+                clearTimeout(this._progressHideTimer);
+            }
+            this._progressHideTimer = setTimeout(() => {
+                this._progressHideTimer = null;
                 progressEl.classList.add('d-none');
                 progressBar.style.width = '0%';
-                progressBar.setAttribute('aria-valuenow', '0');
+                progressBar.removeAttribute('aria-valuenow');
             }, 500);
         }
+    },
+
+    // ==================== Walk Cancellation ====================
+
+    cancelWalk: function() {
+        if (this._activeWalkController) {
+            this._activeWalkController.abort();
+        }
+    },
+
+    setWalkButtons: function(walking) {
+        const runBtn = document.getElementById('btn-walk-run');
+        const cancelBtn = document.getElementById('btn-walk-cancel');
+        if (runBtn) runBtn.classList.toggle('d-none', walking);
+        if (cancelBtn) cancelBtn.classList.toggle('d-none', !walking);
+    },
+
+    /**
+     * Turn a non-OK API payload into a readable message. FastAPI/Pydantic
+     * validation errors arrive as `detail` arrays of {loc, msg} objects —
+     * stringifying those produced "[object Object]".
+     */
+    formatApiError: function(payload) {
+        const detail = payload && payload.detail;
+        if (detail === undefined || detail === null) {
+            return payload && payload.message ? String(payload.message) : '';
+        }
+        if (typeof detail === 'string') {
+            return detail;
+        }
+        if (Array.isArray(detail)) {
+            return detail.map(item => {
+                if (item && typeof item === 'object') {
+                    const loc = Array.isArray(item.loc)
+                        ? item.loc.filter(part => part !== 'body')
+                        : [];
+                    const message = String(item.msg || 'Invalid value');
+                    return loc.length ? `${loc.join('.')}: ${message}` : message;
+                }
+                return String(item);
+            }).join('; ');
+        }
+        if (typeof detail === 'object') {
+            return JSON.stringify(detail);
+        }
+        return String(detail);
     },
 
     formatErrorMessage: function(msg) {
@@ -598,11 +929,15 @@ window.WalkerModule = {
         this.lastRawLines = null;
         this.lastJsonFormat = 'flat';
         this.filteredData = null;
+        this.resetSort();
 
         sessionStorage.removeItem('walkerLastResult');
 
         this.setOutputState('empty');
-        if (countBadge) countBadge.textContent = "0 items";
+        if (countBadge) {
+            countBadge.textContent = "0 items";
+            countBadge.className = 'badge badge-soft-light';
+        }
         if (searchInput) {
             searchInput.value = '';
             const clearBtn = document.getElementById("btn-clear-result-search");
@@ -624,11 +959,15 @@ window.WalkerModule = {
             }
         }
 
-        if (!this.lastData) return;
+        if (!this.lastData) {
+            this.updateCountBadge();
+            return;
+        }
 
         if (!searchTerm) {
             this.filteredData = null;
             this.renderData();
+            this.updateCountBadge();
             return;
         }
 
@@ -643,16 +982,22 @@ window.WalkerModule = {
                 return String(item).toLowerCase().includes(searchTerm);
             });
             this.renderData();
+            this.updateCountBadge();
         } else {
             const text = JSON.stringify(this.lastData).toLowerCase();
+            this.filteredData = null;
             if (text.includes(searchTerm)) {
-                this.filteredData = null;
                 this.renderData();
             } else {
-                this.filteredData = null;
                 output.className = this.getOutputClass('ready');
-                output.textContent = "No results match your search.";
+                output.innerHTML = TrishulUtils.buildPanelPlaceholder({
+                    title: 'No matching results',
+                    copy: 'Nothing in this walk matches the search. Adjust or clear the search to see the results again.',
+                    icon: 'fa-search',
+                    compact: true,
+                });
             }
+            this.updateCountBadge();
         }
     },
 
@@ -668,18 +1013,9 @@ window.WalkerModule = {
     },
 
     restoreLastResult: function() {
-        const countBadge = document.getElementById("walk-count");
-        
         if (!this.lastData) return;
-        
-        let count = 0;
-        if (Array.isArray(this.lastData)) {
-            count = this.lastData.length;
-        } else if (typeof this.lastData === 'object') {
-            count = Object.keys(this.lastData).length;
-        }
-        
-        countBadge.textContent = `${count} items`;
+
+        this.updateCountBadge();
         if (this.lastDisplayMode === 'parsed') {
             this.setOutputState('ready', JSON.stringify(this.lastData, null, 2));
         } else if (Array.isArray(this.lastData)) {
@@ -693,9 +1029,10 @@ window.WalkerModule = {
 
     copyToClipboard: function() {
         const output = document.getElementById("walk-output");
-        // Bail while a walk is in flight: the pane is in the loading state and
-        // lastData still holds the previous (stale) walk.
-        if (!output || output.classList.contains('walk-empty') || this._outputState === 'loading') {
+        // Bail while a walk is in flight or was cancelled: the pane does not
+        // show the last completed walk's data in those states.
+        if (!output || output.classList.contains('walk-empty')
+            || this._outputState === 'loading' || this._outputState === 'cancelled') {
             TrishulUtils.showNotification("No data to copy", "warning");
             return;
         }
@@ -713,6 +1050,46 @@ window.WalkerModule = {
             TrishulUtils.showNotification("Failed to copy", "error");
         });
     },
+
+    /**
+     * Copy the current result as tab-separated values — paste-ready for
+     * spreadsheets. Honors an active filter like Copy and Export do.
+     */
+    copyAsTable: function() {
+        const output = document.getElementById("walk-output");
+        if (!output || output.classList.contains('walk-empty')
+            || this._outputState === 'loading' || this._outputState === 'cancelled') {
+            TrishulUtils.showNotification("No data to copy", "warning");
+            return;
+        }
+
+        const data = Array.isArray(this.filteredData) ? this.filteredData : this.lastData;
+        const rows = Array.isArray(data)
+            ? data.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+            : [];
+        if (rows.length === 0) {
+            TrishulUtils.showNotification("Copy as table is only available for parsed JSON walk results.", "error");
+            return;
+        }
+
+        const allKeys = new Set();
+        rows.forEach(row => Object.keys(row).forEach(k => allKeys.add(k)));
+        const keys = Array.from(allKeys);
+        const cellText = (v) => {
+            if (v === null || v === undefined) return '';
+            const text = typeof v === 'object' ? JSON.stringify(v) : String(v);
+            return text.replace(/[\t\r\n]+/g, ' ');
+        };
+        const tsv = [keys.join('\t')]
+            .concat(rows.map(row => keys.map(k => cellText(row[k])).join('\t')))
+            .join('\n');
+
+        navigator.clipboard.writeText(tsv).then(() => {
+            TrishulUtils.showNotification("Copied as table (TSV) — paste into a spreadsheet", "success");
+        }).catch(() => {
+            TrishulUtils.showNotification("Failed to copy", "error");
+        });
+    },
     
     download: function(format) {
         if (!this.lastData) {
@@ -720,9 +1097,15 @@ window.WalkerModule = {
             return;
         }
 
-        const exportData = Array.isArray(this.filteredData) && this.filteredData.length > 0
-            ? this.filteredData
-            : this.lastData;
+        // Honor an active filter — including a zero-match one. Silently
+        // falling back to the full dataset here disagreed with Copy and
+        // exported data the user could not see.
+        const isFiltered = Array.isArray(this.filteredData);
+        const exportData = isFiltered ? this.filteredData : this.lastData;
+        if (isFiltered && exportData.length === 0) {
+            TrishulUtils.showNotification("No results match your search — nothing to export", "warning");
+            return;
+        }
         let content = "";
         let mime = "text/plain";
         let ext = "txt";
@@ -763,7 +1146,7 @@ window.WalkerModule = {
             mime = "text/csv";
             ext = "csv";
         } else {
-            content = Array.isArray(exportData) ? exportData.join("\n") : String(exportData);
+            content = this.formatExportText(exportData);
         }
 
         const blob = new Blob([content], { type: mime });
@@ -773,6 +1156,22 @@ window.WalkerModule = {
         a.download = `snmp_walk_${Date.now()}.${ext}`;
         a.click();
         URL.revokeObjectURL(url);
+    },
+
+    /**
+     * Plain-text export rendering: object rows are serialized per line
+     * instead of joining into "[object Object]".
+     */
+    formatExportText: function(data) {
+        if (Array.isArray(data)) {
+            return data
+                .map(item => (item && typeof item === 'object') ? JSON.stringify(item) : String(item))
+                .join("\n");
+        }
+        if (data && typeof data === 'object') {
+            return JSON.stringify(data, null, 2);
+        }
+        return String(data ?? '');
     },
 
     destroy: function() {

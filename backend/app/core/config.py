@@ -72,7 +72,7 @@ class Settings:
         )
 
         self.app_name = os.getenv("APP_NAME", "Trishul SNMP Suite")
-        self.app_version = os.getenv("APP_VERSION", "2.1.0")
+        self.app_version = os.getenv("APP_VERSION", "2.2.0")
         self.app_author = os.getenv("APP_AUTHOR", "Sumit Dhaka")
         self.app_description = os.getenv(
             "APP_DESCRIPTION",
