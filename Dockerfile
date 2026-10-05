@@ -19,7 +19,10 @@ WORKDIR /app
 
 COPY alembic.ini /app/alembic.ini
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# Upgrade pip first: the image's bundled pip 25.0.1 cannot parse the trishul
+# packages' dev-extra metadata (packaging InvalidVersion: 'dev'); 26.x can.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY backend/alembic /app/backend/alembic
 COPY backend/app /app/backend/app
