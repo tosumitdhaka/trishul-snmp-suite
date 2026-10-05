@@ -7,7 +7,7 @@ from trishul_snmp.errors import UnknownOidError, UnknownSymbolError
 from trishul_snmp.mib.models import MibNode
 from trishul_snmp.mib.registry import oid_to_string, parse_oid
 
-from app.services.mib_metadata import enum_map, enum_values
+from app.services.mib_metadata import enum_map, enum_values, input_type_for_syntax
 
 
 def _normalize_optional_filter(value: str | None) -> str | None:
@@ -284,24 +284,8 @@ def search_bundle(
 
 
 def _input_type_for_syntax(syntax: str | None) -> str:
-    """Map MIB syntax to the varbind type label the trap sender UI expects."""
-    s = (syntax or "").split("(")[0].strip()
-    sl = s.lower().replace("-", "")
-    if s in ("OBJECT IDENTIFIER", "AutonomousType") or sl == "objectidentifier":
-        return "OID"
-    if "ipaddress" in sl or "inetaddress" in sl:
-        return "IpAddress"
-    if "timeticks" in sl or "timestamp" in sl:
-        return "TimeTicks"
-    if "counter64" in sl:
-        return "Counter"
-    if "counter" in sl:
-        return "Counter"
-    if "gauge" in sl or "unsigned" in sl:
-        return "Gauge"
-    if "integer" in sl or "truthvalue" in sl or "rowstatus" in sl or "interfaceindex" in sl:
-        return "Integer"
-    return "String"
+    """Delegate to the canonical mapping in ``mib_metadata``."""
+    return input_type_for_syntax(syntax)
 
 
 def _member_entry(member, bundle: MibBundle) -> dict[str, Any]:

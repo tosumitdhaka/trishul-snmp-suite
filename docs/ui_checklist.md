@@ -1,6 +1,6 @@
 # UI Verification Checklist
 
-Use this checklist for the current `2.0.3` release UI.
+Use this checklist for the current `2.1.0` release UI.
 
 ## Test Matrix
 
@@ -38,10 +38,11 @@ Use this checklist for the current `2.0.3` release UI.
 
 ## 2.1.0 UI Elements
 
-- `Walk & Parse`: parsed rows render the raw value with an enum badge and muted units suffix next to it (no duplicated `up(1)` label in the value column); line mode still shows display strings
-- `Traps`: received-trap varbind rows and the detail modal show the enum badge / units suffix next to the raw value; the varbind picker offers enum dropdowns; Integer rows with a range constraint show a min/max hint below the input, String rows with a size constraint show a length hint and validate before send
-- `MIB Browser`: the detail pane shows the Enumerations table (label ↔ value) and a Units row; typing a numeric OID prefix resolves instantly from the local oid-index (e.g. `1.3.6.1.2.1.2` → `ifTable`)
-- `MIB Manager`: the recompile banner appears when the active bundle was produced by an older MIB compiler and dismisses via the close button; module rows expand a revision-history card (organization, contact info, revisions)
+- `Walk & Parse`: parsed rows render the raw value with a muted `label(value)` inline enrichment and units suffix, single-line rows (no badge pills in the dense table); line mode still shows display strings
+- `Traps`: received-trap varbind rows show the enum badge / units suffix with a full-text tooltip on hover (no clipping) and the detail modal shows the badge variants; the varbind picker defaults each object to its MIB-declared type (Integer/Counter/Gauge/TimeTicks/OID/IpAddress) and offers enum dropdowns immediately; Integer rows with a range constraint show a min/max hint below the input, String rows with a size constraint show a length hint and validate before send
+- `MIB Browser`: the detail pane shows the Enumerations table (sorted by value, count-badged, sticky header, ~300px scroll) and a Units badge; typing a numeric OID prefix resolves instantly from the local oid-index (e.g. `1.3.6.1.2.1.2` → `ifTable`) — with a loading state while the index first downloads, and the fast path defers to server search when a module/type filter is active
+- `MIB Manager`: the recompile banner appears when the active bundle was produced by an older MIB compiler — the Recompile action actually recompiles, shows a busy state, dismissal is scoped to the bundle, and the copy reflects the actual producer version; module rows expand a revision-history card (organization, contact info, revisions) that stays expanded across list re-renders
+- `Simulator`: starting with invalid custom-data entries shows an inline warning panel listing the skipped entries (dismissible; not erased by status refreshes)
 
 ## Sign-Off
 

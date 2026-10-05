@@ -55,7 +55,10 @@ def browse_modules(
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _require_authenticated_user(x_auth_token)
-    return browser_service.get_modules(bundle=get_bundle())
+    payload = browser_service.get_modules(bundle=get_bundle())
+    _settings, _state, bundle_service = _ctx()
+    payload["active_bundle_id"] = (bundle_service.get_effective_bundle_summary() or {}).get("id")
+    return payload
 
 
 @router.get("/mibs/browse/tree/module")

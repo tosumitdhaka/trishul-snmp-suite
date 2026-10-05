@@ -1,7 +1,7 @@
 # First Steps
 
 This is the fastest end-to-end validation flow for a fresh Trishul SNMP Suite
-`2.0.3` install using the current page-based release UI.
+`2.1.0` install using the current page-based release UI.
 
 The examples below assume the default installer ports:
 

@@ -25,6 +25,39 @@ def _login_token() -> str:
     )["token"]
 
 
+def test_get_mib_objects_carries_enum_values_for_enum_nodes(isolated_db):
+    from app.api.routes import mibs as mibs_module
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    token = _login_token()
+    BundleService(isolated_db["settings"]).compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+
+    objects = mibs_module.get_mib_objects(x_auth_token=token)["objects"]
+    by_name = {obj["name"]: obj for obj in objects}
+    assert by_name["ifAdminStatus"]["enum_values"] == [
+        {"label": "up", "value": 1},
+        {"label": "down", "value": 2},
+        {"label": "testing", "value": 3},
+    ]
+    assert by_name["ifAdminStatus"]["constraint"] == {
+        "kind": "enum",
+        "data": [["up", 1], ["down", 2], ["testing", 3]],
+    }
+    assert "enum_values" not in by_name["ifDescr"]
+    # TRP-02: picker varbind types must follow the node's syntax
+    assert by_name["ifAdminStatus"]["input_type"] == "Integer"
+    # ifType's syntax is the IANAifType TC (defining MIB not in this bundle),
+    # so its base type is unresolvable from the syntax string — same behavior
+    # as the trap-catalog path.
+    assert by_name["ifType"]["input_type"] == "String"
+    assert by_name["ifSpeed"]["input_type"] == "Gauge"
+    assert by_name["ifInOctets"]["input_type"] == "Counter"
+    assert by_name["ifDescr"]["input_type"] == "String"
+    assert by_name["sysUpTime"]["input_type"] == "TimeTicks"
+
+
 def test_mib_routes_report_empty_catalog_shapes_when_no_bundle(isolated_db):
     from app.api.routes import mibs as mibs_module
 

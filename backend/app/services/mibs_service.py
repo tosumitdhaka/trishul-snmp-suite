@@ -13,7 +13,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from app.core.config import Settings
 from app.core.logging import emit_backend_log
 from app.services.bundle_state import get_bundle
-from app.services.mib_metadata import enum_values
+from app.services.mib_metadata import enum_values, input_type_for_syntax
 from app.services.state_store import (
     StateStore,
     _MIB_AUTO_FETCH_KEY,
@@ -92,21 +92,8 @@ def _export_basename(payload: dict[str, Any], *, export_type: str) -> str:
 
 
 def _input_type_for_syntax(syntax: str | None) -> str:
-    normalized = (syntax or "").split("(")[0].strip()
-    lowered = normalized.lower().replace("-", "")
-    if normalized in ("OBJECT IDENTIFIER", "AutonomousType") or lowered == "objectidentifier":
-        return "OID"
-    if "ipaddress" in lowered or "inetaddress" in lowered:
-        return "IpAddress"
-    if "timeticks" in lowered or "timestamp" in lowered:
-        return "TimeTicks"
-    if "counter64" in lowered or "counter" in lowered:
-        return "Counter"
-    if "gauge" in lowered or "unsigned" in lowered:
-        return "Gauge"
-    if "integer" in lowered or "truthvalue" in lowered or "rowstatus" in lowered or "interfaceindex" in lowered:
-        return "Integer"
-    return "String"
+    """Delegate to the canonical mapping in ``mib_metadata``."""
+    return input_type_for_syntax(syntax)
 
 
 def _notification_member_payload(member, *, bundle) -> dict[str, Any]:

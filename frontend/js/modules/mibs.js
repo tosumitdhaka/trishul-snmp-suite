@@ -10,6 +10,9 @@ window.MibsModule = {
     validationState: null,
     selectedMibPaths: new Set(),
     deletingMibPaths: new Set(),
+    // MGR-20: module names whose revision/metadata cards are expanded; keeps
+    // the cards open across list re-renders (selection toggles, refreshes).
+    expandedModuleMetadata: new Set(),
     _domListeners: [],
     _statusCacheValid: false,
     _trapCacheValid: false,
@@ -218,19 +221,78 @@ window.MibsModule = {
         const banner = document.getElementById('mib-recompile-banner');
         if (!banner) return;
         const recommended = Boolean(data && data.recompile_recommended);
-        const dismissed = localStorage.getItem(this.RECOMPILE_BANNER_DISMISS_KEY) === '1';
+        const bundleId = data && data.active_bundle_id != null ? data.active_bundle_id : null;
+        const dismissed = bundleId != null && this.isRecompileBannerDismissed(bundleId);
         banner.classList.toggle('d-none', !recommended || dismissed);
+        this.renderRecompileBannerCopy(data);
+    },
+
+    // MGR-18: build the banner copy from the status payload instead of the
+    // hardcoded string — surfaces producer_version and missing_capabilities.
+    renderRecompileBannerCopy: function(data) {
+        const copyEl = document.getElementById('mib-recompile-banner-copy');
+        if (!copyEl) return;
+        const producerVersion = data && data.producer_version ? String(data.producer_version).trim() : '';
+        const missing = (Array.isArray(data && data.missing_capabilities) ? data.missing_capabilities : [])
+            .map(item => String(item || '').trim())
+            .filter(Boolean);
+        const missingText = missing.length > 0 ? missing.join('/') : 'enum/units';
+        const versionText = producerVersion ? ` (producer ${producerVersion})` : '';
+        copyEl.textContent = `This bundle was compiled by an older MIB compiler${versionText} and lacks ${missingText} metadata. Recompile?`;
+    },
+
+    // MGR-14: dismissal is scoped to the bundle it was dismissed for, so a
+    // different (or re-uploaded) old bundle prompts again.
+    isRecompileBannerDismissed: function(bundleId) {
+        if (bundleId == null) return false;
+        try {
+            const raw = localStorage.getItem(this.RECOMPILE_BANNER_DISMISS_KEY);
+            if (!raw) return false;
+            const state = JSON.parse(raw);
+            return Boolean(state && state.dismissed === true
+                && String(state.bundle_id) === String(bundleId));
+        } catch (_error) {
+            return false;
+        }
     },
 
     dismissRecompileBanner: function() {
-        localStorage.setItem(this.RECOMPILE_BANNER_DISMISS_KEY, '1');
+        const bundleId = this.currentStatus && this.currentStatus.active_bundle_id != null
+            ? this.currentStatus.active_bundle_id
+            : null;
+        try {
+            localStorage.setItem(this.RECOMPILE_BANNER_DISMISS_KEY, JSON.stringify({
+                bundle_id: bundleId,
+                dismissed: true,
+            }));
+        } catch (_error) {
+            // Storage unavailable — the banner simply returns next visit.
+        }
         const banner = document.getElementById('mib-recompile-banner');
         if (banner) banner.classList.add('d-none');
     },
 
     recompileFromBanner: async function() {
-        localStorage.removeItem(this.RECOMPILE_BANNER_DISMISS_KEY);
-        await this.reloadMibs();
+        // MGR-19: busy state on the banner's own button so a recompile can't
+        // be double-triggered while the reload is in flight.
+        const btn = document.getElementById('mib-recompile-banner-btn');
+        const originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.setAttribute('aria-busy', 'true');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Recompiling...';
+        }
+        try {
+            localStorage.removeItem(this.RECOMPILE_BANNER_DISMISS_KEY);
+            await this.reloadMibs();
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.removeAttribute('aria-busy');
+                btn.innerHTML = originalHtml;
+            }
+        }
     },
 
     loadStatus: async function() {
@@ -306,6 +368,9 @@ window.MibsModule = {
             const path = this.mibPath(mib);
             const isDeleting = this.isDeletingMibPath(path);
             const canDownloadRaw = this.isRawDownloadableMib(mib);
+            // MGR-20: expansion survives re-renders via the module-keyed set.
+            const metadataExpanded = Boolean(mib.module_metadata)
+                && this.expandedModuleMetadata.has(mib.name);
             return `
             <li class="list-group-item py-2 mib-list-item ${this.isMibSelected(mib) ? 'mib-list-item-selected' : ''}">
                 <div class="d-flex align-items-start gap-2">
@@ -359,7 +424,8 @@ window.MibsModule = {
                     ${mib.module_metadata ? `
                         <button type="button" class="btn btn-sm btn-app-secondary btn-icon mib-side-action"
                                 onclick="MibsModule.toggleModuleMetadata(this, '${esc(mib.name)}')"
-                                title="Module metadata" aria-label="Module metadata">
+                                title="Module metadata" aria-label="Module metadata"
+                                aria-expanded="${metadataExpanded ? 'true' : 'false'}">
                             <i class="fas fa-clock-rotate-left"></i>
                         </button>
                     ` : ''}
@@ -384,7 +450,7 @@ window.MibsModule = {
                     ` : ''}
                 </div>
                 </div>
-                <div class="mib-module-meta-panel d-none"></div>
+                <div class="mib-module-meta-panel ${metadataExpanded ? '' : 'd-none'}">${metadataExpanded ? this.buildModuleMetadataCard(mib.module_metadata) : ''}</div>
             </li>
         `;
         }).join('');
@@ -710,11 +776,18 @@ window.MibsModule = {
         const mib = (this.allMibs || []).find(item => item && item.name === moduleName);
         const panel = button ? button.closest('.mib-list-item')?.querySelector('.mib-module-meta-panel') : null;
         if (!mib || !panel) return;
-        if (panel.classList.contains('d-none')) {
+        // MGR-20: remember expansion per module so re-renders don't collapse.
+        const expand = panel.classList.contains('d-none');
+        if (expand) {
             panel.innerHTML = this.buildModuleMetadataCard(mib.module_metadata);
             panel.classList.remove('d-none');
+            this.expandedModuleMetadata.add(moduleName);
         } else {
             panel.classList.add('d-none');
+            this.expandedModuleMetadata.delete(moduleName);
+        }
+        if (button) {
+            button.setAttribute('aria-expanded', expand ? 'true' : 'false');
         }
     },
 
@@ -722,7 +795,7 @@ window.MibsModule = {
         const esc = TrishulUtils.escapeHtml;
         const revisions = Array.isArray(metadata && metadata.revisions) ? metadata.revisions : [];
         return `
-            <div class="app-surface-muted border rounded p-2 mt-2 small mib-module-meta-card">
+            <div class="mib-module-meta-card p-2 mt-2 small">
                 ${metadata.organization ? `
                     <div class="mb-1"><span class="text-muted fw-bold">Organization:</span> ${esc(metadata.organization)}</div>
                 ` : ''}

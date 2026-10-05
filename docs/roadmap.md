@@ -1,7 +1,7 @@
 # Roadmap
 
-This file tracks the shipped `2.0.x` release line and the first planned
-`2.1.0` follow-up queue.
+This file tracks the shipped `2.0.x` and `2.1.0` release lines and the
+follow-up queue.
 
 The temporary `2.0.0` and `2.1.0` planning workspaces were removed from the
 active repo tree during the release cleanup. Use this file for release-level
@@ -9,7 +9,7 @@ status and [issue_tracker.md](issue_tracker.md) for slice and backlog tracking.
 
 ## Current Delivery State
 
-`2.0.3` is the current shipped release. The initial `2.0.0` implementation
+`2.1.0` is the current shipped release. The initial `2.0.0` implementation
 slices `S0` through `S13` remain `Done`.
 
 ## Delivered In The 2.0.x Line
@@ -37,7 +37,12 @@ slices `S0` through `S13` remain `Done`.
 - legacy-volume copy-forward for operators coming from older runtimes
 - legacy `1.4.1` installer retained as a pinned compatibility path
 
-## Planned For 2.1.0
+## Delivered In 2.1.0
+
+- MIB schema integration per the [MIB Schema Integration Plan](mib_schema_integration_plan.md): enum labels, units, and constraints surfaced end-to-end (walks, trap history, MIB browser), reproducible content-addressed bundles with producer-aware recompile prompts, constraint validation before PDU encode, index-aware walk grouping, client-side OID search, and module revision-history cards
+- `trishul-smi==0.5.3` / `trishul-snmp==0.6.2` pinned, with the constraints-as-enum fallback consolidated into one shared helper
+
+## Planned Beyond 2.1.0
 
 `2.1.0` should keep the current operator shell and surface backend capabilities
 that already exist in the platform but are not yet exposed in the shipped UI.
@@ -56,7 +61,7 @@ Initial targets:
 - direct runtime tools such as `GET`, `GETNEXT`, `GETBULK`, inform send, and payload decode
 - richer dashboard and settings diagnostics through the current stats, runtime, and settings services
 - API and page refinements on the existing unified `/api/...` surface where they simplify the current UI
-- MIB schema integration for `2.1.0` — enums, units, constraint validation, reproducible bundles, index-aware walking — sequenced in the [MIB Schema Integration Plan](mib_schema_integration_plan.md)
+- E2E review remediation — the 148-finding registry (bugs, gaps, improvements, missing features) and the phased 2.2.0 plan live in the [E2E Review Findings](e2e_review_findings.md) doc
 
 ## Deferred Beyond 2.0.x
 

@@ -278,7 +278,12 @@ def _walk_compat_items(
             if mv is None:
                 row["labels"][object_name] = value
             else:
-                row["metrics"][object_name] = {"value": mv, "module": module_name}
+                row["metrics"][object_name] = {
+                    "value": mv,
+                    "module": module_name,
+                    "enum_label": entry.get("enum_label"),
+                    "units": entry.get("units"),
+                }
         else:
             row["labels"][object_name] = value
     output = []
@@ -294,6 +299,8 @@ def _walk_compat_items(
                 "agent_host": target_host,
                 "timestamp": timestamp,
                 "labels": labels.copy(),
+                "enum_label": md.get("enum_label"),
+                "units": md.get("units"),
             })
     return output
 

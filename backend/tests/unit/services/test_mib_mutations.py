@@ -391,6 +391,84 @@ def test_save_uploaded_mibs_covers_success_and_compile_failure_paths(isolated_db
     )
 
 
+def test_reload_without_uploads_recompiles_starter_when_producer_is_below_floor(isolated_db):
+    from app.models import BundleSet
+    from app.services.state_store import _MIB_RELOAD_COUNT_KEY
+
+    service, settings, bundle_service, ctx = _make_mutation_service(
+        isolated_db,
+        uploaded_mib_names=[],
+        status_payload={"loaded": 4, "failed": 0},
+    )
+    starter_manifest = settings.data_dir / "starter-manifest.json"
+    starter_manifest.write_text('{"producer_version": "0.4.5", "modules": [], "sidecars": {}}')
+    with isolated_db["session_factory"]() as session:
+        starter = BundleSet(
+            bundle_key="starter-bundle",
+            label="Bundled Starter MIBs",
+            storage_path=str(settings.data_dir / "starter.json"),
+            manifest_path=str(starter_manifest),
+            status="active",
+            is_active=True,
+        )
+        session.add(starter)
+        session.commit()
+        starter_id = starter.id
+
+    reloaded = service.reload_uploaded_mib_bundle()
+    assert reloaded == {
+        "loaded": 4,
+        "failed": 0,
+        "dependency_fetch": {
+            "enabled": False,
+            "auto_enabled": False,
+            "using_default_sources": False,
+            "sources": [],
+            "attempted": [],
+            "resolved": [],
+            "downloaded": [],
+            "cached": [],
+            "failed": [],
+        },
+    }
+    assert ctx["counter_calls"] == [(_MIB_RELOAD_COUNT_KEY, 1)]
+    # Old producer -> a NEW bundle set is compiled and activated, never the stale one.
+    assert bundle_service.compile_requests[-1].label == "Bundled Starter MIBs"
+    assert bundle_service.compile_requests[-1].mib_dirs == [str(settings.bundled_mibs_dir)]
+    assert bundle_service.activate_calls == []
+
+
+def test_reload_without_uploads_reactivates_starter_when_producer_is_current(isolated_db):
+    from app.models import BundleSet
+    from app.services.state_store import _MIB_RELOAD_COUNT_KEY
+
+    service, settings, bundle_service, ctx = _make_mutation_service(
+        isolated_db,
+        uploaded_mib_names=[],
+        status_payload={"loaded": 4, "failed": 0},
+    )
+    starter_manifest = settings.data_dir / "current-manifest.json"
+    starter_manifest.write_text('{"producer_version": "0.5.3", "modules": [], "sidecars": {}}')
+    with isolated_db["session_factory"]() as session:
+        starter = BundleSet(
+            bundle_key="starter-bundle",
+            label="Bundled Starter MIBs",
+            storage_path=str(settings.data_dir / "starter.json"),
+            manifest_path=str(starter_manifest),
+            status="active",
+            is_active=True,
+        )
+        session.add(starter)
+        session.commit()
+        starter_id = starter.id
+
+    service.reload_uploaded_mib_bundle()
+    assert ctx["counter_calls"] == [(_MIB_RELOAD_COUNT_KEY, 1)]
+    # Current producer -> existing activate-by-label path unchanged.
+    assert bundle_service.compile_requests == []
+    assert bundle_service.activate_calls == [starter_id]
+
+
 def test_reload_and_activate_bundled_starter_bundle_cover_main_branches(isolated_db):
     from app.models import BundleSet
     from app.services.bundles import BundleServiceError

@@ -1502,6 +1502,25 @@ pre {
     width: 30%;
 }
 
+/* Units badge (browser detail) — units are first-class 2.1.0 metadata */
+.app-browser-units-badge {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.75rem;
+}
+
+/* Enumerations table (browser detail) — sticky header inside the scroll region */
+.app-browser-enum-table {
+    font-size: 0.8rem;
+}
+
+.app-browser-enum-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: var(--app-sticky-bg);
+    border-bottom: 1px solid var(--app-border);
+}
+
 .app-editor-fill {
     height: 100%;
     flex: 1 1 auto;
@@ -1603,6 +1622,24 @@ pre {
 .mib-side-action {
     flex: 0 0 auto;
     align-self: flex-start;
+}
+
+/* Recompile banner (MIB Manager) — token-owned warning treatment.
+   Extra .alert specificity keeps the left accent from being recolored
+   by the later .alert-warning rule. */
+.alert.app-recompile-banner {
+    background-color: var(--app-warning-soft);
+    border: 1px solid var(--app-warning-border);
+    border-left: 4px solid var(--app-warning);
+    color: var(--app-text);
+}
+
+/* Module metadata / revision card (MIB Manager list) */
+.mib-module-meta-card {
+    background-color: var(--app-surface-muted);
+    border: 1px solid var(--app-border);
+    border-radius: 4px;
+    color: var(--app-text);
 }
 
 .mib-module-badge {
@@ -2493,4 +2530,76 @@ table {
     justify-content: flex-end;
     gap: 0.5rem;
     flex-wrap: wrap;
+}
+
+/* ==================== v2.1.0 regression-fix round: value enrichment ====================
+   Additive section — no existing rules modified.
+
+   - WLK-19: walker results-table rows must stay single-line; enum labels
+     render as a muted inline `label(value)` token instead of a badge pill.
+   - TRP-13: trap receiver varbind lines are flex rows — the value text
+     truncates with an ellipsis while the badge pill and units suffix stay
+     fully visible at the end of the line (never hard-clipped).
+   - Hygiene: the app-value-* / app-trap-varbind-* / app-warning-list hooks
+     referenced from JS now have real token-based rules.
+   All colors come from --app-* tokens; light/dark parity is inherited from
+   the token definitions at the top of this file.
+*/
+
+/* --- Walker results table: single-line rows (WLK-19) --- */
+
+.walker-results-output th,
+.walker-results-output td {
+    white-space: nowrap;
+}
+
+/* Muted inline enum token — `label(value)` — replaces the badge pill
+   inside dense tables. */
+.app-value-enum-inline {
+    color: var(--app-text-muted);
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+/* Muted units suffix — token-based rule for the shared hook (hygiene).
+   Also applies where the pill variant emits the same hook. */
+.app-value-units {
+    color: var(--app-text-muted);
+}
+
+/* Enum badge pill must never split across lines where it remains in use
+   (trap detail modal, trap receiver rows). */
+.app-value-enum-badge {
+    white-space: nowrap;
+}
+
+/* --- Trap receiver varbind lines: truncate text, never clip the badge (TRP-13) --- */
+
+.app-trap-varbinds .app-trap-varbind-row {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.app-trap-varbinds .app-trap-varbind-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-trap-varbinds .app-trap-varbind-row .app-value-enum-badge,
+.app-trap-varbinds .app-trap-varbind-row .app-value-units {
+    flex: 0 0 auto;
+}
+
+/* --- Simulator: custom-data start warnings list (2.1.0 warn-and-skip) --- */
+
+.app-warning-list {
+    max-height: 10rem;
+    overflow-y: auto;
+    padding-left: 1.25rem;
 }

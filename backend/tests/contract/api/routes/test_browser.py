@@ -48,13 +48,38 @@ def test_bundle_oid_index_route_streams_sidecar_and_404s_when_missing(isolated_d
     assert excinfo.value.status_code == 404
 
 
+def test_browse_modules_reports_active_bundle_id_and_reflects_bundle_switch(isolated_db):
+    from app.api.routes import browser as browser_module
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    token = _login_token()
+    bundle_service = BundleService(isolated_db["settings"])
+
+    first = bundle_service.compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+    payload = browser_module.browse_modules(x_auth_token=token)
+    assert payload["modules"]
+    assert payload["active_bundle_id"] == first["bundle"]["id"]
+
+    second = bundle_service.compile_bundle(
+        BundleCompileRequest(mib_names=["SNMPv2-MIB"], activate=True)
+    )
+    switched = browser_module.browse_modules(x_auth_token=token)
+    assert switched["active_bundle_id"] == second["bundle"]["id"]
+    assert switched["active_bundle_id"] != first["bundle"]["id"]
+
+
 def test_browser_routes_return_empty_catalog_shapes_when_no_bundle(isolated_db):
     from app.api.routes import browser as browser_module
 
     del isolated_db
 
     token = _login_token()
-    assert browser_module.browse_modules(x_auth_token=token) == {"modules": []}
+    assert browser_module.browse_modules(x_auth_token=token) == {
+        "modules": [],
+        "active_bundle_id": None,
+    }
     assert browser_module.browse_module_tree(x_auth_token=token) == {"modules": [], "count": 0}
     assert browser_module.browse_oid_tree(
         root_oid="1.3.6.1",

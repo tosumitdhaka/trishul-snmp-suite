@@ -7,6 +7,7 @@ window.SimulatorModule = {
     _statusPollInFlight: false,
     _logPollInFlight: false,
     _lastLogSignature: '',
+    _customDataWarningsDismissed: false,
 
     init: function() {
         this.destroy();
@@ -527,6 +528,11 @@ window.SimulatorModule = {
                 this.log(data.message || 'Simulator started successfully', 'success');
                 this.showToast(data.message || 'Simulator started successfully', 'success');
             }
+
+            // 2.1.0 warn-and-skip contract: surface skipped/invalid custom-data
+            // entries from the start response as an inline warning alert.
+            this._customDataWarningsDismissed = false;
+            this.renderCustomDataWarnings(data.custom_data_warnings);
             
             // WS status push will update the UI; this call is a fallback
             // for the rare case the WS message races with the REST response.
@@ -701,6 +707,50 @@ window.SimulatorModule = {
                 metrics.classList.add('d-none');
             }
         }
+
+        // Forward-compatible: status payloads may also carry custom_data_warnings
+        // (the 2.1.0 warn-and-skip contract). Only act when the field is present,
+        // so status refreshes never clear warnings shown by a start response.
+        if (data.custom_data_warnings !== undefined) {
+            this.renderCustomDataWarnings(data.custom_data_warnings);
+        }
+    },
+
+    // ==================== Custom Data Warnings (2.1.0 warn-and-skip) ====================
+
+    renderCustomDataWarnings: function(warnings) {
+        const alertEl = document.getElementById('sim-custom-data-warnings');
+        const listEl  = document.getElementById('sim-custom-data-warning-list');
+        if (!alertEl || !listEl) return;
+
+        const items = (Array.isArray(warnings) ? warnings : [warnings])
+            .map(function(item) { return String(item || '').trim(); })
+            .filter(Boolean);
+
+        if (items.length === 0) {
+            // No (or no more) warnings — clear the alert and the dismissal
+            // flag so a future warning can be shown again.
+            this._customDataWarningsDismissed = false;
+            alertEl.classList.add('d-none');
+            listEl.replaceChildren();
+            return;
+        }
+
+        // Respect an explicit dismissal until the next start response.
+        if (this._customDataWarningsDismissed) return;
+
+        listEl.replaceChildren.apply(listEl, items.map(function(text) {
+            const li = document.createElement('li');
+            li.textContent = text;
+            return li;
+        }));
+        alertEl.classList.remove('d-none');
+    },
+
+    dismissCustomDataWarnings: function() {
+        this._customDataWarningsDismissed = true;
+        const alertEl = document.getElementById('sim-custom-data-warnings');
+        if (alertEl) alertEl.classList.add('d-none');
     },
 
     setButtons: function(isRunning) {

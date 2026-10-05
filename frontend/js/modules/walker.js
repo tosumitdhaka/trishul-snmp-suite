@@ -186,7 +186,13 @@ window.WalkerModule = {
                 {
                     label: 'Value',
                     html: true,
-                    get: r => TrishulUtils.formatValue(r.value, { enumLabel: r.enum_label, units: r.units }),
+                    // inline variant: muted `label(value)` token instead of the
+                    // badge pill — keeps dense walker rows on a single line (WLK-19).
+                    get: r => TrishulUtils.formatValue(r.value, {
+                        enumLabel: r.enum_label,
+                        units: r.units,
+                        inline: true
+                    }),
                 },
             ];
         } else if (first && 'metric_name' in first) {

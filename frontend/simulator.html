@@ -105,6 +105,17 @@
                 <div class="p-2 app-pane-note border-bottom small text-muted">
                     <i class="fas fa-info-circle"></i> Override simulated values. Example: <code>IF-MIB::ifSpeed.1</code>
                 </div>
+                <!-- Custom-data start warnings (2.1.0 warn-and-skip contract) -->
+                <div id="sim-custom-data-warnings" class="alert alert-warning py-2 small mx-2 my-2 d-none" role="alert">
+                    <div class="d-flex align-items-start gap-2">
+                        <i class="fas fa-exclamation-triangle app-header-icon is-warning mt-1"></i>
+                        <div class="flex-grow-1">
+                            <span class="fw-bold">Some custom-data entries were skipped when the simulator started:</span>
+                            <ul id="sim-custom-data-warning-list" class="mb-0 mt-1 app-warning-list"></ul>
+                        </div>
+                        <button type="button" class="btn-close flex-shrink-0" onclick="SimulatorModule.dismissCustomDataWarnings()" aria-label="Dismiss custom data warnings"></button>
+                    </div>
+                </div>
                 <div class="position-relative app-split-fill-region d-flex flex-column">
                     <textarea id="custom-data-editor"
                               class="form-control border-0 font-monospace app-resize-none app-editor-fill"

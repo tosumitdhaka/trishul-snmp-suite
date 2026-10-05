@@ -13,6 +13,27 @@ window.BrowserModule = {
 
     STATE_KEY: 'browserState',
 
+    // UI type labels the server path emits (mirrors browser_service._ui_type).
+    UI_NODE_TYPES: [
+        'Module', 'Node', 'MibTable', 'MibTableRow', 'MibTableColumn',
+        'MibScalar', 'NotificationType', 'ObjectGroup', 'ModuleCompliance',
+    ],
+
+    // Raw SMI type tokens (as stored in the oid-index sidecar) → UI type
+    // labels, so fast-path results render the same icons/badges as server
+    // results (BRW-12).
+    OID_INDEX_UI_TYPE_MAP: {
+        'NOTIFICATION-TYPE': 'NotificationType',
+        'TRAP-TYPE': 'NotificationType',
+        'OBJECT-GROUP': 'ObjectGroup',
+        'MODULE-COMPLIANCE': 'ModuleCompliance',
+        'MODULE-IDENTITY': 'ModuleCompliance',
+        'SCALAR': 'MibScalar',
+        'TABLE': 'MibTable',
+        'ROW': 'MibTableRow',
+        'COLUMN': 'MibTableColumn',
+    },
+
     getNodeCacheKey: function(oid, module) {
         return `${module || ''}::${oid || ''}`;
     },
@@ -80,6 +101,14 @@ window.BrowserModule = {
         this.currentView = 'module';
         this.currentSearchResults = [];
         this.nodeCache = {};
+        // BRW-08: oid-index state is bundle-scoped; reset it alongside the
+        // node cache so a page re-entry can never serve the previous
+        // bundle's data. init()'s loadOidIndex() then re-resolves the
+        // active bundle id (from the modules/tree payload when the backend
+        // includes it, else via /api/mibs/status).
+        this._oidIndex = null;
+        this._oidIndexBundleId = null;
+        this._activeBundleId = null;
         this.setButtonStates();
 
         // Restore state if exists
@@ -411,6 +440,7 @@ window.BrowserModule = {
             
             const data = await res.json();
             this.allModules = data.modules || [];
+            this.noteActiveBundleId(data);
             
             // Populate filter dropdown
             const select = document.getElementById('browser-module-filter');
@@ -486,6 +516,7 @@ window.BrowserModule = {
         }
 
         const data = await res.json();
+        this.noteActiveBundleId(data);
         const children = Array.isArray(data.children) ? data.children : [];
         if (children.length > 0) {
             this.cacheNodesRecursive(children);
@@ -592,21 +623,46 @@ window.BrowserModule = {
         this.searchTimeout = setTimeout(() => this.search(), 500);
     },
     
-    loadOidIndex: async function() {
-        if (this._oidIndex && this._oidIndexBundleId) return;
+    // BRW-08: observe the active bundle id from payloads the browser already
+    // fetches (modules/tree responses carry `active_bundle_id` when the
+    // backend includes it). No-op when the field is absent.
+    noteActiveBundleId: function(data) {
+        if (!data || typeof data !== 'object') return;
+        if (data.active_bundle_id != null) {
+            this._activeBundleId = data.active_bundle_id;
+        }
+    },
+
+    // Fallback bundle-id source when no browser payload carried the field.
+    fetchActiveBundleIdFromStatus: async function() {
         try {
+            const statusRes = await fetch('/api/mibs/status');
+            if (!statusRes.ok) return null;
+            const status = await statusRes.json();
+            return status && status.active_bundle_id != null ? status.active_bundle_id : null;
+        } catch (e) {
+            console.error('Failed to resolve active bundle id', e);
+            return null;
+        }
+    },
+
+    loadOidIndex: async function() {
+        try {
+            // BRW-08: never serve a cached index without validating that it
+            // belongs to the currently active bundle. `_activeBundleId` is
+            // refreshed by noteActiveBundleId() from the modules/tree
+            // payloads; only fall back to /api/mibs/status when no payload
+            // has carried the id yet.
             if (this._activeBundleId == null) {
-                const statusRes = await fetch('/api/mibs/status');
-                const status = await statusRes.json();
-                this._activeBundleId = status.active_bundle_id || null;
+                this._activeBundleId = await this.fetchActiveBundleIdFromStatus();
             }
             const bundleId = this._activeBundleId;
-            if (!bundleId) {
+            if (bundleId == null) {
                 this._oidIndex = null;
                 this._oidIndexBundleId = null;
                 return;
             }
-            if (this._oidIndexBundleId === bundleId && this._oidIndex) {
+            if (this._oidIndex && this._oidIndexBundleId === bundleId) {
                 return;
             }
             const res = await fetch(`/api/bundles/${bundleId}/oid-index`);
@@ -624,8 +680,37 @@ window.BrowserModule = {
         }
     },
 
+    // BRW-12: map raw SMI type tokens (oid-index sidecar values such as
+    // "OBJECT-TYPE" or "NOTIFICATION-TYPE") to the UI type labels the
+    // server path produces, so fast-path results get the same icons and
+    // badges. Unrecognized values fall back to the generic "Node" label.
+    normalizeNodeType: function(rawType) {
+        const raw = String(rawType || '').trim();
+        if (!raw) return 'Node';
+        if (this.UI_NODE_TYPES.indexOf(raw) !== -1) return raw;
+        const mapped = this.OID_INDEX_UI_TYPE_MAP[raw.toUpperCase()];
+        if (mapped) return mapped;
+        return 'Node';
+    },
+
+    // Try each type-ish field of an oid-index entry until one maps to a
+    // known UI label; class/nodetype hints win over the raw object_type token.
+    normalizeOidIndexType: function(entry) {
+        const source = entry && typeof entry === 'object' ? entry : {};
+        const candidates = [source.class, source.nodetype, source.object_type];
+        for (const candidate of candidates) {
+            const normalized = this.normalizeNodeType(candidate);
+            if (normalized !== 'Node') return normalized;
+        }
+        return 'Node';
+    },
+
     tryOidIndexSearch: function(query, container, countBadge) {
         if (!this._oidIndex || !this._oidIndex.oids) return false;
+        // BRW-09: the index carries no module/type metadata, so an OID
+        // search under an active module or type filter must use the server
+        // path, which honors both filters.
+        if (this.currentModule || this.currentTypeFilter) return false;
         const trimmed = String(query || '').trim();
         if (!/^[\d.]+$/.test(trimmed)) return false;
 
@@ -646,7 +731,7 @@ window.BrowserModule = {
             full_name: `${entry.module}::${entry.object}`,
             module: entry.module,
             oid: bestKey,
-            type: entry.object_type || entry.class || 'Node',
+            type: this.normalizeOidIndexType(entry),
             description: '',
         };
         this.currentSearchResults = [node];
@@ -669,7 +754,18 @@ window.BrowserModule = {
         this.saveState();
         this.isSearchActive = true;
 
-        if (!this._oidIndex || !this._oidIndexBundleId) {
+        // BRW-24: give immediate feedback while the oid-index validates or
+        // downloads instead of a silent pause on the first numeric search.
+        // The staleness check also revalidates the cached index against the
+        // last observed bundle id (BRW-08 defense in depth).
+        const indexReady = this._oidIndex && this._oidIndexBundleId != null
+            && (this._activeBundleId == null || this._oidIndexBundleId === this._activeBundleId);
+        if (!indexReady) {
+            container.innerHTML = this.buildTreePlaceholder({
+                state: 'loading',
+                title: 'Searching catalog',
+                copy: 'Preparing the OID index for fast numeric lookups.',
+            });
             await this.loadOidIndex();
         }
         if (this.tryOidIndexSearch(query, container, countBadge)) {
@@ -783,13 +879,14 @@ window.BrowserModule = {
             
             if (this.currentView === 'module') {
                 const res = await fetch(this.buildModuleTreeUrl());
-                
+
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
-                
+
                 data = await res.json();
-                
+                this.noteActiveBundleId(data);
+
                 if (!data.modules || data.modules.length === 0) {
                     const hasActiveFilter = Boolean(this.currentModule || this.currentTypeFilter);
                     container.innerHTML = hasActiveFilter
@@ -819,12 +916,13 @@ window.BrowserModule = {
                 
             } else {
                 const res = await fetch(this.buildOidTreeUrl('1.3.6.1', this.currentModule || ''));
-                
+
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
-                
+
                 data = await res.json();
+                this.noteActiveBundleId(data);
                 this.cacheNode(data.root);
                 this.cacheNodesRecursive(data.children);
                 this.renderOidTree(data, container);
@@ -1257,9 +1355,22 @@ window.BrowserModule = {
         const node = data.node;
         const panel = document.getElementById('browser-details-panel');
         const esc = TrishulUtils.escapeHtml;
-        
+
         const isNotification = node.type === 'NotificationType';
         const trapObjects = data.trap_objects || [];
+
+        // BRW-16: sort enumerations numerically by value so large enums
+        // (e.g. ifType) can be scanned and compared.
+        const enumEntries = node.enums
+            ? Object.entries(node.enums).sort((left, right) => {
+                const leftValue = Number(left[1]);
+                const rightValue = Number(right[1]);
+                if (Number.isFinite(leftValue) && Number.isFinite(rightValue) && leftValue !== rightValue) {
+                    return leftValue - rightValue;
+                }
+                return String(left[0]).localeCompare(String(right[0]));
+            })
+            : [];
         const trapPayload = TrishulUtils.encodeDataAttr({
             full_name: node.full_name,
             name: node.name,
@@ -1336,7 +1447,7 @@ window.BrowserModule = {
                     ${node.units ? `
                         <tr>
                             <td class="text-muted fw-bold">Units</td>
-                            <td><code class="small">${esc(node.units)}</code></td>
+                            <td><span class="badge app-badge is-info app-browser-units-badge">${esc(node.units)}</span></td>
                         </tr>
                     ` : ''}
                     ${node.access ? `
@@ -1363,16 +1474,18 @@ window.BrowserModule = {
                 </div>
             ` : ''}
             
-            ${node.enums && Object.keys(node.enums).length > 0 ? `
+            ${enumEntries.length > 0 ? `
                 <div class="mb-3">
-                    <label class="fw-bold small text-muted d-block mb-1">Enumerations</label>
-                    <div class="app-scroll-panel app-max-h-150">
+                    <label class="fw-bold small text-muted d-block mb-1">Enumerations
+                        <span class="badge app-badge is-neutral ms-1">${enumEntries.length}</span>
+                    </label>
+                    <div class="app-scroll-panel app-max-h-300">
                         <table class="table table-sm table-hover mb-0 app-browser-enum-table">
                             <thead class="table-light">
                                 <tr><th scope="col" class="small">Label</th><th scope="col" class="small">Value</th></tr>
                             </thead>
                             <tbody>
-                                ${Object.entries(node.enums).map(([label, value]) => `
+                                ${enumEntries.map(([label, value]) => `
                                     <tr>
                                         <td><code class="small">${esc(label)}</code></td>
                                         <td class="small">${esc(String(value))}</td>
@@ -1468,7 +1581,8 @@ window.BrowserModule = {
                 name: node.name,
                 full_name: node.full_name,
                 module: node.module,
-                type: node.type,
+                // BRW-12: normalize raw SMI tokens so exports match the UI.
+                type: this.normalizeNodeType(node.type),
                 description: node.description || ''
             }));
         }
@@ -1484,7 +1598,7 @@ window.BrowserModule = {
                 name: cached.name || '',
                 full_name: cached.full_name || '',
                 module: cached.module || module || '',
-                type: cached.type || '',
+                type: this.normalizeNodeType(cached.type),
                 description: cached.description || '',
                 has_children: cached.has_children != null ? String(!!cached.has_children) : '',
             });

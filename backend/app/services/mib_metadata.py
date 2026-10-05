@@ -171,3 +171,28 @@ def _constraint_enum_map(constraints: Any) -> dict[str, int] | None:
         if isinstance(label, str) and label.strip() and isinstance(value, int):
             result[label] = value
     return result or None
+
+
+def input_type_for_syntax(syntax: str | None) -> str:
+    """Map a MIB syntax string to the varbind type label the trap sender UI expects.
+
+    Canonical implementation shared by the MIB objects route, the trap catalog,
+    and the browser member payload. INTEGER/Counter/Gauge/TimeTicks syntaxes
+    must map to their numeric types so picker-added varbinds default to the
+    correct type (and constraint validation can fire).
+    """
+    normalized = (syntax or "").split("(")[0].strip()
+    lowered = normalized.lower().replace("-", "")
+    if normalized in ("OBJECT IDENTIFIER", "AutonomousType") or lowered == "objectidentifier":
+        return "OID"
+    if "ipaddress" in lowered or "inetaddress" in lowered:
+        return "IpAddress"
+    if "timeticks" in lowered or "timestamp" in lowered:
+        return "TimeTicks"
+    if "counter64" in lowered or "counter" in lowered:
+        return "Counter"
+    if "gauge" in lowered or "unsigned" in lowered:
+        return "Gauge"
+    if "integer" in lowered or "truthvalue" in lowered or "rowstatus" in lowered or "interfaceindex" in lowered:
+        return "Integer"
+    return "String"

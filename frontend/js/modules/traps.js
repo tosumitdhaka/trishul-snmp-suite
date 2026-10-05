@@ -1377,11 +1377,17 @@ window.TrapsModule = {
             const key = (resolved && vb.resolved && vb.name && vb.name !== vb.oid)
                 ? vb.name
                 : (vb.name || vb.oid || '');
-            const valueHtml = TrishulUtils.formatValue(vb.value, {
-                enumLabel: vb.enum_label,
-                units: vb.units,
-            });
-            return `<div class="app-truncate-line app-trap-varbind-row">${esc(key)} = ${valueHtml}</div>`;
+            const enumLabel = String(vb.enum_label || '').trim();
+            const units = String(vb.units || '').trim();
+            // Title carries the full text (enum label + units included) so the
+            // truncated line never silently loses them; the line itself is a
+            // flex row — the value text ellipsizes, the badge does not clip (TRP-13).
+            const fullText = `${key} = ${TrishulUtils.formatValueText(vb.value, { enumLabel, units })}`;
+            return `<div class="app-trap-varbind-row" title="${esc(fullText)}">` +
+                `<span class="app-trap-varbind-text">${esc(key)} = ${esc(vb.value == null ? '' : String(vb.value))}</span>` +
+                (enumLabel ? `<span class="badge app-badge is-info app-value-enum-badge">${esc(enumLabel)}</span>` : '') +
+                (units ? `<span class="app-value-units">${esc(units)}</span>` : '') +
+                `</div>`;
         }).join('')}</div>`;
     },
 

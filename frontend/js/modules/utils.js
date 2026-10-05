@@ -75,12 +75,32 @@ window.TrishulUtils = {
         return values;
     },
 
+    /**
+     * Render a raw value with optional MIB enrichment (enum label / units).
+     *
+     * One contract, two visual weights — raw value first, then enrichment:
+     *   - default: badge pill + muted units suffix (trap detail modal).
+     *   - opts.inline: single-line muted treatment for dense tables
+     *     (walker results) — `label(value)` text token instead of the pill,
+     *     so rows never grow a second line (WLK-19).
+     */
     formatValue: function(value, options) {
         const opts = options || {};
         const enumLabel = String(opts.enumLabel || '').trim();
         const units = String(opts.units || '').trim();
         const raw = value == null ? '' : String(value);
         const esc = this.escapeHtml;
+
+        if (opts.inline) {
+            let html = esc(raw);
+            if (enumLabel) {
+                html += ` <span class="app-value-enum-inline">${esc(enumLabel)}(${esc(raw)})</span>`;
+            }
+            if (units) {
+                html += ` <span class="app-value-units">${esc(units)}</span>`;
+            }
+            return html;
+        }
 
         let html = esc(raw);
         if (enumLabel) {
@@ -90,6 +110,20 @@ window.TrishulUtils = {
             html += ` <span class="app-value-units text-muted">${esc(units)}</span>`;
         }
         return html;
+    },
+
+    /**
+     * Plain-text rendering of a value plus its enrichment — used for title
+     * tooltips so truncated lines never hide the enum label or units (TRP-13).
+     */
+    formatValueText: function(value, options) {
+        const opts = options || {};
+        const parts = [value == null ? '' : String(value)];
+        const enumLabel = String(opts.enumLabel || '').trim();
+        const units = String(opts.units || '').trim();
+        if (enumLabel) parts.push(enumLabel);
+        if (units) parts.push(units);
+        return parts.filter(Boolean).join(' ');
     },
 
     downloadText: function(filename, content, mimeType) {

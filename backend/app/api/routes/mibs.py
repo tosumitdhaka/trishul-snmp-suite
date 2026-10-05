@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.services import browser_service, mibs_service
 from app.services.bundle_state import get_bundle
+from app.services.mib_metadata import enum_values, input_type_for_syntax
 from app.services.mibs_service import MibsError
 from app.services.realtime import broadcast_mibs, broadcast_stats
 from app.services.session import SessionService, SessionServiceError
@@ -83,27 +84,24 @@ def get_mib_objects(
         return {"objects": []}
     from trishul_snmp.mib.registry import oid_to_string
 
-    def _input_type(syntax):
-        if not syntax:
-            return "String"
-        base = syntax.split("(")[0].strip()
-        if base in ("OBJECT IDENTIFIER", "AutonomousType"):
-            return "OID"
-        if base in ("InetAddress", "IpAddress"):
-            return "IpAddress"
-        return "String"
-
-    objects = [
-        {
+    def _object_payload(node) -> dict[str, Any]:
+        payload = {
             "name": node.name,
             "full_name": f"{node.module}::{node.name}",
             "module": node.module,
             "oid": oid_to_string(node.oid),
             "syntax": node.syntax or "",
             "type": node.nodetype or node.object_type or "",
-            "input_type": _input_type(node.syntax),
+            "input_type": input_type_for_syntax(node.syntax),
             "constraint": node.constraints,
         }
+        node_enum_values = enum_values(node)
+        if node_enum_values:
+            payload["enum_values"] = node_enum_values
+        return payload
+
+    objects = [
+        _object_payload(node)
         for node in bundle.iter_objects()
         if node.object_type not in ("NOTIFICATION-TYPE", "TRAP-TYPE")
     ]

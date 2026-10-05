@@ -4,13 +4,35 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.0.3` UI or runtime behavior.
+`2.1.0` UI or runtime behavior.
 
-The current stable release line is `2.0.3`. The entries below `2.0.3` are
+The current stable release line is `2.1.0`. The entries below `2.1.0` are
 historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.1.0] - 2026-10-05
+
+### Added
+- **MIB Schema / Enums** - Enum labels, units, and constraints from the trishul-smi `0.5.x` JSON IR are surfaced end-to-end: walks render the raw value with a muted `label(value)` enrichment and units suffix on single-line rows; trap history and detail render an enum badge (with full-text tooltip) and units suffix; the MIB browser detail panel gains Enumerations tables (sorted, count-badged, sticky headers) and a Units badge.
+- **Bundles / Reproducibility** - MIB compiles are reproducible (byte-identical artifacts) and bundle sets carry a `content_hash` identity; a producer-aware banner in `MIB Manager` recommends recompiling bundles that predate enum/units support — and the banner's action actually recompiles old-producer bundles, with bundle-scoped dismissal, payload-driven copy, and a busy state.
+- **Traps / Validation** - Range and size constraints from the MIB schema are enforced server-side before PDU encode and surfaced in the trap varbind picker as hints with pre-submit validation; the picker defaults each object to its MIB-declared varbind type (Integer, Counter, Gauge, TimeTicks, OID, IpAddress) and offers enum dropdowns out of the box.
+- **Walker / Index Awareness** - Walk grouping decodes instance keys from the table's declared index columns (integer and octet-string), fixing grouping for string-indexed tables; heuristic fallback retained for unresolved roots; grouped mode carries the same enum/units enrichment as flat mode.
+- **MIB Browser / OID Search** - Instant client-side OID-prefix search backed by a new `GET /api/bundles/{id}/oid-index` sidecar endpoint; the fast path revalidates on bundle changes, honors active module/type filters (falling back to server search), shows correct node-type icons, and displays loading feedback while the index downloads.
+- **MIB Manager / Provenance** - Module revision-history cards (revisions, organization, contact info) from `module_metadata`; expanded cards survive list re-renders.
+
+### Changed
+- **Dependencies** - `trishul-smi==0.5.3` and `trishul-snmp==0.6.2` pinned; orphaned pysnmp-family packages removed from the suite environment; `requests` moved to dev-only requirements.
+- **Enums / Consolidation** - A single shared helper (`mib_metadata`) now interprets constraints as enumerations, replacing four scattered implementations; the trap picker consumes backend-provided `enum_values` only; the varbind-type mapping is canonicalized in the same helper for the picker, trap catalog, and browser paths.
+- **Exports** - Walk and trap exports carry raw values with separate `enum_label`/`units` fields.
+- **Simulator** - Default values are drawn inside declared ranges and sizes (TC-level constraints included); invalid custom data is rejected at save time and warn-and-skipped at startup — with skipped entries surfaced as an inline warning panel on the simulator page.
+
+### Fixed
+- Walker grouping for string-indexed tables (previously a name-split heuristic that mis-decoded non-integer instance keys).
+- Simulator no longer accepts out-of-constraint values silently.
 
 ---
 

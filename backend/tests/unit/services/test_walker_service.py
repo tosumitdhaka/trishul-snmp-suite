@@ -148,6 +148,43 @@ def test_compat_items_keep_raw_values_when_display_is_present():
     assert if_status["labels"]["snmp_index"] == "2"
 
 
+def test_compat_items_carry_enum_label_and_units_on_grouped_metrics():
+    from app.services.walker_service import _walk_compat_items
+
+    items = _walk_compat_items(
+        [
+            {
+                "symbolic": "IF-MIB::ifSpeed.2",
+                "oid": "1.3.6.1.2.1.2.2.1.5.2",
+                "value_type": "integer",
+                "value": {"value": 123},
+                "display_value": "123",
+                "enum_label": None,
+                "units": "bits/second",
+            },
+            {
+                "symbolic": "STUB-MIB::linkMode.1",
+                "oid": "1.3.6.1.4.1.99997.1.1",
+                "value_type": "integer",
+                "value": {"value": 2},
+                "display_value": "auto(2)",
+                "enum_label": "auto",
+                "units": None,
+            },
+        ],
+        target_host="lab-agent",
+        root_oid="IF-MIB::ifTable",
+        use_mibs=True,
+    )
+    by_name = {item["metric_name"]: item for item in items}
+    assert by_name["ifSpeed"]["value"] == 123
+    assert by_name["ifSpeed"]["enum_label"] is None
+    assert by_name["ifSpeed"]["units"] == "bits/second"
+    assert by_name["linkMode"]["value"] == 2
+    assert by_name["linkMode"]["enum_label"] == "auto"
+    assert by_name["linkMode"]["units"] is None
+
+
 def test_execute_covers_raw_parsed_grouped_and_label_modes(isolated_db, monkeypatch):
     from app.services import walker_service
     from app.services.state_store import StateStore, _WALK_OIDS_RETURNED_KEY, _WALKS_EXECUTED_KEY

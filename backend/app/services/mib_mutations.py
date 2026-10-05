@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -7,7 +8,12 @@ from typing import Any
 from sqlalchemy import select
 
 from app.models import BundleSet
-from app.services.bundles import BundleCompileRequest, BundleServiceError
+from app.services.bundles import (
+    CAPABILITY_FLOOR,
+    BundleCompileRequest,
+    BundleServiceError,
+    _producer_version_below,
+)
 
 _LOG_PREVIEW_LIMIT = 12
 
@@ -280,8 +286,14 @@ class ShellMibMutationService:
         uploaded_mib_names = self.uploaded_mib_names()
         if not uploaded_mib_names:
             try:
-                self.emit_operation_log("No uploaded MIB sources remain; reactivating bundled starter bundle.")
-                self.activate_bundled_starter_bundle()
+                if self._starter_bundle_needs_recompile():
+                    self.emit_operation_log(
+                        "No uploaded MIB sources remain; recompiling bundled starter bundle with a current MIB compiler."
+                    )
+                    self._compile_starter_bundle()
+                else:
+                    self.emit_operation_log("No uploaded MIB sources remain; reactivating bundled starter bundle.")
+                    self.activate_bundled_starter_bundle()
             except BundleServiceError as exc:
                 raise self.error_cls(str(exc)) from exc
             self.increment_counter(self.mib_reload_count_key, 1)
@@ -373,6 +385,37 @@ class ShellMibMutationService:
         if starter_bundle is not None:
             return self.bundle_service.activate_bundle(starter_bundle.id)
 
+        return self._compile_starter_bundle()
+
+    def _starter_bundle_needs_recompile(self) -> bool:
+        """True when the existing starter bundle predates the enum/units floor.
+
+        The recompile banner targets exactly these upgraded installs, so the
+        reload-with-no-uploads path must compile a fresh bundle set instead of
+        re-activating the stale one.
+        """
+        with self.session_factory() as session:
+            starter_bundle = session.scalar(
+                select(BundleSet)
+                .where(BundleSet.label == "Bundled Starter MIBs")
+                .order_by(BundleSet.id.desc())
+                .limit(1)
+            )
+        if starter_bundle is None:
+            return True
+        manifest_path = Path(starter_bundle.manifest_path or "")
+        if not manifest_path.exists():
+            return True
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, ValueError):
+            return True
+        return _producer_version_below(
+            manifest.get("producer_version"),
+            CAPABILITY_FLOOR,
+        )
+
+    def _compile_starter_bundle(self) -> dict[str, Any] | None:
         starter_mibs = self.bundle_service.bundled_mib_names()
         if not starter_mibs:
             return None
