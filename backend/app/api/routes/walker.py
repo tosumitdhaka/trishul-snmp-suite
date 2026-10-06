@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services import walker_service
+from app.services.realtime import broadcast_stats
 from app.services.session import SessionService, SessionServiceError
 from app.services.state_store import get_state_store
 from app.services.walker_service import WalkerError
@@ -41,7 +42,7 @@ async def execute_walk(
     from app.core.config import get_settings
     from app.services.runtime import get_runtime_service
     try:
-        return await walker_service.execute(
+        result = await walker_service.execute(
             target=body.target,
             port=body.port,
             community=body.community,
@@ -57,3 +58,7 @@ async def execute_walk(
         )
     except WalkerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # R-2: keep the dashboard walk cards live over WS — the walk stats were
+    # only refreshed on page re-entry without a route-level broadcast.
+    await broadcast_stats(settings=get_settings())
+    return result

@@ -176,6 +176,24 @@ def test_send_trap_rejects_non_member_enum_values(isolated_db):
         )
     assert runtime.send_calls == []
 
+    # The same non-member value with a SYMBOLIC target is also rejected now
+    # that enum membership resolves symbolic targets (TRP-05 parity).
+    with pytest.raises(TrapsError, match="not a member of the declared enum"):
+        asyncio.run(
+            traps_service.send_trap(
+                target="127.0.0.1",
+                port=2162,
+                community="public",
+                oid="IF-MIB::linkDown",
+                varbinds=[
+                    {"oid": "IF-MIB::ifAdminStatus", "type": "Integer", "value": 5},
+                ],
+                settings=settings,
+                runtime_service=runtime,
+            )
+        )
+    assert runtime.send_calls == []
+
     # A member value (down=2) passes through to the runtime.
     asyncio.run(
         traps_service.send_trap(
@@ -191,6 +209,163 @@ def test_send_trap_rejects_non_member_enum_values(isolated_db):
         )
     )
     assert runtime.send_calls[0]["varbinds"][0]["value"] == {"type": "integer", "value": 2}
+
+
+def test_send_trap_accepts_symbolic_oid_varbind_values(isolated_db):
+    """P-2: symbolic OID varbind values (MODULE::symbol) must pass through to
+    the runtime, which resolves them against the active bundle. The old
+    pre-validation rejected any value without a dot arc."""
+    from app.services import traps_service
+
+    _activate_trap_bundle(isolated_db)
+    settings = isolated_db["settings"]
+    runtime = _TrapRuntimeStub()
+
+    asyncio.run(
+        traps_service.send_trap(
+            target="127.0.0.1",
+            port=2162,
+            community="public",
+            oid="IF-MIB::linkDown",
+            varbinds=[
+                {"oid": "SNMPv2-MIB::snmpTrapOID.0", "type": "OID", "value": "IF-MIB::linkDown"},
+            ],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    call = runtime.send_calls[0]
+    assert call["notification"] == "1.3.6.1.6.3.1.1.5.3"
+    # The runtime resolves the symbolic value; the service hands it through.
+    assert call["varbinds"][0]["value"] == {"type": "object-identifier", "value": "IF-MIB::linkDown"}
+
+    # Dotted numerics still pass through unchanged.
+    asyncio.run(
+        traps_service.send_trap(
+            target="127.0.0.1",
+            port=2162,
+            community="public",
+            oid="IF-MIB::linkDown",
+            varbinds=[
+                {"oid": "SNMPv2-MIB::snmpTrapOID.0", "type": "OID", "value": "1.3.6.1.6.3.1.1.5.3"},
+            ],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    assert runtime.send_calls[1]["varbinds"][0]["value"] == {
+        "type": "object-identifier",
+        "value": "1.3.6.1.6.3.1.1.5.3",
+    }
+
+
+def test_varbind_to_runtime_rejects_empty_object_identifier_values():
+    from app.services.traps_service import TrapsError, _varbind_to_runtime
+
+    with pytest.raises(TrapsError, match="non-empty"):
+        _varbind_to_runtime(
+            {"oid": "1.3.6.1.2.1.1.3.0", "type": "OID", "value": ""},
+            index=1,
+        )
+    with pytest.raises(TrapsError, match="non-empty"):
+        _varbind_to_runtime(
+            {"oid": "1.3.6.1.2.1.1.3.0", "type": "OID", "value": None},
+            index=2,
+        )
+
+
+def test_send_trap_resolves_enum_labels_for_integer_varbinds(isolated_db):
+    """P-3: integer varbinds typed with an enum label ("up") resolve to the
+    node's declared number (1); unknown labels 400 with a clear message; plain
+    integers and strict TRP-04 behavior for non-enum nodes are unchanged."""
+    from app.services import traps_service
+    from app.services.traps_service import TrapsError
+
+    _activate_trap_bundle(isolated_db)
+    settings = isolated_db["settings"]
+    runtime = _TrapRuntimeStub()
+
+    # "up" on IF-MIB::ifAdminStatus (up=1) sends as integer 1 — both for a
+    # symbolic varbind target (the picker form) and a numeric target.
+    asyncio.run(
+        traps_service.send_trap(
+            target="127.0.0.1",
+            port=2162,
+            community="public",
+            oid="IF-MIB::linkDown",
+            varbinds=[
+                {"oid": "IF-MIB::ifAdminStatus", "type": "Integer", "value": "up"},
+            ],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    assert runtime.send_calls[0]["varbinds"][0]["value"] == {"type": "integer", "value": 1}
+
+    asyncio.run(
+        traps_service.send_trap(
+            target="127.0.0.1",
+            port=2162,
+            community="public",
+            oid="IF-MIB::linkDown",
+            varbinds=[
+                {"oid": "1.3.6.1.2.1.2.2.1.7.1", "type": "Integer", "value": "down"},
+            ],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    assert runtime.send_calls[1]["varbinds"][0]["value"] == {"type": "integer", "value": 2}
+
+    # Unknown label on an enum node -> clear rejection.
+    with pytest.raises(TrapsError, match="'sideways' is not a member of the declared enum"):
+        asyncio.run(
+            traps_service.send_trap(
+                target="127.0.0.1",
+                port=2162,
+                community="public",
+                oid="IF-MIB::linkDown",
+                varbinds=[
+                    {"oid": "IF-MIB::ifAdminStatus", "type": "Integer", "value": "sideways"},
+                ],
+                settings=settings,
+                runtime_service=runtime,
+            )
+        )
+    assert len(runtime.send_calls) == 2
+
+    # Plain integers still work (member value "testing" = 3).
+    asyncio.run(
+        traps_service.send_trap(
+            target="127.0.0.1",
+            port=2162,
+            community="public",
+            oid="IF-MIB::linkDown",
+            varbinds=[
+                {"oid": "1.3.6.1.2.1.2.2.1.7.1", "type": "Integer", "value": 3},
+            ],
+            settings=settings,
+            runtime_service=runtime,
+        )
+    )
+    assert runtime.send_calls[2]["varbinds"][0]["value"] == {"type": "integer", "value": 3}
+
+    # TRP-04: a non-numeric value on a NON-enum node is still rejected.
+    with pytest.raises(TrapsError, match="is not a valid Counter64"):
+        asyncio.run(
+            traps_service.send_trap(
+                target="127.0.0.1",
+                port=2162,
+                community="public",
+                oid="IF-MIB::linkDown",
+                varbinds=[
+                    {"oid": "1.3.6.1.2.1.31.1.1.1.6.1", "type": "Counter64", "value": "abc"},
+                ],
+                settings=settings,
+                runtime_service=runtime,
+            )
+        )
+    assert len(runtime.send_calls) == 3
 
 
 def test_clear_events_purges_fts_rows(isolated_db):

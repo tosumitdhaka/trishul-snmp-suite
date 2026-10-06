@@ -11,7 +11,12 @@ from trishul_snmp.errors import (
 from trishul_snmp.mib.models import MibNode
 from trishul_snmp.mib.registry import oid_to_string, parse_oid
 
-from app.services.mib_metadata import enum_map, enum_values, input_type_for_syntax
+from app.services.mib_metadata import (
+    effective_constraints,
+    enum_map,
+    enum_values,
+    input_type_for_syntax,
+)
 
 
 def _normalize_optional_filter(value: str | None) -> str | None:
@@ -45,8 +50,13 @@ def _ui_type(node: MibNode) -> str:
     return ot or nt or "Node"
 
 
-def _node_to_record(node: MibNode) -> dict[str, Any]:
+def _node_to_record(node: MibNode, *, bundle: MibBundle | None = None) -> dict[str, Any]:
     oid_str = oid_to_string(node.oid) if node.oid else ""
+    # R-3: type-level TEXTUAL-CONVENTION constraints (InterfaceIndex range,
+    # PhysAddress size, ...) resolve through the bundle; without it the record
+    # only carried the node's own constraints and showed `constraints: null`
+    # for TC-typed objects.
+    constraints = effective_constraints(node, bundle=bundle)
     return {
         "entry_type": "notification" if node.object_type in ("NOTIFICATION-TYPE", "TRAP-TYPE") else "object",
         "name": node.name,
@@ -64,7 +74,7 @@ def _node_to_record(node: MibNode) -> dict[str, Any]:
             {"module": m.module, "name": m.object}
             for m in (node.members or [])
         ],
-        "constraints": node.constraints,
+        "constraints": constraints,
         "enums": enum_map(node),
         "units": node.units,
     }
@@ -178,7 +188,7 @@ def get_module_tree(
         top_level = [n for n in nodes if n.oid[:-1] not in oid_set]
 
         def make_node(n) -> dict[str, Any]:
-            record = _node_to_record(n)
+            record = _node_to_record(n, bundle=bundle)
             record["has_children"] = bool(children_by_parent.get(n.oid))
             return record
 
@@ -227,7 +237,7 @@ def get_oid_tree(
     except (UnknownOidError, InvalidOidError):
         pass
 
-    root_record = _node_to_record(root_node) if root_node else {
+    root_record = _node_to_record(root_node, bundle=bundle) if root_node else {
         "oid": root_oid, "oid_tuple": root_tuple, "name": root_oid, "full_name": root_oid,
         "module": "", "type": "", "entry_type": "object",
     }
@@ -256,7 +266,7 @@ def get_oid_tree(
 
     child_records = []
     for n in children:
-        record = _node_to_record(n)
+        record = _node_to_record(n, bundle=bundle)
         record["has_children"] = n.oid in parents_with_descendants
         child_records.append(record)
     child_records.sort(key=lambda r: r["oid"])
@@ -320,7 +330,7 @@ def search_bundle(
             fetch_limit = min(fetch_limit * 4, max_fetch_limit)
     else:
         nodes = bundle.search(query, module=module, type_filter=raw_type_filter, limit=limit)
-    results = [_node_to_record(n) for n in nodes[:limit]]
+    results = [_node_to_record(n, bundle=bundle) for n in nodes[:limit]]
     results.sort(key=lambda r: (r["module"], r["name"]))
     return {"results": results, "count": len(results)}
 
@@ -391,7 +401,7 @@ def get_node(oid: str, *, module: str | None, bundle: MibBundle | None) -> dict[
         except (UnknownOidError, InvalidOidError):
             pass
 
-    node_record = _node_to_record(node) if node else None
+    node_record = _node_to_record(node, bundle=bundle) if node else None
 
     # Build breadcrumb from OID parents
     breadcrumb: list[dict[str, Any]] = []

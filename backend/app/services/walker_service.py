@@ -142,6 +142,10 @@ def _value_is_metric(object_name: str, value_type: str, value: Any) -> bool:
 
 
 def _metric_value(value_type: str, value: Any) -> int | float | None:
+    # The value is served as the raw wire integer; display conventions
+    # (e.g. TimeTicks centiseconds -> seconds) belong in display fields, so
+    # every numeric type here returns its raw number.
+    del value_type
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -154,8 +158,6 @@ def _metric_value(value_type: str, value: Any) -> int | float | None:
         if m is None:
             return None
         numeric = float(m.group(1))
-    if value_type == "timeticks":
-        numeric /= 100.0
     return int(numeric) if float(numeric).is_integer() else numeric
 
 
@@ -263,6 +265,28 @@ def _decode_instance_index(
     return ".".join(decoded)
 
 
+def _resolve_root_category(root_oid: str, bundle) -> str | None:
+    """Resolve a numeric walk root to its bundle node name.
+
+    Grouped/metrics walks label rows with the root's symbolic name when the
+    root was given symbolically (``IF-MIB::ifTable`` → ``"ifTable"``); numeric
+    roots (``1.3.6.1.2.1.2.2``) must resolve to the same name so both
+    spellings produce identical ``metric_category`` values. Returns None when
+    the root is not a bundle node, in which case the caller falls back to the
+    numeric string (WLK-01).
+    """
+    if bundle is None:
+        return None
+    try:
+        match = bundle.lookup(str(root_oid).strip().lstrip("."))
+        node = bundle.resolve_node(match.module, match.symbol)
+    except Exception:
+        return None
+    if node is None:
+        return None
+    return getattr(node, "name", None) or match.symbol
+
+
 def _walk_compat_items(
     varbinds: list[dict[str, Any]],
     *,
@@ -270,14 +294,17 @@ def _walk_compat_items(
     root_oid: str,
     use_mibs: bool,
 ) -> list[dict[str, Any]]:
-    category = root_oid.split("::", 1)[1] if "::" in root_oid else root_oid
-    timestamp = int(datetime.now(timezone.utc).timestamp())
-    rows: OrderedDict[str, dict[str, Any]] = OrderedDict()
     bundle = None
     if use_mibs:
         from app.services.bundle_state import get_bundle
 
         bundle = get_bundle()
+    if "::" in root_oid:
+        category = root_oid.split("::", 1)[1]
+    else:
+        category = _resolve_root_category(root_oid, bundle) or root_oid
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    rows: OrderedDict[str, dict[str, Any]] = OrderedDict()
     context_cache: dict[
         tuple[str, str],
         tuple[tuple[int, ...] | None, list[dict[str, str]], str] | None,

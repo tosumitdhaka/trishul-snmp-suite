@@ -4,13 +4,34 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.2.0` UI or runtime behavior.
+`2.2.1` UI or runtime behavior.
 
-The current stable release line is `2.2.0`. The entries below `2.2.0` are
+The current stable release line is `2.2.1`. The entries below `2.2.1` are
 historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.2.1] - 2026-10-06
+
+Production patch: closes every issue confirmed against live 2.2.0 deployments
+(the full QA round — Playwright-driven functional verification of all pages
+plus backend root-cause analysis of the reported failures).
+
+### Fixed
+- **Simulator start** no longer fails on MIBs that declare byte-sized `PhysAddress`/`MacAddress` objects (e.g. `ALCATEL-IEEE8021-PAE-MIB::alxDot1xNotifyMacAddress`): generated defaults now serve raw octets through the hex encoding channel, satisfying SMI SIZE constraints (a 17-character colon-form MAC was previously rejected as `value length 17 is outside the declared size 6..6`).
+- **Trap sender** accepts symbolic OID varbind values (e.g. `IF-MIB::linkDown`) instead of rejecting them with "requires at least two arcs"; integer varbinds accept enum labels (e.g. `up`) by resolving them against the node's declared enumerations; empty OID values are rejected explicitly.
+- **Walks with a numeric OID root** resolve the table name for metric grouping instead of grouping under the raw OID string.
+- **TimeTicks metric values** carry the raw wire integer — the grouped/export payload previously disagreed with the raw lines by a fractional seconds form.
+- **Simulated counters** can no longer draw negative values when the declared range reaches zero (e.g. `ifNumber` serving `-533828582`).
+- **Dashboard walk statistics** (walks executed, OIDs returned, SNMP requests) now update live over WebSocket instead of only on page re-entry.
+- **MIB browser node detail** resolves TEXTUAL-CONVENTION constraints, so TC-typed objects (e.g. `ifIndex` → `InterfaceIndex` range 1..2147483647) render range/size badges.
+- **Walker results table** fixed a column misalignment on every parsed walk — a ghost empty cell was emitted before each value cell, shifting the Type and Value columns.
+- **Walker form** inputs (host, port, community, OID) and the result filter survive page reloads; the browser→walker OID handoff still takes precedence.
+- **MIB browser tree** highlights the clicked row instead of the module header when a module shares its OID with its first child.
+- **Trap detail/replay/decode modals** receive focus on open, so Escape closes them immediately.
 
 ---
 

@@ -100,7 +100,9 @@ def test_walk_item_and_metric_helpers_handle_display_and_metric_edges():
         for item in compat_items
         if item["metric_name"] == "ifSpeed"
     )
-    assert any(item["value"] == 2.5 for item in compat_items if item["metric_name"] == "sysUpTime")
+    # P-6: the metric value is the raw wire integer (matches rawLines); the
+    # TimeTicks centiseconds->seconds form is a display convention only.
+    assert any(item["value"] == 250 for item in compat_items if item["metric_name"] == "sysUpTime")
 
     assert _value_is_metric("ifIndex", "integer", 1) is False
     assert _value_is_metric("ifSpeed", "octet-string", "123") is False
@@ -114,7 +116,9 @@ def test_walk_item_and_metric_helpers_handle_display_and_metric_edges():
     assert _metric_value("counter32", "") is None
     assert _metric_value("counter32", "no digits") is None
     assert _metric_value("counter32", "speed 77 bps") == 77
-    assert _metric_value("timeticks", 150) == 1.5
+    # P-6: timeticks metrics carry the raw integer, not the /100 seconds form.
+    assert _metric_value("timeticks", 150) == 150
+    assert _metric_value("timeticks", 691476332) == 691476332
 
 
 def test_compat_items_keep_raw_values_when_display_is_present():
@@ -893,7 +897,8 @@ def test_compat_items_do_not_merge_scalars_into_one_row(monkeypatch):
         use_mibs=True,
     )
     assert [item["metric_name"] for item in items] == ["upScalar"]
-    assert items[0]["value"] == 2.5
+    # P-6: raw integer value (matches the raw line), not the seconds form.
+    assert items[0]["value"] == 250
     assert items[0]["labels"]["snmp_index"] == "0"
     assert "nameScalar" not in items[0]["labels"]
 
@@ -1025,3 +1030,62 @@ def test_value_is_metric_matches_whole_words_not_substrings():
     assert _name_words("ifPhysAddress") == {"if", "phys", "address"}
     assert _name_words("dot1dStpPort") == {"dot1d", "stp", "port"}
     assert _name_words("") == set()
+
+
+def test_compat_items_resolve_numeric_root_category_from_bundle(isolated_db):
+    """P-4: a numeric walk root must resolve to the same metric_category as
+    its symbolic spelling, so grouped/metrics rows label identically."""
+    from app.services.walker_service import _walk_compat_items
+
+    _activate_walker_bundle(isolated_db)
+
+    varbinds = [
+        {
+            "symbolic": "IF-MIB::ifSpeed.2",
+            "oid": "1.3.6.1.2.1.2.2.1.5.2",
+            "value_type": "integer",
+            "value": {"value": 123},
+        },
+        {
+            "symbolic": "IF-MIB::ifAdminStatus.2",
+            "oid": "1.3.6.1.2.1.2.2.1.7.2",
+            "value_type": "integer",
+            "value": {"value": 1},
+        },
+    ]
+    numeric_root = _walk_compat_items(
+        varbinds, target_host="lab-agent", root_oid="1.3.6.1.2.1.2.2", use_mibs=True
+    )
+    symbolic_root = _walk_compat_items(
+        varbinds, target_host="lab-agent", root_oid="IF-MIB::ifTable", use_mibs=True
+    )
+    assert numeric_root[0]["metric_category"] == "ifTable"
+    assert numeric_root[0]["metric_category"] == symbolic_root[0]["metric_category"]
+
+    # An unresolvable numeric root falls back to the numeric string (WLK-01).
+    unresolved = _walk_compat_items(
+        varbinds, target_host="lab-agent", root_oid="1.3.6.1.4.1.99999", use_mibs=True
+    )
+    assert unresolved[0]["metric_category"] == "1.3.6.1.4.1.99999"
+
+
+def test_compat_items_keep_raw_timeticks_matching_raw_lines():
+    """P-6: grouped metric values carry the raw wire integer so the walker
+    table/export never disagrees with the raw line output."""
+    from app.services.walker_service import _walk_compat_items, _walk_line
+
+    entry = {
+        "symbolic": "IF-MIB::ifLastChange.1",
+        "oid": "1.3.6.1.2.1.2.2.1.9.1",
+        "value_type": "timeticks",
+        "value": {"value": 691476332, "display": "691476332"},
+        "display_value": "691476332",
+    }
+    items = _walk_compat_items(
+        [entry],
+        target_host="lab-agent",
+        root_oid="IF-MIB::ifTable",
+        use_mibs=True,
+    )
+    assert items[0]["value"] == 691476332
+    assert _walk_line(entry, use_mibs=True).endswith("= 691476332")

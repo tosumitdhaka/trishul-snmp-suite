@@ -137,8 +137,12 @@ def test_default_value_for_syntax_uses_node_enum_metadata_and_type_rules():
     assert 0 <= _default_value_for_syntax("TimeTicks", "ifLastChange", index=1)["value"] <= 5000000
     assert _default_value_for_syntax("IpAddress", "ifAgentAddress", index=1)["type"] == "ip-address"
     assert _default_value_for_syntax("OBJECT IDENTIFIER", "sysObjectID", index=0)["type"] == "object-identifier"
-    assert _default_value_for_syntax("OctetString", "ifPhysAddress", index=1)["value"] == "00:11:22:33:44:01"
-    assert _default_value_for_syntax("OctetString", "ifPhysAddress", index=2)["value"] == "00:11:22:33:44:02"
+    # SIM-11 + P-1: MAC/phys defaults ride the hex value-spec channel (raw
+    # octets), so the declared byte size can be validated instead of the
+    # 17-character colon display form.
+    mac_default = _default_value_for_syntax("OctetString", "ifPhysAddress", index=1)
+    assert mac_default == {"type": "octet-string", "value": "001122334401", "encoding": "hex"}
+    assert _default_value_for_syntax("OctetString", "ifPhysAddress", index=2)["value"] == "001122334402"
 
 
 def test_runtime_objects_from_custom_data_and_load_custom_data_cover_coercion_paths(isolated_db):
@@ -228,6 +232,41 @@ def test_default_value_for_syntax_draws_random_values_inside_declared_range():
     result = _default_value_for_syntax("DisplayString", "ifAlias", index=1, node=sized_node)
     assert result["type"] == "octet-string"
     assert len(result["value"]) <= 4
+
+
+def test_default_value_for_syntax_never_draws_negative_for_zero_reaching_ranges():
+    # R-1: Integer32's full range includes negatives, but simulated "counts"
+    # must stay non-negative when the declared range reaches zero.
+    from types import SimpleNamespace
+
+    from app.services.simulator_service import _default_value_for_syntax
+
+    full_range_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "range", "data": [[-2147483648, 2147483647]]},
+    )
+    for _ in range(50):
+        result = _default_value_for_syntax("Integer32", "ifNumber", index=0, node=full_range_node)
+        assert result["type"] == "integer"
+        assert 0 <= result["value"] <= 2147483647
+
+    # A partially negative range clamps only the negative tail.
+    partial_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "range", "data": [[-10, 20]]},
+    )
+    for _ in range(50):
+        result = _default_value_for_syntax("Integer32", "scopedCounter", index=0, node=partial_node)
+        assert 0 <= result["value"] <= 20
+
+    # A fully negative range keeps the signed draw.
+    negative_node = SimpleNamespace(
+        enums=None,
+        constraints={"kind": "range", "data": [[-100, -1]]},
+    )
+    for _ in range(50):
+        result = _default_value_for_syntax("Integer32", "negativeThing", index=0, node=negative_node)
+        assert -100 <= result["value"] <= -1
 
 
 def test_custom_value_validation_errors_are_explicit():
@@ -359,23 +398,24 @@ def test_default_value_for_syntax_mac_clamped_by_byte_size_not_characters():
 
     from app.services.simulator_service import _default_value_for_syntax
 
-    # SIM-11: PhysAddress/MacAddress size constraints count bytes, not display
-    # characters. "00:11:22:33:44:01" is 6 bytes but 17 characters; clamping
-    # by character count would truncate it to "00:11:".
+    # SIM-11 + P-1: PhysAddress/MacAddress size constraints count bytes, not
+    # display characters. "00:11:22:33:44:01" is 6 bytes but 17 characters;
+    # the default is served as a hex octet string (6 bytes) so the runtime's
+    # size validation accepts it, and byte-pair clamping keeps it well-formed.
     mac_node = SimpleNamespace(
         enums=None,
         constraints={"kind": "size", "data": [[6, 6]]},
     )
     result = _default_value_for_syntax("MacAddress", "ifPhysAddress", index=1, node=mac_node)
-    assert result["type"] == "octet-string"
-    assert result["value"] == "00:11:22:33:44:01"
+    assert result == {"type": "octet-string", "value": "001122334401", "encoding": "hex"}
 
     short_node = SimpleNamespace(
         enums=None,
         constraints={"kind": "size", "data": [[0, 4]]},
     )
     result = _default_value_for_syntax("MacAddress", "ifPhysAddress", index=1, node=short_node)
-    assert result["value"] == "00:11:22:33"
+    assert result["value"] == "00112233"
+    assert result["encoding"] == "hex"
 
 
 def test_coerce_custom_value_rejects_fractional_integers():
@@ -787,3 +827,92 @@ def test_start_surfaces_corrupt_custom_data_warning(isolated_db, monkeypatch):
     assert started["status"] == "started"
     assert started["custom_data_warnings"]
     assert "not valid JSON" in started["custom_data_warnings"][0]
+
+
+def test_mac_default_passes_runtime_constraint_validation_via_parse_path(isolated_db):
+    """P-1: a MacAddress default with a SIZE 6..6 bound must survive the
+    runtime parse + validation path exactly as simulator start runs it.
+
+    Regression: the old default served the 17-character colon display form,
+    which encoded as 17 literal UTF-8 bytes and was rejected with
+    "value length 17 is outside the declared size 6..6". The hex value-spec
+    channel yields 6 raw octets that satisfy the declared size.
+    """
+    from types import SimpleNamespace
+
+    from app.services.runtime import RuntimeService
+    from app.services.simulator_service import _default_value_for_syntax
+    from trishul_snmp.errors import UnknownOidError
+
+    MAC_OID = (1, 3, 6, 1, 2, 1, 2, 2, 1, 6)
+
+    class _Match:
+        module = "ALCATEL-IEEE8021-PAE-MIB"
+        symbol = "alxDot1xNotifyMacAddress"
+
+    class _Bundle:
+        def lookup(self, oid):
+            if isinstance(oid, str):
+                oid = tuple(int(part) for part in oid.strip().lstrip(".").split("."))
+            if oid == MAC_OID:
+                return _Match()
+            raise UnknownOidError(str(oid))
+
+        def resolve_node(self, module, symbol):
+            del module
+            if symbol == "alxDot1xNotifyMacAddress":
+                return SimpleNamespace(
+                    module="ALCATEL-IEEE8021-PAE-MIB",
+                    syntax="MacAddress",
+                    enums=None,
+                    constraints={"kind": "size", "data": [[6, 6]]},
+                )
+            return None
+
+        def resolve_type(self, module, type_name):
+            del module, type_name
+            return None
+
+    node = SimpleNamespace(
+        module="ALCATEL-IEEE8021-PAE-MIB",
+        syntax="MacAddress",
+        enums=None,
+        constraints={"kind": "size", "data": [[6, 6]]},
+    )
+    spec = _default_value_for_syntax(
+        "MacAddress", "alxDot1xNotifyMacAddress", index=1, node=node, bundle=_Bundle()
+    )
+    assert spec == {"type": "octet-string", "value": "001122334401", "encoding": "hex"}
+
+    # The runtime parse path that start_responder runs: encode + validate.
+    runtime = RuntimeService(settings=isolated_db["settings"])
+    parsed = runtime._parse_runtime_objects(
+        [{"target": "1.3.6.1.2.1.2.2.1.6", "value": spec}],
+        bundle=_Bundle(),
+    )
+    assert parsed[0].value.value == bytes.fromhex("001122334401")
+
+
+def test_simulator_bundle_objects_pass_runtime_parse_and_constraint_validation(isolated_db):
+    """P-1: the full generated bundle-object set must survive the exact
+    ``_parse_runtime_objects`` validation that start_responder runs, so
+    simulator start cannot fail on a default value.
+    """
+    from app.services.bundle_state import set_bundle
+    from app.services.bundles import BundleCompileRequest, BundleService
+    from app.services.runtime import RuntimeService
+    from app.services.simulator_service import _bundle_objects
+    from trishul_snmp.mib import load_bundle
+
+    settings = isolated_db["settings"]
+    result = BundleService(settings).compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+    bundle = load_bundle(result["activation"]["bundle"]["storage_path"])
+    set_bundle(bundle)
+
+    objects = _bundle_objects(settings)
+    assert len(objects) > 0
+
+    parsed = RuntimeService(settings=settings)._parse_runtime_objects(objects, bundle=bundle)
+    assert len(parsed) == len(objects)

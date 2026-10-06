@@ -455,11 +455,30 @@ window.BrowserModule = {
         this.pendingSelectedModule = null;
     },
 
+    // Module rows carry the OID of the module's first root node, so a
+    // module header and its first child can share the same
+    // [data-oid][data-module] pair. querySelector() would always resolve
+    // to the module header (it precedes its children in the DOM), which
+    // used to hijack the selection highlight, expansion, and state restore
+    // for that child. Prefer plain tree rows and fall back to the module
+    // header only when nothing else matches.
+    findTreeNodeEl: function(oid, module) {
+        if (!oid) return null;
+        const selector = module
+            ? `.tree-node[data-oid="${oid}"][data-module="${module}"]`
+            : `.tree-node[data-oid="${oid}"]`;
+        const candidates = document.querySelectorAll(selector);
+        for (const candidate of candidates) {
+            if (!candidate.classList.contains('tree-module')) {
+                return candidate;
+            }
+        }
+        return document.querySelector(selector);
+    },
+
     expandNodeByRef: async function(ref) {
         const nodeRef = this.parseNodeRef(ref);
-        const nodeEl = nodeRef.module
-            ? document.querySelector(`.tree-node[data-oid="${nodeRef.oid}"][data-module="${nodeRef.module}"]`)
-            : document.querySelector(`.tree-node[data-oid="${nodeRef.oid}"]`);
+        const nodeEl = this.findTreeNodeEl(nodeRef.oid, nodeRef.module);
         if (!nodeEl) {
             return;
         }
@@ -494,10 +513,9 @@ window.BrowserModule = {
         // Wait a bit for DOM to settle
         await new Promise(resolve => setTimeout(resolve, 200));
         
-        // Try to find the node in the tree
-        let nodeEl = this.pendingSelectedModule
-            ? document.querySelector(`.tree-node[data-oid="${this.pendingSelectedOid}"][data-module="${this.pendingSelectedModule}"]`)
-            : document.querySelector(`.tree-node[data-oid="${this.pendingSelectedOid}"]`);
+        // Try to find the node in the tree (prefers a plain row over a
+        // module header that shares the same OID — see findTreeNodeEl).
+        let nodeEl = this.findTreeNodeEl(this.pendingSelectedOid, this.pendingSelectedModule);
 
         if (!nodeEl) {
             // Node might be in search results
@@ -1474,9 +1492,7 @@ window.BrowserModule = {
     },
 
     toggleNode: async function(oid, module) {
-        const nodeEl = module
-            ? document.querySelector(`.tree-node[data-oid="${oid}"][data-module="${module}"]`)
-            : document.querySelector(`.tree-node[data-oid="${oid}"]`);
+        const nodeEl = this.findTreeNodeEl(oid, module);
         if (!nodeEl) return;
         await this.toggleNodeElement(nodeEl);
     },
@@ -1490,22 +1506,27 @@ window.BrowserModule = {
         const module = nodeEl.getAttribute('data-module') || null;
         if (!oid) return;
 
-        await this.selectNode(oid, module);
+        await this.selectNode(oid, module, el);
     },
     
-    selectNode: async function(oid, module) {
+    selectNode: async function(oid, module, sourceEl) {
         document.querySelectorAll('.tree-node-content, .search-result-item').forEach(el => {
             el.classList.remove('is-selected', 'active');
         });
         
+        // Prefer the element the user actually interacted with; module
+        // headers can share the oid+module of their first child, so an
+        // oid-based lookup alone may resolve to the wrong row.
         const treeSelector = module
             ? `.tree-node[data-oid="${oid}"][data-module="${module}"] > .tree-node-content`
             : `.tree-node[data-oid="${oid}"] > .tree-node-content`;
         const searchSelector = module
             ? `.search-result-item[data-oid="${oid}"][data-module="${module}"]`
             : `.search-result-item[data-oid="${oid}"]`;
-        const nodeEl = document.querySelector(treeSelector) ||
-                    document.querySelector(searchSelector);
+        const nodeEl = (sourceEl && sourceEl.classList && (sourceEl.classList.contains('tree-node-content') || sourceEl.classList.contains('search-result-item')))
+            ? sourceEl
+            : (this.findTreeNodeEl(oid, module)?.querySelector(':scope > .tree-node-content')
+                || document.querySelector(searchSelector));
         if (nodeEl) {
             nodeEl.classList.add('is-selected');
         }
@@ -1834,7 +1855,7 @@ window.BrowserModule = {
     },
 
     selectNodeFromElement: function(el) {
-        this.selectNode(el?.dataset?.oid, el?.dataset?.module);
+        this.selectNode(el?.dataset?.oid, el?.dataset?.module, el);
     },
 
     selectNodeFromLink: function(link) {

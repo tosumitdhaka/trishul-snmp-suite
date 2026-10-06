@@ -31,14 +31,21 @@ window.WalkerModule = {
             });
         }
 
-        // Check if OID was passed from browser
+        // Restore the form inputs that produced the cached result. Without
+        // this, F5 shows the restored walk output next to default HTML input
+        // values — the form would describe a different walk than the pane.
+        this.restoreFormConfig();
+
+        // Check if OID was passed from browser — the user's fresh selection
+        // wins over the restored draft, and the draft follows it.
         const browserOid = sessionStorage.getItem('walkerOid');
         if (browserOid) {
             document.getElementById("walk-oid").value = browserOid;
             sessionStorage.removeItem('walkerOid');
+            this.saveCurrentFormConfig();
             TrishulUtils.showNotification(`OID selected: ${browserOid}`, 'info');
         }
-        
+
         // Restore last result if exists. Corrupt storage must never abort
         // page init — drop it and start from the empty state instead.
         const lastResult = sessionStorage.getItem('walkerLastResult');
@@ -89,6 +96,99 @@ window.WalkerModule = {
             this.toggleOptions();
             this.restoreLastResult();
         }
+
+        this.attachFormConfigDrafting();
+        // Re-apply the result-search filter that was active before the
+        // reload, so the restored pane matches what the user was looking at.
+        this.restoreResultSearch();
+    },
+
+    /**
+     * Keep the draft in sync with every keystroke so an F5 never discards
+     * in-progress edits, even when no walk has been run yet.
+     */
+    attachFormConfigDrafting: function() {
+        ['walk-target', 'walk-port', 'walk-comm', 'walk-oid'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el || el.dataset.draftBound === '1') return;
+            el.dataset.draftBound = '1';
+            el.addEventListener('input', () => this.saveCurrentFormConfig());
+            el.addEventListener('change', () => this.saveCurrentFormConfig());
+        });
+    },
+
+    saveCurrentFormConfig: function() {
+        this.saveFormConfig(
+            document.getElementById('walk-target').value,
+            document.getElementById('walk-port').value,
+            document.getElementById('walk-comm').value,
+            document.getElementById('walk-oid').value
+        );
+    },
+
+    /**
+     * Form values (host/port/community/OID) survive an F5: they describe the
+     * walk that produced the cached result, so they belong with it.
+     */
+    saveFormConfig: function(target, port, community, oid) {
+        try {
+            sessionStorage.setItem('walkerFormConfig', JSON.stringify({
+                target: target, port: port, community: community, oid: oid
+            }));
+        } catch (e) {
+            // Storage quota/unavailability must never break a walk.
+        }
+    },
+
+    restoreFormConfig: function() {
+        let config = null;
+        try {
+            config = JSON.parse(sessionStorage.getItem('walkerFormConfig') || 'null');
+        } catch (e) {
+            config = null;
+        }
+        if (!config || typeof config !== 'object') return;
+        const setIfString = (id, value) => {
+            const el = document.getElementById(id);
+            if (el && typeof value === 'string' && value !== '') el.value = value;
+        };
+        setIfString('walk-target', config.target);
+        setIfString('walk-port', config.port);
+        setIfString('walk-comm', config.community);
+        setIfString('walk-oid', config.oid);
+    },
+
+    /**
+     * The active result-search filter is part of the view state; persist it
+     * so an F5 restores the same filtered rows instead of silently showing
+     * the unfiltered set.
+     */
+    saveResultSearch: function(term) {
+        try {
+            if (term) {
+                sessionStorage.setItem('walkerResultSearch', term);
+            } else {
+                sessionStorage.removeItem('walkerResultSearch');
+            }
+        } catch (e) {
+            // same tolerance as the other storage writes
+        }
+    },
+
+    restoreResultSearch: function() {
+        let term = '';
+        try {
+            term = String(sessionStorage.getItem('walkerResultSearch') || '');
+        } catch (e) {
+            term = '';
+        }
+        if (!term || !this.lastData) return;
+        const searchInput = document.getElementById('walk-result-search');
+        if (!searchInput) return;
+        searchInput.value = term;
+        const clearBtn = document.getElementById('btn-clear-result-search');
+        if (clearBtn) clearBtn.classList.remove('d-none');
+        this.filterResults();
     },
 
     normalizeJsonLayout: function(value) {
@@ -378,6 +478,10 @@ window.WalkerModule = {
 
         const sortedRows = this.sortRowsForColumn(rows, columns.find(c => c.label === this._sortColumn));
 
+        // cell() already returns a complete <td>…</td> element — wrapping it
+        // in another <td> made the HTML parser auto-close the outer cell,
+        // producing an empty ghost <td> before every real one (columns
+        // misaligned, twice as many body cells as headers).
         return `
             <table class="table table-sm table-hover mb-0 table-dense">
                 <caption class="visually-hidden">Walk results</caption>
@@ -387,7 +491,7 @@ window.WalkerModule = {
                     </tr>
                 </thead>
                 <tbody>
-                    ${sortedRows.map(r => `<tr>${columns.map(c => `<td>${cell(r, c)}</td>`).join('')}</tr>`).join('')}
+                    ${sortedRows.map(r => `<tr>${columns.map(c => cell(r, c)).join('')}</tr>`).join('')}
                 </tbody>
             </table>`;
     },
@@ -535,6 +639,9 @@ window.WalkerModule = {
         if (retriesInput && Number.isInteger(item.retries)) {
             retriesInput.value = item.retries;
         }
+        // The loaded item's form values are now the current draft — keep the
+        // F5 restore in sync with what the user is looking at.
+        this.saveCurrentFormConfig();
         this.toggleOptions();
         
         // Drop any active result filter — the stale filteredData would
@@ -544,6 +651,7 @@ window.WalkerModule = {
         if (searchInput) searchInput.value = '';
         const clearBtn = document.getElementById("btn-clear-result-search");
         if (clearBtn) clearBtn.classList.add('d-none');
+        this.saveResultSearch('');
         this.resetSort();
         
         // Restore result
@@ -717,6 +825,9 @@ window.WalkerModule = {
 
         // Save recent target
         this.saveRecentTarget(target);
+        // Remember the form values that produced this walk, so an F5 does
+        // not restore the result next to default inputs.
+        this.saveFormConfig(target, String(port), community, oid);
 
         // Cancel any pending progress-bar hide from a previous run so it
         // cannot hide this walk's progress mid-flight.
@@ -765,6 +876,16 @@ window.WalkerModule = {
             this.lastRawLines = data.rawLines || null;
             this.lastJsonFormat = this.normalizeJsonLayout(data.json_format || json_format);
             this.filteredData = null;
+
+            // A fresh result set replaces the old view: drop any stale
+            // search term so the box no longer describes rows that are gone.
+            const searchInput = document.getElementById('walk-result-search');
+            if (searchInput && searchInput.value !== '') {
+                searchInput.value = '';
+                const clearBtn = document.getElementById('btn-clear-result-search');
+                if (clearBtn) clearBtn.classList.add('d-none');
+            }
+            this.saveResultSearch('');
 
             countBadge.textContent = `${data.count} items`;
             countBadge.className = 'badge badge-soft-light';
@@ -932,6 +1053,7 @@ window.WalkerModule = {
         this.resetSort();
 
         sessionStorage.removeItem('walkerLastResult');
+        this.saveResultSearch('');
 
         this.setOutputState('empty');
         if (countBadge) {
@@ -958,6 +1080,9 @@ window.WalkerModule = {
                 clearBtn.classList.add('d-none');
             }
         }
+
+        // Keep the filter across reloads — it is view state for the result.
+        this.saveResultSearch(searchInput.value.trim());
 
         if (!this.lastData) {
             this.updateCountBadge();
@@ -1009,6 +1134,7 @@ window.WalkerModule = {
             if (clearBtn) clearBtn.classList.add('d-none');
             searchInput.focus();
         }
+        this.saveResultSearch('');
         this.filterResults();
     },
 

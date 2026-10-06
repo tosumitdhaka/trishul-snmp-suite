@@ -262,10 +262,16 @@ def _default_value_for_syntax(
     if enum_val is not None:
         return {"type": "integer", "value": enum_val}
 
-    # Numeric types with a declared range: draw inside the declared bounds
+    # Numeric types with a declared range: draw inside the declared bounds.
+    # Integer-family types default to non-negative values when the range
+    # reaches zero (R-1): a full-width Integer32 range like ifNumber's
+    # (-2147483648..2147483647) must not serve negative "counts". Fully
+    # negative ranges keep the original draw so signed semantics survive.
     bounds = range_bounds(constraints)
     if bounds:
         min_val, max_val = bounds[0]
+        if max_val >= 0:
+            min_val = max(0, min_val)
         if s in _COUNTER_SYNTAXES:
             return {"type": "counter32" if s != "Counter64" else "counter64", "value": _random.randint(min_val, max_val)}
         if s in _GAUGE_SYNTAXES:
@@ -286,8 +292,12 @@ def _default_value_for_syntax(
     if s in _IP_SYNTAXES:
         return {"type": "ip-address", "value": f"127.0.0.{index}"}
     if "phys" in low or "mac" in low or s == "PhysAddress" or s == "MacAddress":
-        mac = f"00:11:22:33:44:{index:02x}"
-        return {"type": "octet-string", "value": _clamp_mac_to_size(mac, constraints)}
+        mac_hex = f"0011223344{index:02x}"
+        return {
+            "type": "octet-string",
+            "value": _clamp_mac_to_size(mac_hex, constraints),
+            "encoding": "hex",
+        }
     if "descr" in low or "name" in low or "alias" in low:
         return {"type": "octet-string", "value": _clamp_string_to_size(f"{name}-{index}", constraints)}
     if s in _INTEGER_SYNTAXES:
@@ -313,13 +323,16 @@ def _clamp_string_to_size(value: str, constraints) -> str:
 
 
 def _clamp_mac_to_size(value: str, constraints) -> str:
-    """Trim or pad a display-format MAC/phys address to the declared size bounds.
+    """Trim or pad a hex-form MAC/phys address to the declared size bounds.
 
     PhysAddress/MacAddress size constraints count *bytes*, not display
-    characters: ``"00:11:22:33:44:01"`` is 6 bytes but 17 characters, so a
-    character-count clamp would truncate it to ``"00:11:"`` (a garbled MAC).
-    Octets are clamped/padded by byte count instead, so the display form stays
-    well-formed even when the type declares a byte-size bound.
+    characters. The value arrives as a hex octet string (``"001122334401"``
+    is 6 bytes, one byte per pair of hex digits), so clamping operates on
+    byte pairs and always returns a well-formed hex octet string — a
+    character-count clamp would truncate to a garbled half-octet. The
+    returned hex form feeds the value-spec ``encoding: "hex"`` channel the
+    runtime already supports, so the default is validated as raw octets
+    against the declared size bound.
     """
     from app.services.mib_metadata import size_bounds
 
@@ -327,12 +340,12 @@ def _clamp_mac_to_size(value: str, constraints) -> str:
     if not bounds:
         return value
     min_len, max_len = bounds[0]
-    octets = value.split(":")
+    octets = [value[i : i + 2] for i in range(0, len(value), 2)]
     if len(octets) > max_len:
         octets = octets[:max_len]
     while len(octets) < min_len:
         octets.append("00")
-    return ":".join(octets)
+    return "".join(octets)
 
 
 def _bundle_objects(settings: Settings) -> list[dict[str, Any]]:

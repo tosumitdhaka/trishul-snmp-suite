@@ -40,7 +40,7 @@ join_by() {
     printf '\n'
 }
 
-DEFAULT_APP_VERSION="$(read_env_default APP_VERSION 2.2.0)"
+DEFAULT_APP_VERSION="$(read_env_default APP_VERSION 2.2.1)"
 DEFAULT_APP_PORT="$(read_env_default APP_PORT 8980)"
 DEFAULT_FRONTEND_PORT="$(read_env_default FRONTEND_PORT "$DEFAULT_APP_PORT")"
 DEFAULT_BACKEND_PORT="$(read_env_default BACKEND_PORT "")"

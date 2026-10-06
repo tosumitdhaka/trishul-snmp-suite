@@ -106,7 +106,7 @@ async def send_trap(
             resolved_oid = str(resolved.get("output") or oid)
 
     # Convert varbinds to runtime format
-    runtime_varbinds = [_varbind_to_runtime(item, index=i) for i, item in enumerate(varbinds, 1)]
+    runtime_varbinds = [_varbind_to_runtime(item, index=i, bundle=bundle) for i, item in enumerate(varbinds, 1)]
 
     # Enum membership is part of the varbind contract; enforce it server-side
     # so direct API sends get the same check as picker-driven form rows (TRP-05).
@@ -153,7 +153,7 @@ async def send_inform(
         if resolved.get("resolved"):
             resolved_oid = str(resolved.get("output") or oid)
 
-    runtime_varbinds = [_varbind_to_runtime(item, index=i) for i, item in enumerate(varbinds, 1)]
+    runtime_varbinds = [_varbind_to_runtime(item, index=i, bundle=bundle) for i, item in enumerate(varbinds, 1)]
     _validate_enum_membership(runtime_varbinds, bundle=bundle)
 
     try:
@@ -271,7 +271,60 @@ def _coerce_int(value: Any, *, index: int, type_label: str) -> int:
         raise TrapsError(f"VarBind {index} value: {value!r} is not a valid {type_label}") from None
 
 
-def _varbind_to_runtime(item: dict[str, Any], *, index: int) -> dict[str, Any]:
+def _resolve_varbind_node(target: str, *, bundle):
+    """Resolve a varbind target (symbolic or numeric) to its bundle node.
+
+    Returns ``(node, module, symbol)`` or ``(None, None, None)`` when the
+    target is unknown or the bundle cannot resolve it. Symbolic targets go
+    through the bundle's symbol resolution first; the registry's numeric
+    lookup only accepts dotted OIDs.
+    """
+    if bundle is None or not target:
+        return None, None, None
+    try:
+        if "::" in target:
+            numeric_oid = bundle.resolve(target)
+        else:
+            numeric_oid = target
+        match = bundle.lookup(numeric_oid)
+        node = bundle.resolve_node(match.module, match.symbol)
+    except Exception:
+        return None, None, None
+    return node, getattr(match, "module", None), getattr(match, "symbol", None)
+
+
+def _resolve_enum_label(value: Any, *, target: str, bundle, index: int) -> Any:
+    """Map a symbolic enum label to its integer number for integer-family varbinds.
+
+    The picker presents enum values as ``label (number)`` and users may type or
+    select the bare label (e.g. ``"up"`` for IF-MIB::ifAdminStatus). Numeric
+    and bool values always take the strict coercion path; only non-numeric
+    strings are resolved against the target node's enum map. Nodes without a
+    declared enum keep the strict TRP-04 behavior — the caller's ``_coerce_int``
+    rejects the label instead of silently coercing it.
+    """
+    if bundle is None or isinstance(value, (bool, int, float)):
+        return value
+    text = str(value).strip()
+    if not text or text.lstrip("-").isdigit():
+        return value
+    node, _module, _symbol = _resolve_varbind_node(target, bundle=bundle)
+    if node is None:
+        return value
+    from app.services.mib_metadata import enum_map
+
+    mapping = enum_map(node)
+    if not mapping:
+        return value
+    if text in mapping:
+        return mapping[text]
+    allowed = ", ".join(f"{label}={number}" for label, number in mapping.items())
+    raise TrapsError(
+        f"VarBind {index} value: {text!r} is not a member of the declared enum ({allowed})"
+    )
+
+
+def _varbind_to_runtime(item: dict[str, Any], *, index: int, bundle=None) -> dict[str, Any]:
     raw_oid = str(item.get("oid") or "").strip().lstrip(".")
     raw_type = str(item.get("type") or "String").strip()
     raw_value = item.get("value")
@@ -288,15 +341,26 @@ def _varbind_to_runtime(item: dict[str, Any], *, index: int) -> dict[str, Any]:
     }
     value_type = type_map.get(raw_type, "octet-string")
 
+    # Enum labels resolve to their numbers before the strict integer coercion
+    # runs, so "up" sends as 1 for an enum node while non-enum nodes still
+    # reject non-numeric values outright (TRP-04).
+    def _enum_resolved(value: Any) -> Any:
+        return _resolve_enum_label(value, target=raw_oid, bundle=bundle, index=index)
+
     if value_type == "integer":
-        value = {"type": "integer", "value": _coerce_int(raw_value, index=index, type_label="Integer")}
+        value = {"type": "integer", "value": _coerce_int(_enum_resolved(raw_value), index=index, type_label="Integer")}
     elif value_type in ("counter32", "gauge32", "timeticks"):
-        value = {"type": value_type, "value": _coerce_int(raw_value, index=index, type_label=raw_type)}
+        value = {"type": value_type, "value": _coerce_int(_enum_resolved(raw_value), index=index, type_label=raw_type)}
     elif value_type == "counter64":
-        value = {"type": "counter64", "value": _coerce_int(raw_value, index=index, type_label="Counter64")}
+        value = {"type": "counter64", "value": _coerce_int(_enum_resolved(raw_value), index=index, type_label="Counter64")}
     elif value_type == "object-identifier":
-        oid_val = str(raw_value or "1.3.6.1").strip().lstrip(".")
-        if oid_val.count(".") < 1:
+        oid_val = str(raw_value or "").strip().lstrip(".")
+        if not oid_val:
+            raise TrapsError(f"VarBind {index} value: OBJECT IDENTIFIER requires a non-empty value")
+        # Symbolic names (MODULE::symbol) resolve through the runtime's bundle
+        # at send time; only bare numerics are pre-checked for the arc count,
+        # and the runtime's own numeric validation handles malformed arcs.
+        if "::" not in oid_val and oid_val.count(".") < 1:
             raise TrapsError(f"VarBind {index} value: OBJECT IDENTIFIER requires at least two arcs (got {oid_val!r})")
         value = {"type": "object-identifier", "value": oid_val}
     elif value_type == "ip-address":
@@ -326,11 +390,7 @@ def _validate_enum_membership(runtime_varbinds: list[dict[str, Any]], *, bundle)
         target = str(vb.get("target") or "").strip().lstrip(".")
         if not target:
             continue
-        try:
-            match = bundle.lookup(target)
-            node = bundle.resolve_node(match.module, match.symbol)
-        except Exception:
-            continue
+        node, _module, _symbol = _resolve_varbind_node(target, bundle=bundle)
         mapping = enum_map(node) if node is not None else None
         if not mapping:
             continue

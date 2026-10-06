@@ -1769,6 +1769,11 @@ window.TrapsModule = {
         const modal   = document.createElement('div');
         modal.className = 'modal fade';
         modal.id        = modalId;
+        // Focusable modal root: bootstrap 5 focuses the .modal element on
+        // show() — without tabindex="-1" a div cannot receive that focus, so
+        // Escape-to-close (keydown on the modal) never reaches the handler
+        // until the user clicks inside the dialog first.
+        modal.tabIndex  = -1;
         const titleId   = `${modalId}-title`;
         const formattedId = `${modalId}-formatted`;
         const rawId = `${modalId}-raw`;
@@ -1988,6 +1993,9 @@ window.TrapsModule = {
         const modal = document.createElement('div');
         modal.className = 'modal fade trap-replay-modal';
         modal.id = modalId;
+        // tabindex="-1": makes the modal focusable so bootstrap focuses it
+        // on show() — Escape then closes it without an interior click first.
+        modal.tabIndex = -1;
         modal.setAttribute('aria-labelledby', titleId);
         modal.innerHTML = `
             <div class="modal-dialog modal-dialog-centered">
@@ -2121,6 +2129,9 @@ window.TrapsModule = {
         const modal = document.createElement('div');
         modal.className = 'modal fade';
         modal.id = modalId;
+        // tabindex="-1": makes the modal focusable so bootstrap focuses it
+        // on show() — Escape then closes it without an interior click first.
+        modal.tabIndex = -1;
         modal.setAttribute('aria-labelledby', titleId);
         modal.innerHTML = `
             <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">

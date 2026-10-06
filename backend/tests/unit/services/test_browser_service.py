@@ -197,6 +197,60 @@ def test_node_to_record_emits_enums_and_units(isolated_db):
     assert old_record["constraints"] == {"kind": "enum", "data": [["up", 1], ["down", 2]]}
 
 
+def test_node_to_record_resolves_type_level_textual_convention_constraints(isolated_db):
+    # R-3: node records must carry TEXTUAL-CONVENTION constraints resolved
+    # through the bundle (InterfaceIndex range, PhysAddress/OwnerString size),
+    # not just the node's own (usually null) constraints.
+    from types import SimpleNamespace
+
+    from app.services import browser_service
+    from app.services.browser_service import _node_to_record
+
+    bundle = _activate_browser_bundle(isolated_db)
+
+    # ifIndex is typed InterfaceIndex -> range 1..2147483647 at the type level.
+    node_record = browser_service.get_node("IF-MIB::ifIndex", module=None, bundle=bundle)["node"]
+    assert node_record["constraints"] == {"kind": "range", "data": [[1, 2147483647]]}
+
+    # ifTestOwner is typed OwnerString -> size 0..255 at the type level.
+    owner_record = browser_service.get_node("IF-MIB::ifTestOwner", module=None, bundle=bundle)["node"]
+    assert owner_record["constraints"] == {"kind": "size", "data": [[0, 255]]}
+
+    # A stub PhysAddress node whose type record declares a size bound resolves
+    # it too (the reported ifPhysAddress -> PhysAddress size case).
+    class _SizeType:
+        constraints = {"kind": "size", "data": [[6, 6]]}
+
+    class _StubBundle:
+        def resolve_type(self, module, type_name):
+            del module
+            assert type_name == "PhysAddress"
+            return _SizeType()
+
+    phys_node = SimpleNamespace(
+        module="STUB-MIB",
+        syntax="PhysAddress",
+        object_type="OBJECT-TYPE",
+        nodetype="column",
+        name="ifPhysAddress",
+        max_access="read-only",
+        status="current",
+        description="",
+        index=None,
+        members=None,
+        constraints=None,
+        enums=None,
+        units=None,
+        oid=(1, 3, 6, 1, 2, 1, 2, 2, 1, 6),
+    )
+    phys_record = _node_to_record(phys_node, bundle=_StubBundle())
+    assert phys_record["constraints"] == {"kind": "size", "data": [[6, 6]]}
+
+    # Plain nodes (no type-level constraint) stay unchanged.
+    plain_record = _node_to_record(phys_node)
+    assert plain_record["constraints"] is None
+
+
 def test_input_type_mapping_and_trap_catalog_cover_trap_sender_metadata(isolated_db):
     from app.services import browser_service
     from app.services.browser_service import _input_type_for_syntax

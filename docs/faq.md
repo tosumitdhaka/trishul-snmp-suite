@@ -1,6 +1,6 @@
 # FAQ
 
-## Does `2.2.0` support SNMPv3?
+## Does `2.2.1` support SNMPv3?
 
 No. The current runtime surface is built around SNMP `v2c`.
 
@@ -8,13 +8,13 @@ No. The current runtime surface is built around SNMP `v2c`.
 
 No for normal operation.
 
-The current `2.2.0` bundle pipeline works fully from local files. Optional
+The current `2.2.1` bundle pipeline works fully from local files. Optional
 remote dependency fetch can be enabled in `Settings` if you want uploads or
 reloads to resolve missing MIB imports from approved remote sources.
 
 ## Where is state stored?
 
-In the `2.2.0` runtime, the main sources of truth are:
+In the `2.2.1` runtime, the main sources of truth are:
 
 - `backend/data/trishul_v2.sqlite3`
 - `backend/data/bundles/sets/`
@@ -67,7 +67,7 @@ The installer can preserve and copy old Docker volumes forward, and the current
 release shell intentionally keeps familiar file-backed workflows where possible,
 but you should still validate MIBs, simulator data, and settings after upgrade.
 
-## Which docs are current for 2.2.0?
+## Which docs are current for 2.2.1?
 
 Start with:
 
