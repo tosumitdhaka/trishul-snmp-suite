@@ -97,11 +97,25 @@ def get_mib_traps(
 
 @router.get("/mibs/objects")
 def get_mib_objects(
+    search: str = Query(""),
+    limit: int = Query(50, ge=1, le=200),
     x_auth_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    """Searchable MIB object catalog for the trap varbind picker.
+
+    B-1: the picker must search on keystroke instead of downloading all
+    100k+ object payloads. An empty search is answered with an empty list
+    (no server-side scan), and non-empty searches match ``name``,
+    ``full_name`` (``module::name``) and ``module`` case-insensitively,
+    ranked exact full_name > exact name > name prefix > substring and
+    capped at ``limit``.
+    """
     _require_auth(x_auth_token)
     bundle = get_bundle()
     if bundle is None:
+        return {"objects": []}
+    needle = search.strip().lower()
+    if not needle:
         return {"objects": []}
     from trishul_snmp.mib.registry import oid_to_string
 
@@ -121,12 +135,17 @@ def get_mib_objects(
             payload["enum_values"] = node_enum_values
         return payload
 
-    objects = [
-        _object_payload(node)
-        for node in bundle.iter_objects()
-        if node.object_type not in ("NOTIFICATION-TYPE", "TRAP-TYPE")
-    ]
-    return {"objects": sorted(objects, key=lambda o: (o["module"], o["name"]))}
+    matches = []
+    for node in bundle.iter_objects():
+        if node.object_type in ("NOTIFICATION-TYPE", "TRAP-TYPE"):
+            continue
+        name = (node.name or "").lower()
+        if needle not in name and needle not in f"{node.module}::{node.name}".lower() and needle not in (node.module or "").lower():
+            continue
+        matches.append(node)
+
+    matches.sort(key=lambda n: browser_service.search_rank(n, needle))
+    return {"objects": [_object_payload(n) for n in matches[:limit]]}
 
 
 @router.get("/mibs/resolve")

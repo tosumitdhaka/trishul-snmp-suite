@@ -1,6 +1,6 @@
 # UI Pages
 
-This file keeps its old name for link compatibility. The current `2.2.1`
+This file keeps its old name for link compatibility. The current `2.2.2`
 release UI is the restored page-based shell.
 
 The current shell uses the unified REST API under `/api/...` plus `/api/ws`

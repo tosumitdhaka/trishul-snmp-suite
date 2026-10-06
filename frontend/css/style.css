@@ -1930,7 +1930,28 @@ table {
 .trap-receiver-table td:nth-child(4) { width: auto; min-width: 200px; }
 
 .trap-receiver-table th:nth-child(5),
-.trap-receiver-table td:nth-child(5) { width: 116px; text-align: center; white-space: nowrap; }
+.trap-receiver-table td:nth-child(5) { width: 164px; text-align: center; white-space: nowrap; }
+
+/* F-5: rows carry the app's btn-xs icon buttons — the actions column must
+   hold all four at their real width instead of clipping them at 116px. */
+.trap-receiver-table .trap-action-buttons .btn {
+    flex: 0 0 auto;
+}
+
+/* F-7: whole received row opens the detail modal; the trap-name badge is a
+   real <button> so the affordance is keyboard-reachable too. */
+.trap-receiver-table tbody tr[data-trap-key] {
+    cursor: pointer;
+}
+
+.trap-name-btn {
+    border: 0;
+    cursor: pointer;
+}
+
+.trap-name-btn:focus-visible {
+    box-shadow: 0 0 0 0.2rem var(--app-focus-ring);
+}
 
 .trap-receiver-table code {
     display: block;
@@ -2574,6 +2595,13 @@ table {
 }
 
 /* --- Trap receiver varbind lines: truncate text, never clip the badge (TRP-13) --- */
+/* F-6: one varbind per line, with clear vertical separation between entries
+   so a stack of resolved names never reads as one merged run of text. */
+.app-trap-varbinds {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
 
 .app-trap-varbinds .app-trap-varbind-row {
     display: flex;

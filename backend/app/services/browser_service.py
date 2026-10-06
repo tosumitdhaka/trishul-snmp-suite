@@ -278,16 +278,57 @@ def get_oid_tree(
     }
 
 
-_UI_TYPE_TO_OBJECT_TYPE: dict[str, str] = {
-    "NotificationType": "NOTIFICATION-TYPE",
-    "MibScalar": "OBJECT-TYPE",
-    "MibTable": "OBJECT-TYPE",
-    "MibTableRow": "OBJECT-TYPE",
-    "MibTableColumn": "OBJECT-TYPE",
-    "ObjectGroup": "OBJECT-GROUP",
-    "ModuleCompliance": "MODULE-COMPLIANCE",
-    "ModuleIdentity": "MODULE-IDENTITY",
+# UI type labels map to the raw object_type values they accept. The picker's
+# "NotificationType" label covers both NOTIFICATION-TYPE and TRAP-TYPE nodes
+# (B-2), so the mapping is tuple-valued.
+_UI_TYPE_TO_OBJECT_TYPES: dict[str, tuple[str, ...]] = {
+    "NotificationType": ("NOTIFICATION-TYPE", "TRAP-TYPE"),
+    "MibScalar": ("OBJECT-TYPE",),
+    "MibTable": ("OBJECT-TYPE",),
+    "MibTableRow": ("OBJECT-TYPE",),
+    "MibTableColumn": ("OBJECT-TYPE",),
+    "ObjectGroup": ("OBJECT-GROUP",),
+    "ModuleCompliance": ("MODULE-COMPLIANCE",),
+    "ModuleIdentity": ("MODULE-IDENTITY",),
 }
+
+
+def _node_matches_query(node: MibNode, needle: str) -> bool:
+    """Case-insensitive match over name, full_name, module, and description.
+
+    ``full_name`` matching makes symbolic queries like ``IF-MIB::linkDown``
+    resolve directly to the notification instead of only hitting descriptions
+    that happen to mention the string (B-2).
+    """
+    name = (node.name or "").lower()
+    if needle in name:
+        return True
+    if needle in f"{node.module}::{node.name}".lower():
+        return True
+    if needle in (node.module or "").lower():
+        return True
+    description = node.description
+    return bool(description) and needle in description.lower()
+
+
+def search_rank(node: MibNode, needle: str) -> tuple[int, str, str]:
+    """Order search matches: exact full_name > exact name > name prefix > substring.
+
+    Shared by the browser search (objects + notifications) and the
+    ``/api/mibs/objects`` picker catalog (B-1/B-2). Ties break on
+    (module, name) for stable, alphabetical ordering.
+    """
+    name = (node.name or "").lower()
+    full_name = f"{node.module}::{node.name}".lower()
+    if full_name == needle:
+        rank = 0
+    elif name == needle:
+        rank = 1
+    elif name.startswith(needle):
+        rank = 2
+    else:
+        rank = 3
+    return (rank, (node.module or "").lower(), name)
 
 
 def search_bundle(
@@ -302,36 +343,48 @@ def search_bundle(
     type_filter = _normalize_optional_filter(type_filter)
     if bundle is None:
         return {"results": [], "count": 0}
-    # Translate UI type label to raw object_type for the bundle search
-    raw_type_filter = _UI_TYPE_TO_OBJECT_TYPE.get(type_filter or "", type_filter) if type_filter else None
-    # The raw filter is many-to-one (four UI types map to OBJECT-TYPE), so the
-    # first page of raw matches can be dominated by nodes of the wrong UI
-    # type. Grow the fetch window until enough post-filter matches are
-    # collected or the underlying search is exhausted.
+    # Translate UI type label to the raw object_type values it accepts.
+    accepted_types = (
+        _UI_TYPE_TO_OBJECT_TYPES.get(type_filter, (type_filter,))
+        if type_filter
+        else None
+    )
+    # UI labels that map many-to-one onto OBJECT-TYPE need a post-filter pass
+    # so only the requested node flavor (scalar/table/row/column) is returned.
     post_filter_type = (
         type_filter
         if type_filter in {"MibScalar", "MibTable", "MibTableRow", "MibTableColumn"}
         else None
     )
 
-    nodes: list[MibNode] = []
-    if post_filter_type:
-        fetch_limit = limit * 2
-        max_fetch_limit = max(limit * 10, 1000)
-        while True:
-            nodes = bundle.search(query, module=module, type_filter=raw_type_filter, limit=fetch_limit)
-            matches = [n for n in nodes if _ui_type(n) == post_filter_type]
-            if len(matches) >= limit or len(nodes) < fetch_limit:
-                nodes = matches
-                break
-            if fetch_limit >= max_fetch_limit:
-                nodes = matches
-                break
-            fetch_limit = min(fetch_limit * 4, max_fetch_limit)
-    else:
-        nodes = bundle.search(query, module=module, type_filter=raw_type_filter, limit=limit)
-    results = [_node_to_record(n, bundle=bundle) for n in nodes[:limit]]
-    results.sort(key=lambda r: (r["module"], r["name"]))
+    needle = query.strip().lower()
+    if not needle:
+        return {"results": [], "count": 0}
+
+    # B-2: search objects AND notifications in one pass — the browser's
+    # search placeholder promises "Matching objects, notifications, and
+    # descriptions." Both are ranked together and capped at *limit*.
+    matches: list[MibNode] = []
+    for mod_name, mod_record in bundle.modules.items():
+        if module is not None and mod_name != module:
+            continue
+        for node in mod_record.objects.values():
+            if accepted_types is not None and node.object_type not in accepted_types:
+                continue
+            if post_filter_type is not None and _ui_type(node) != post_filter_type:
+                continue
+            if _node_matches_query(node, needle):
+                matches.append(node)
+        for node in mod_record.notifications.values():
+            if accepted_types is not None and node.object_type not in accepted_types:
+                continue
+            if post_filter_type is not None and _ui_type(node) != post_filter_type:
+                continue
+            if _node_matches_query(node, needle):
+                matches.append(node)
+
+    matches.sort(key=lambda n: search_rank(n, needle))
+    results = [_node_to_record(n, bundle=bundle) for n in matches[:limit]]
     return {"results": results, "count": len(results)}
 
 

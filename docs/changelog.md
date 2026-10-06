@@ -4,13 +4,32 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.2.1` UI or runtime behavior.
+`2.2.2` UI or runtime behavior.
 
-The current stable release line is `2.2.1`. The entries below `2.2.1` are
+The current stable release line is `2.2.2`. The entries below `2.2.2` are
 historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.2.2] - 2026-10-06
+
+Scale-and-integrity patch: closes the issues reported against large production
+bundles (533 modules, ~109k objects, 3,246 notifications) plus the traps-page
+integration and layout defects confirmed on the live lab.
+
+### Fixed
+- **Varbind picker** no longer downloads the full MIB catalog on open (29 MB / 18 s on large bundles — 25 s to open the picker): it now queries a ranked, capped server-side search per keystroke (minimum two characters), with a legacy fallback for old backends.
+- **MIB catalog search** (`/api/mibs/objects`) accepts `search` + `limit`, ranks exact/full-name matches first, and returns an empty list for empty searches.
+- **Browser search** now indexes NOTIFICATION-TYPE/TRAP-TYPE nodes: `IF-MIB::linkDown` ranks first instead of being unfindable while unrelated substring matches filled the results.
+- **Trap library datalist** reliably populates at catalog scale (per-keystroke, capped) and a selection made while the catalog is still loading now resolves and populates the declared varbinds instead of leaving a single auto row.
+- **Default notification varbinds** load automatically when the form opens with a prefilled OID, when the OID changes, and after Reset — guarded so edited forms are never clobbered.
+- **Received-traps header buttons** fit on one line at 1280/1440 px with no overlaps (icon-only Refresh/Download/Clear, proper sizes); Pause carries a real pressed state with a Resume label swap.
+- **Row action buttons** use the standard icon-button sizing in a widened actions column instead of cramped 32×15 px controls.
+- **Received varbind entries** render with clear per-line separation in the table cell; the trap-name badge is a real button with a focus ring and keyboard activation.
+- **Clicking a received trap row** opens the detail modal.
 
 ---
 

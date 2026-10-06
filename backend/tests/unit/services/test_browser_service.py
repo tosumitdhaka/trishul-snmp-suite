@@ -36,6 +36,41 @@ def test_search_treats_blank_filters_as_unset(isolated_db):
     assert any(result["name"] == "ifDescr" for result in payload["results"])
 
 
+def test_search_bundle_includes_notifications_ranked_and_type_filtered(isolated_db):
+    # B-2: search must find NOTIFICATION-TYPE nodes, ranked exact full_name >
+    # exact name > name prefix > substring, with the UI's "NotificationType"
+    # type spelling; the NotificationType filter returns only notifications.
+    from app.services import browser_service
+
+    bundle = _activate_browser_bundle(isolated_db)
+
+    results = browser_service.search_bundle(
+        query="linkDown", module=None, type_filter=None, limit=30, bundle=bundle
+    )["results"]
+    assert results[0]["full_name"] == "IF-MIB::linkDown"
+    assert results[0]["type"] == "NotificationType"
+
+    # A symbolic full_name query resolves directly to the notification.
+    exact = browser_service.search_bundle(
+        query="IF-MIB::linkDown", module=None, type_filter=None, limit=30, bundle=bundle
+    )["results"]
+    assert [item["full_name"] for item in exact] == ["IF-MIB::linkDown"]
+
+    # Exact-name ranking: "ifDescr" (an object) still ranks before any
+    # description/substring hit.
+    obj = browser_service.search_bundle(
+        query="ifDescr", module=None, type_filter=None, limit=30, bundle=bundle
+    )["results"]
+    assert obj[0]["full_name"] == "IF-MIB::ifDescr"
+
+    # NotificationType-filtered search returns only notifications.
+    filtered = browser_service.search_bundle(
+        query="linkDown", module=None, type_filter="NotificationType", limit=30, bundle=bundle
+    )["results"]
+    assert all(item["type"] == "NotificationType" for item in filtered)
+    assert {item["full_name"] for item in filtered} == {"IF-MIB::linkDown"}
+
+
 def test_node_notification_members_keep_enum_metadata(isolated_db):
     from app.services import browser_service
 
@@ -274,7 +309,7 @@ def test_input_type_mapping_and_trap_catalog_cover_trap_sender_metadata(isolated
     assert enum_member["enum_values"][0] == {"label": "up", "value": 1}
 
 
-def test_type_filtered_search_grows_fetch_window_until_limit_satisfied(isolated_db):
+def test_type_filtered_search_returns_only_requested_node_flavor(isolated_db):
     from types import SimpleNamespace
 
     from app.services import browser_service
@@ -297,35 +332,29 @@ def test_type_filtered_search_grows_fetch_window_until_limit_satisfied(isolated_
             units=None,
         )
 
-    # 150 table columns match the raw OBJECT-TYPE filter before the 30
-    # scalars the caller actually asked for. A single limit*2 fetch stops
-    # among the columns and silently drops every scalar.
+    class _Record:
+        def __init__(self, nodes):
+            self.objects = {n.name: n for n in nodes}
+            self.notifications = {}
+
+    class _ModuleBundle:
+        def __init__(self, nodes):
+            self.modules = {"TEST-MIB": _Record(nodes)}
+
+    # 150 table columns share the raw OBJECT-TYPE class with the 30 scalars
+    # the caller asked for; the MibScalar post-filter must return only the
+    # scalars (single pass over the module, no fetch-window growth needed).
     nodes = [_node(f"colNode{i}", "column", i) for i in range(150)]
     nodes += [_node(f"scalarNode{i}", "scalar", i) for i in range(30)]
-
-    class _PaginatingBundle:
-        def __init__(self, nodes):
-            self._nodes = nodes
-            self.fetch_limits: list[int] = []
-
-        def search(self, query, *, module=None, type_filter=None, limit=100):
-            self.fetch_limits.append(limit)
-            matched = [n for n in self._nodes if query in n.name]
-            if type_filter:
-                matched = [n for n in matched if n.object_type == type_filter]
-            return matched[:limit]
-
-    bundle = _PaginatingBundle(nodes)
 
     payload = browser_service.search_bundle(
         query="Node",
         module=None,
         type_filter="MibScalar",
         limit=25,
-        bundle=bundle,
+        bundle=_ModuleBundle(nodes),
     )
 
-    assert bundle.fetch_limits == [50, 200]
     assert payload["count"] == 25
     assert all(result["type"] == "MibScalar" for result in payload["results"])
     assert all(result["name"].startswith("scalarNode") for result in payload["results"])
@@ -354,34 +383,30 @@ def test_type_filtered_search_reports_partial_results_when_exhausted(isolated_db
             units=None,
         )
 
-    class _ExhaustedBundle:
+    class _Record:
         def __init__(self, nodes):
-            self._nodes = nodes
-            self.fetch_limits: list[int] = []
+            self.objects = {n.name: n for n in nodes}
+            self.notifications = {}
 
-        def search(self, query, *, module=None, type_filter=None, limit=100):
-            self.fetch_limits.append(limit)
-            matched = [n for n in self._nodes if query in n.name]
-            if type_filter:
-                matched = [n for n in matched if n.object_type == type_filter]
-            return matched[:limit]
+    class _ModuleBundle:
+        def __init__(self, nodes):
+            self.modules = {"TEST-MIB": _Record(nodes)}
 
-    # Only 3 true matches exist; the window must stop growing once the
-    # underlying search is exhausted instead of looping to the cap.
-    bundle = _ExhaustedBundle([_node(f"colNode{i}", "column") for i in range(40)])
-    bundle._nodes += [_node(f"scalarNode{i}", "scalar") for i in range(3)]
+    nodes = [_node(f"colNode{i}", "column") for i in range(40)]
+    nodes += [_node(f"scalarNode{i}", "scalar") for i in range(3)]
 
     payload = browser_service.search_bundle(
         query="Node",
         module=None,
         type_filter="MibScalar",
         limit=25,
-        bundle=bundle,
+        bundle=_ModuleBundle(nodes),
     )
 
-    assert bundle.fetch_limits == [50]
+    # Only 3 true matches exist; the result set is capped below the limit.
     assert payload["count"] == 3
     assert all(result["type"] == "MibScalar" for result in payload["results"])
+    assert all(result["name"].startswith("scalarNode") for result in payload["results"])
 
 
 def test_module_identity_nodes_get_their_own_ui_label(isolated_db):

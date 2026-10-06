@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Trishul SNMP Suite `2.2.1` is a bundle-first SNMP lab and operations platform. The
+Trishul SNMP Suite `2.2.2` is a bundle-first SNMP lab and operations platform. The
 runtime is centered on:
 
 - one FastAPI application

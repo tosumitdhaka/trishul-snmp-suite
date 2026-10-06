@@ -205,14 +205,19 @@
                             title="Clear search">
                         <i class="fas fa-times"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-app-secondary"
+                    <!-- F-4: the toolbar fits 1440px/1280px viewports — Refresh,
+                         Download and Clear are icon-only (title + aria-label
+                         keep them labeled); the labeled Pause toggle shows
+                         its pressed state via aria-pressed + .active. -->
+                    <button type="button" class="btn btn-sm btn-app-secondary btn-icon"
                             onclick="TrapsModule.loadTraps()"
                             title="Refresh traps" aria-label="Refresh traps">
-                        <i class="fas fa-sync"></i> Refresh
+                        <i class="fas fa-sync"></i>
                     </button>
                     <button type="button" class="btn btn-sm btn-app-secondary" id="btn-tr-pause"
                             onclick="TrapsModule.toggleLivePause()"
-                            title="Pause live updates" aria-label="Pause live updates">
+                            title="Pause live updates" aria-label="Pause live updates"
+                            aria-pressed="false">
                         <i class="fas fa-pause"></i> Pause
                     </button>
                     <button type="button" class="btn btn-sm btn-app-secondary"
@@ -225,15 +230,15 @@
                             title="Export current view as CSV" aria-label="Export current view as CSV">
                         <i class="fas fa-file-csv"></i> CSV
                     </button>
-                    <button type="button" class="btn btn-sm btn-app-secondary"
+                    <button type="button" class="btn btn-sm btn-app-secondary btn-icon"
                             onclick="TrapsModule.downloadAllTraps()"
                             title="Download all traps" aria-label="Download all traps">
-                        <i class="fas fa-download"></i> Download
+                        <i class="fas fa-download"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-app-secondary"
+                    <button type="button" class="btn btn-sm btn-app-danger-outline btn-icon"
                             onclick="TrapsModule.clearTraps()"
                             title="Clear all traps" aria-label="Clear all traps">
-                        <i class="fas fa-trash"></i> Clear
+                        <i class="fas fa-trash"></i>
                     </button>
                 </div>
             </div>

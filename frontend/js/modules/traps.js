@@ -21,6 +21,7 @@ window.TrapsModule = {
     _trapFetchSeq: 0,
     _statusFetchSeq: 0,
     _trapListFetchSeq: 0,   // invalidates in-flight trap-library loads on MIB broadcasts
+    _trapListPromise: null,  // F-2: in-flight catalog load, awaited by selection/OID resolution
     _lastLoadedTrapName: '',
     _lastLoadedSignature: '',
     _livePaused: false,     // TRP-21: pause live prepend/poll churn while inspecting
@@ -28,6 +29,11 @@ window.TrapsModule = {
     _trapOffset: 0,
     _trapTotal: null,       // RCV-11: persisted total from the pager payload; null until first fetch
     _replayTargetKey: null, // trap key being replayed (delegated modal submit)
+    _pickerSearchTimer: null, // F-1: keystroke debounce for the varbind picker
+    _pickerSearchSeq: 0,      // F-1: stale-response guard for the picker search
+    PICKER_RESULT_CAP: 100,    // F-1: max rendered picker rows per search
+    PICKER_MIN_TERM: 2,       // F-1: minimum characters before searching
+    TRAP_DATALIST_CAP: 50,    // F-2: rendered <option> cap for the trap-library datalist
     COMMUNITY_MASK: '••••••', // RCV-15: list payloads carry a mask, never the community string
 
     init: function() {
@@ -43,12 +49,30 @@ window.TrapsModule = {
         this.loadTraps();
         this._startPollingFallback();
         
+        // F-2: the datalist is fed per keystroke from the loaded catalog
+        // (capped) instead of rendering every option up front.
+        const trapSelect = document.getElementById('ts-trap-select');
+        if (trapSelect) {
+            trapSelect.addEventListener('input', () => {
+                this._updateTrapDatalist(trapSelect.value);
+            });
+        }
+
+        // F-3: a committed OID value resolves against the catalog and loads
+        // the trap's declared varbinds — unless the form has been edited.
+        const oidInput = document.getElementById('ts-oid');
+        if (oidInput) {
+            oidInput.addEventListener('change', () => {
+                this.resolveOidFieldTrap();
+            });
+        }
+
         this.loadTrapList();
-        
+
         // Check if trap data was passed from browser
         const browserTrapData = sessionStorage.getItem('selectedTrap');
         const browserTrapOid  = sessionStorage.getItem('trapOid');
-        
+
         if (browserTrapData) {
             try {
                 const trap = JSON.parse(browserTrapData);
@@ -68,6 +92,13 @@ window.TrapsModule = {
             this.showNotification(`Notification selected: ${browserTrapOid}`, 'info');
         } else {
             this.loadSelectedTrap();
+        }
+
+        // F-3: the prefilled default OID (or one handed over from the
+        // browser page) should load its declared varbinds on first paint —
+        // only when nothing else has populated the form yet.
+        if (!this._lastLoadedTrapName) {
+            this.resolveOidFieldTrap();
         }
     },
 
@@ -425,24 +456,73 @@ window.TrapsModule = {
 
             this.allTraps = Array.isArray(data.traps) ? data.traps : [];
             this.trapMap = {};
-
-            const input = document.getElementById('ts-trap-select');
-            const datalist = document.getElementById('ts-trap-options');
-            if (!input || !datalist) return;
-
-            datalist.innerHTML = '';
-
             this.allTraps.forEach(trap => {
-                if (!trap || !trap.full_name) return;
-                this.trapMap[trap.full_name] = trap;
-                const option = document.createElement('option');
-                option.value = trap.full_name;
-                option.label = `${trap.module || 'MIB'} · ${(trap.objects || []).length} objects`;
-                datalist.appendChild(option);
+                if (trap && trap.full_name) {
+                    this.trapMap[trap.full_name] = trap;
+                }
             });
+
+            // F-2: the full catalog (3,200+ traps on a loaded lab) is never
+            // dumped into the DOM as <option> elements — the datalist is fed
+            // on keystroke with a capped, input-filtered subset instead.
+            const input = document.getElementById('ts-trap-select');
+            if (input && input.value.trim()) {
+                this._updateTrapDatalist(input.value);
+            }
         } catch (e) {
             console.error('Failed to load trap list:', e);
         }
+    },
+
+    // F-2: selection (and OID resolution) must work even when the user types
+    // while the catalog fetch is still in flight — await the pending load,
+    // or start one when none has completed yet.
+    _ensureTrapList: async function() {
+        if (Array.isArray(this.allTraps) && this.allTraps.length > 0) return true;
+        if (!this._trapListPromise) {
+            this._trapListPromise = this.loadTrapList().finally(() => {
+                this._trapListPromise = null;
+            });
+        }
+        try {
+            await this._trapListPromise;
+        } catch (e) {
+            return false;
+        }
+        return Array.isArray(this.allTraps) && this.allTraps.length > 0;
+    },
+
+    // F-2: rebuild the datalist from the catalog for the current input —
+    // matching full_name / name / module, capped at TRAP_DATALIST_CAP so the
+    // browser's suggestion dropdown stays fast no matter the catalog size.
+    _updateTrapDatalist: function(term) {
+        const datalist = document.getElementById('ts-trap-options');
+        if (!datalist) return;
+
+        const needle = String(term || '').trim().toLowerCase();
+        if (!needle) {
+            datalist.replaceChildren();
+            return;
+        }
+
+        const matches = this.allTraps
+            .filter(trap => {
+                if (!trap || !trap.full_name) return false;
+                const fullName = String(trap.full_name).toLowerCase();
+                if (fullName.includes(needle)) return true;
+                const name = String(trap.name || '').toLowerCase();
+                if (name && name.includes(needle)) return true;
+                const module = String(trap.module || '').toLowerCase();
+                return module && module.includes(needle);
+            })
+            .slice(0, this.TRAP_DATALIST_CAP);
+
+        datalist.replaceChildren(...matches.map(trap => {
+            const option = document.createElement('option');
+            option.value = trap.full_name;
+            option.label = `${trap.module || 'MIB'} · ${(trap.objects || []).length} objects`;
+            return option;
+        }));
     },
 
     findTrapSelection: function(value) {
@@ -462,9 +542,14 @@ window.TrapsModule = {
         return nameMatches.length === 1 ? nameMatches[0] : null;
     },
 
-    onTrapSelected: function() {
+    onTrapSelected: async function() {
         const input = document.getElementById('ts-trap-select');
         if (!input) return;
+
+        // F-2: the catalog can still be loading when the user commits a
+        // selection — resolve against the awaited catalog, not whatever
+        // fraction has arrived.
+        await this._ensureTrapList();
 
         const trap = this.findTrapSelection(input.value);
         if (!trap) return;
@@ -482,6 +567,46 @@ window.TrapsModule = {
 
         input.value = fullName;
         this.populateTrapForm(trap);
+    },
+
+    // F-3: resolve a committed notification-OID value against the catalog
+    // (full_name or OID match) and load its declared varbinds. Never runs
+    // while the user has edits in the form — the signature guard reuses the
+    // TRP-16 duplicate-event logic.
+    resolveOidFieldTrap: async function() {
+        const oidInput = document.getElementById('ts-oid');
+        if (!oidInput) return;
+
+        const value = oidInput.value.trim();
+        if (!value) return;
+
+        if (this._lastLoadedTrapName
+            && this._lastLoadedSignature !== this._trapFormSignature()) {
+            // The current form carries user edits — do not clobber them.
+            return;
+        }
+
+        await this._ensureTrapList();
+
+        const trap = this.findTrapByOidValue(value);
+        if (!trap) return;
+
+        const fullName = trap.full_name || trap.oid || '';
+        if (this._lastLoadedTrapName === fullName
+            && this._lastLoadedSignature === this._trapFormSignature()) {
+            return; // same trap, untouched form — nothing to rebuild
+        }
+
+        this.populateTrapForm(trap);
+    },
+
+    findTrapByOidValue: function(value) {
+        const query = String(value || '').trim().toLowerCase();
+        if (!query || !Array.isArray(this.allTraps)) return null;
+        return this.allTraps.find(trap => trap && (
+            String(trap.full_name || '').toLowerCase() === query
+            || String(trap.oid || '').trim().toLowerCase() === query
+        )) || null;
     },
 
     // Fingerprint of the current varbind rows (OID/type/value), used to tell
@@ -556,20 +681,17 @@ window.TrapsModule = {
         return this.guessVarBindType(String(obj && obj.name ? obj.name : ''));
     },
 
-    // ==================== VarBind Picker ====================
+    // ==================== VarBind Picker (F-1) ====================
+    //
+    // The picker never downloads the full object catalog (100k+ objects,
+    // tens of MB on a loaded lab — 25s+ waits). It opens instantly with a
+    // "type to search" state and queries the server-side search endpoint
+    // per keystroke (debounced). Old backends that ignore the search
+    // parameters answer with the full list — detected by an over-cap
+    // response, which is then cached and filtered client-side so only the
+    // first search pays that cost.
 
     showVarBindPicker: async function() {
-        if (this.allObjects.length === 0) {
-            try {
-                const res  = await fetch('/api/mibs/objects');
-                const data = await res.json();
-                this.allObjects = data.objects;
-            } catch (e) {
-                this.showSenderError('Failed to load MIB objects');
-                return;
-            }
-        }
-        
         const modalHtml = `
             <div class="modal fade" id="varbindPickerModal" tabindex="-1" aria-labelledby="varbind-picker-title">
                 <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -579,7 +701,9 @@ window.TrapsModule = {
                             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body">
-                            <input type="text" id="vb-search" class="form-control mb-3" placeholder="Search objects..." aria-label="Search MIB objects">
+                            <input type="text" id="vb-search" class="form-control mb-2" placeholder="Search objects…"
+                                   aria-label="Search MIB objects" autocomplete="off">
+                            <div id="vb-picker-count" class="small text-muted mb-2" aria-live="polite"></div>
                             <div class="app-scroll-panel app-max-h-400">
                                 <table class="table table-sm table-hover">
                                     <thead class="table-light sticky-top">
@@ -598,39 +722,177 @@ window.TrapsModule = {
                 </div>
             </div>
         `;
-        
+
         const existingModal = document.getElementById('varbindPickerModal');
         if (existingModal) existingModal.remove();
-        
+
         document.body.insertAdjacentHTML('beforeend', modalHtml);
-        
-        this.renderVarBindPicker(this.allObjects);
-        
-        document.getElementById('vb-search').addEventListener('input', (e) => {
-            const query    = e.target.value.toLowerCase();
-            const filtered = this.allObjects.filter(obj => 
-                obj.name.toLowerCase().includes(query) || 
-                obj.module.toLowerCase().includes(query)
-            );
-            this.renderVarBindPicker(filtered);
+
+        this._pickerSearchSeq++;
+        this.renderVarBindPicker([], { state: 'idle' });
+
+        const searchInput = document.getElementById('vb-search');
+        const runSearch = () => {
+            const term = searchInput.value.trim();
+            if (term.length < this.PICKER_MIN_TERM) {
+                this._pickerSearchSeq++;
+                if (this._pickerSearchTimer) {
+                    clearTimeout(this._pickerSearchTimer);
+                    this._pickerSearchTimer = null;
+                }
+                this.renderVarBindPicker([], { state: 'idle' });
+                return;
+            }
+            if (this._pickerSearchTimer) {
+                clearTimeout(this._pickerSearchTimer);
+            }
+            this._pickerSearchTimer = setTimeout(async () => {
+                this._pickerSearchTimer = null;
+                const seq = ++this._pickerSearchSeq;
+                const countEl = document.getElementById('vb-picker-count');
+                if (countEl) countEl.textContent = 'Searching…';
+                try {
+                    const objects = await this.searchVarBindObjects(term);
+                    if (seq !== this._pickerSearchSeq) return; // a newer keystroke won
+                    this.renderVarBindPicker(objects, { state: 'results', term: term, total: objects.length });
+                } catch (e) {
+                    if (seq !== this._pickerSearchSeq) return;
+                    this.renderVarBindPicker([], { state: 'error' });
+                }
+            }, 300);
+        };
+        searchInput.addEventListener('input', runSearch);
+        // Enter adds the first result without touching the mouse.
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            const firstAdd = document.querySelector('#vb-picker-body button');
+            if (firstAdd) firstAdd.click();
         });
-        
+
         const modal = new bootstrap.Modal(document.getElementById('varbindPickerModal'));
         modal.show();
+        searchInput.focus();
     },
 
-    renderVarBindPicker: function(objects) {
+    // F-1: search the MIB object catalog for the picker. Server-side when
+    // the backend supports it, with a legacy fallback for old backends.
+    searchVarBindObjects: async function(term) {
+        const needle = String(term || '').trim();
+        if (needle.length < this.PICKER_MIN_TERM) return [];
+
+        // Legacy mode: the full catalog was already pulled once — filter it
+        // locally instead of re-downloading it on every keystroke.
+        if (this.allObjects.length > 0) {
+            return this._filterVarBindObjects(this.allObjects, needle)
+                .slice(0, this.PICKER_RESULT_CAP);
+        }
+
+        const res = await fetch(
+            `/api/mibs/objects?search=${encodeURIComponent(needle)}&limit=${this.PICKER_RESULT_CAP}`
+        );
+        if (!res.ok) {
+            throw new Error(`MIB object search failed: HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        let objects = Array.isArray(data.objects) ? data.objects : [];
+
+        // Old backend: the search/limit parameters were ignored and the full
+        // catalog came back. Detected precisely — an over-cap response that
+        // contains entries not even matching the search — so a backend that
+        // filters but returns more than the cap is never mistaken for it.
+        if (objects.length > this.PICKER_RESULT_CAP
+            && objects.some(obj => !this._varBindObjectMatches(obj, needle))) {
+            this.allObjects = objects;
+            objects = this._filterVarBindObjects(this.allObjects, needle)
+                .slice(0, this.PICKER_RESULT_CAP);
+        }
+        return objects;
+    },
+
+    // Case-insensitive substring match on name / full_name / module — the
+    // same fields the backend's server-side search covers.
+    _varBindObjectMatches: function(obj, needle) {
+        const lowered = String(needle || '').toLowerCase();
+        if (!lowered || !obj) return false;
+        return this._varBindObjectTexts(obj).some(text => text.includes(lowered));
+    },
+
+    _varBindObjectTexts: function(obj) {
+        return [
+            String(obj && obj.name || '').toLowerCase(),
+            String(obj && obj.full_name || '').toLowerCase(),
+            String(obj && obj.module || '').toLowerCase(),
+        ].filter(Boolean);
+    },
+
+    _filterVarBindObjects: function(objects, needle) {
+        const lowered = String(needle || '').toLowerCase();
+        const matches = (objects || []).filter(obj => this._varBindObjectMatches(obj, lowered));
+        // Exact name first, then prefix matches, then substrings — a light
+        // mirror of the backend's ranking for the legacy path.
+        const rank = (obj) => {
+            const name = String(obj.name || '').toLowerCase();
+            if (name === lowered) return 0;
+            if (name.startsWith(lowered)) return 1;
+            const fullName = String(obj.full_name || '').toLowerCase();
+            if (fullName.startsWith(lowered)) return 2;
+            return 3;
+        };
+        return matches.sort((a, b) => rank(a) - rank(b));
+    },
+
+    renderVarBindPicker: function(objects, options) {
         const tbody = document.getElementById('vb-picker-body');
+        const countEl = document.getElementById('vb-picker-count');
         const esc = TrishulUtils.escapeHtml;
-        
-        if (objects.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No objects found</td></tr>';
+        if (!tbody) return;
+
+        const state = (options && options.state) || 'results';
+        const rows = Array.isArray(objects) ? objects : [];
+
+        const placeholderRow = (icon, title, copy) => `
+            <tr><td colspan="4" class="p-0 border-0">
+                <div class="app-panel-placeholder is-compact">
+                    <span class="app-panel-placeholder-icon"><i class="fas ${icon}"></i></span>
+                    <span class="app-panel-placeholder-title">${esc(title)}</span>
+                    <span class="app-panel-placeholder-copy">${esc(copy)}</span>
+                </div>
+            </td></tr>`;
+
+        if (state === 'idle') {
+            tbody.innerHTML = placeholderRow('fa-keyboard', 'Type to search',
+                `Enter at least ${this.PICKER_MIN_TERM} characters to search the MIB catalog.`);
+            if (countEl) countEl.textContent = '';
             return;
         }
-        
-        tbody.innerHTML = objects.slice(0, 100).map(obj => `
+        if (state === 'error') {
+            tbody.innerHTML = placeholderRow('fa-exclamation-triangle', 'Search failed',
+                'The object search request failed. Try again.');
+            if (countEl) countEl.textContent = '';
+            return;
+        }
+        if (rows.length === 0) {
+            tbody.innerHTML = placeholderRow('fa-search', 'No objects found',
+                `Nothing matches “${options && options.term ? options.term : ''}”.`);
+            if (countEl) countEl.textContent = '0 results';
+            return;
+        }
+
+        // Never render an unbounded result set — cap the DOM at
+        // PICKER_RESULT_CAP rows and advertise the fuller result count.
+        const total = typeof (options && options.total) === 'number' ? options.total : rows.length;
+        const capped = rows.slice(0, this.PICKER_RESULT_CAP);
+
+        if (countEl) {
+            countEl.textContent = total > capped.length
+                ? `${capped.length}+ results — refine the search to narrow down`
+                : `${total} ${total === 1 ? 'result' : 'results'}`;
+        }
+
+        tbody.innerHTML = capped.map(obj => `
             <tr>
-                <td><code class="small">${esc(obj.name)}</code></td>
+                <td><code class="small">${esc(obj.full_name || obj.name)}</code></td>
                 <td><span class="badge app-badge is-neutral small">${esc(obj.module)}</span></td>
                 <td><span class="small">${esc(obj.syntax)}</span></td>
                 <td>
@@ -643,10 +905,6 @@ window.TrapsModule = {
                 </td>
             </tr>
         `).join('');
-        
-        if (objects.length > 100) {
-            tbody.innerHTML += `<tr><td colspan="4" class="text-center text-muted small">Showing first 100 results. Use search to narrow down.</td></tr>`;
-        }
     },
 
     addVarbindFromPickerElement: function(button) {
@@ -1061,6 +1319,10 @@ window.TrapsModule = {
         this.addVarbind("SNMPv2-MIB::sysUpTime.0", "TimeTicks", "0");
         this.hideSenderError();
         this.hideSenderResult();
+
+        // F-3: Reset restores the same starting state as a fresh page load —
+        // the default OID's declared varbinds, not a bare sysUpTime row.
+        this.resolveOidFieldTrap();
     },
 
     // ==================== Trap Sending ====================
@@ -1577,12 +1839,23 @@ window.TrapsModule = {
             // <form onsubmit=...> and navigate the SPA back to the dashboard.
             // Actions are keyed by the stable trap key (id), never the render
             // index — the visible list can change between render and click (RCV-10).
+            //
+            // F-7: the whole row opens the detail modal (data-trap-key on the
+            // <tr> flows through the same delegated handler — no action
+            // attribute means "detail"); the trap-name badge is a real button
+            // so keyboard users get the same affordance.
+            // F-5: row actions use the app's btn-xs icon-button vocabulary
+            // (same as the picker's add buttons) — sized to hit comfortably.
             return `
-                <tr>
+                <tr data-trap-key="${esc(trapKey)}" class="trap-row" title="View trap details">
                     <td class="small text-muted" title="${esc(t.timestamp || '')}">${esc(t.time_str)}</td>
                     <td><code class="small">${esc(t.source)}</code></td>
                     <td>
-                        <span class="badge ${trapBadgeClass}">${esc(trapType)}</span>
+                        <button type="button" class="badge ${trapBadgeClass} trap-name-btn"
+                                data-trap-key="${esc(trapKey)}"
+                                title="View trap details" aria-label="View trap details for ${esc(trapType)}">
+                            ${esc(trapType)}
+                        </button>
                     </td>
                     <td>
                         <div class="cursor-pointer app-trap-detail-trigger"
@@ -1593,19 +1866,19 @@ window.TrapsModule = {
                     </td>
                     <td class="text-center">
                         <div class="trap-action-buttons">
-                            <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
+                            <button type="button" class="btn btn-sm btn-app-secondary btn-icon"
                                     data-trap-action="replay" data-trap-key="${esc(trapKey)}" title="Replay trap" aria-label="Replay trap">
                                 <i class="fas fa-reply"></i>
                             </button>
-                            <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
+                            <button type="button" class="btn btn-sm btn-app-secondary btn-icon"
                                     data-trap-action="copy" data-trap-key="${esc(trapKey)}" title="Copy JSON" aria-label="Copy JSON">
                                 <i class="fas fa-copy"></i>
                             </button>
-                            <button type="button" class="btn btn-sm btn-app-secondary btn-icon py-0 px-1"
+                            <button type="button" class="btn btn-sm btn-app-secondary btn-icon"
                                     data-trap-action="download" data-trap-key="${esc(trapKey)}" title="Download" aria-label="Download trap">
                                 <i class="fas fa-download"></i>
                             </button>
-                            <button type="button" class="btn btn-sm btn-app-danger-outline btn-icon py-0 px-1"
+                            <button type="button" class="btn btn-sm btn-app-danger-outline btn-icon"
                                     data-trap-action="delete" data-trap-key="${esc(trapKey)}" title="Delete trap" aria-label="Delete trap">
                                 <i class="fas fa-trash"></i>
                             </button>
@@ -2344,6 +2617,9 @@ window.TrapsModule = {
                 : '<i class="fas fa-pause"></i> Pause';
             btn.classList.toggle('btn-app-secondary', !paused);
             btn.classList.toggle('btn-app-primary', paused);
+            // F-4: pressed styling (aria-pressed mirrors it) so the paused
+            // state reads as an engaged toggle, not just a swapped label.
+            btn.classList.toggle('active', paused);
             btn.title = paused ? 'Resume live updates' : 'Pause live updates';
             btn.setAttribute('aria-label', paused ? 'Resume live updates' : 'Pause live updates');
             btn.setAttribute('aria-pressed', paused ? 'true' : 'false');

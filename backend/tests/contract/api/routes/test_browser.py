@@ -186,6 +186,38 @@ def test_browser_search_route_forwards_filters_to_service(isolated_db, monkeypat
     assert captured["args"] == ("ifDescr", "IF-MIB", "MibTableColumn", 25, None)
 
 
+def test_browser_search_finds_notifications_ranked_first(isolated_db):
+    # B-2: search must find NOTIFICATION-TYPE nodes; IF-MIB::linkDown ranks
+    # first with the UI's "NotificationType" type spelling, and the
+    # NotificationType filter returns only notifications.
+    from app.api.routes import browser as browser_module
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    token = _login_token()
+    BundleService(isolated_db["settings"]).compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+
+    results = browser_module.browse_search(
+        query="linkDown", module=None, type_filter=None, limit=30, x_auth_token=token
+    )["results"]
+    assert results[0]["full_name"] == "IF-MIB::linkDown"
+    assert results[0]["type"] == "NotificationType"
+
+    # A symbolic full_name query resolves directly to the notification.
+    exact = browser_module.browse_search(
+        query="IF-MIB::linkDown", module=None, type_filter=None, limit=30, x_auth_token=token
+    )["results"]
+    assert [item["full_name"] for item in exact] == ["IF-MIB::linkDown"]
+
+    # NotificationType-filtered search returns only notifications.
+    filtered = browser_module.browse_search(
+        query="linkDown", module=None, type_filter="NotificationType", limit=30, x_auth_token=token
+    )["results"]
+    assert all(item["type"] == "NotificationType" for item in filtered)
+    assert {item["full_name"] for item in filtered} == {"IF-MIB::linkDown"}
+
+
 def test_browser_routes_require_auth(isolated_db):
     from app.api.routes import browser as browser_module
 

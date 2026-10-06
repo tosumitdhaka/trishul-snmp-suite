@@ -36,8 +36,14 @@ def test_get_mib_objects_carries_enum_values_for_enum_nodes(isolated_db):
         BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
     )
 
-    objects = mibs_module.get_mib_objects(x_auth_token=token)["objects"]
-    by_name = {obj["name"]: obj for obj in objects}
+    # B-1: the picker searches per object now; exact-name searches return the
+    # object first so per-field assertions stay stable.
+    def _one(search: str) -> dict:
+        return mibs_module.get_mib_objects(search=search, limit=50, x_auth_token=token)["objects"][0]
+
+    by_name = {search: _one(search) for search in (
+        "ifAdminStatus", "ifDescr", "ifType", "ifSpeed", "ifInOctets", "sysUpTime",
+    )}
     assert by_name["ifAdminStatus"]["enum_values"] == [
         {"label": "up", "value": 1},
         {"label": "down", "value": 2},
@@ -58,6 +64,52 @@ def test_get_mib_objects_carries_enum_values_for_enum_nodes(isolated_db):
     assert by_name["ifInOctets"]["input_type"] == "Counter"
     assert by_name["ifDescr"]["input_type"] == "String"
     assert by_name["sysUpTime"]["input_type"] == "TimeTicks"
+
+
+def test_get_mib_objects_search_is_ranked_capped_and_excludes_notifications(isolated_db):
+    # B-1: empty searches are answered with an empty list (the picker must
+    # search on keystroke instead of downloading all payloads).
+    from app.api.routes import mibs as mibs_module
+    from app.services.bundles import BundleCompileRequest, BundleService
+
+    token = _login_token()
+    BundleService(isolated_db["settings"]).compile_bundle(
+        BundleCompileRequest(mib_names=["IF-MIB", "SNMPv2-MIB"], activate=True)
+    )
+
+    assert mibs_module.get_mib_objects(search="", limit=50, x_auth_token=token) == {"objects": []}
+    assert mibs_module.get_mib_objects(search="   ", limit=50, x_auth_token=token) == {"objects": []}
+
+    # NOTIFICATION-TYPE/TRAP-TYPE nodes stay excluded (linkDown is one).
+    assert mibs_module.get_mib_objects(search="linkDown", limit=50, x_auth_token=token) == {"objects": []}
+
+    # Ranked: exact full_name wins.
+    exact = mibs_module.get_mib_objects(
+        search="SNMPv2-MIB::sysDescr", limit=50, x_auth_token=token
+    )["objects"]
+    assert [obj["full_name"] for obj in exact] == ["SNMPv2-MIB::sysDescr"]
+
+    # Name-prefix matches rank before substring matches and sort alphabetically.
+    prefixed = mibs_module.get_mib_objects(search="sys", limit=50, x_auth_token=token)["objects"]
+    assert len(prefixed) > 5
+    assert all(obj["full_name"].startswith("SNMPv2-MIB::sys") for obj in prefixed)
+    assert prefixed[0]["name"] == "sysContact"
+
+    # Capped at the requested limit.
+    capped = mibs_module.get_mib_objects(search="if", limit=5, x_auth_token=token)["objects"]
+    assert len(capped) == 5
+
+    # Payload fields stay intact on search results.
+    admin = mibs_module.get_mib_objects(search="ifAdminStatus", limit=50, x_auth_token=token)["objects"][0]
+    assert admin["enum_values"] == [
+        {"label": "up", "value": 1},
+        {"label": "down", "value": 2},
+        {"label": "testing", "value": 3},
+    ]
+    assert admin["constraint"] == {
+        "kind": "enum",
+        "data": [["up", 1], ["down", 2], ["testing", 3]],
+    }
 
 
 def test_mib_routes_report_empty_catalog_shapes_when_no_bundle(isolated_db):
