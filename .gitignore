@@ -10,3 +10,7 @@ frontend/node_modules/
 .coverage
 docs/archive/research/release-comparison-*.json
 docs/archive/research/release-comparison-*.md
+frontend-next/node_modules/
+frontend-next/dist/
+frontend-next/*.tsbuildinfo
+frontend-next/.vite/

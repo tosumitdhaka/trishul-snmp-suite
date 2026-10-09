@@ -1,0 +1,51 @@
+name: Modern UI foundation
+on:
+  push:
+    branches: ["feat/modern-ui-foundation"]
+    paths:
+      - "frontend-next/**"
+      - ".github/workflows/modern-ui-foundation.yml"
+  pull_request:
+    paths:
+      - "frontend-next/**"
+      - ".github/workflows/modern-ui-foundation.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  modern-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: |
+          cd frontend-next
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+      - name: TypeScript
+        run: npm --prefix frontend-next run typecheck
+      - name: ESLint
+        run: npm --prefix frontend-next run lint
+      - name: Unit and component tests
+        run: npm --prefix frontend-next test
+      - name: Production build
+        run: npm --prefix frontend-next run build
+      - name: Commit generated dependency lockfile to implementation branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/modern-ui-foundation'
+        run: |
+          if ! git ls-files --error-unmatch frontend-next/package-lock.json >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add frontend-next/package-lock.json
+            git commit -m "build(ui): lock modern frontend dependencies"
+            git push origin HEAD:feat/modern-ui-foundation
+          fi
