@@ -6,6 +6,7 @@ import { workspaces, type Workspace } from '../../lib/navigation/workspaces';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { useTheme } from '../../lib/theme/ThemeProvider';
+import { WorkspaceSearch } from './WorkspaceSearch';
 
 const icons = {
   layout: LayoutDashboard, server: Server, route: RouteIcon, bell: Bell,
@@ -55,7 +56,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-[var(--border)] bg-[var(--surface)] lg:flex">
         <div className="border-b border-[var(--border)] px-4 py-4"><Brand /></div>
         <div className="min-h-0 flex-1 overflow-y-auto"><SidebarLinks /></div>
-        <div className="border-t border-[var(--border)] px-5 py-4 text-xs text-[var(--muted)]">Modern UI · Stage 1</div>
+        <div className="border-t border-[var(--border)] px-5 py-4 text-xs text-[var(--muted)]">Modern UI · Stage 2 preview</div>
       </aside>
       <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
         <Dialog.Portal>
@@ -79,6 +80,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             <p className="text-base font-semibold leading-tight sm:text-lg">{active.label}</p>
             <p className="mt-0.5 hidden truncate text-xs text-[var(--muted)] sm:block">{active.description}</p>
           </div>
+          <WorkspaceSearch />
           <span className="hidden items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-semibold sm:inline-flex"
             role="status" aria-live="polite">
             {connected ? <Wifi size={15} className="text-[var(--success)]" aria-hidden="true" />

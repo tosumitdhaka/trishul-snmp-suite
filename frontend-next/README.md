@@ -1,4 +1,4 @@
-# Trishul Modern UI — Stage 1 foundation preview
+# Trishul Modern UI — Stage 2 dashboard preview
 
 This is a separate React + TypeScript application, **not** the released UI. It does not replace anything in the legacy frontend directory.
 
@@ -26,8 +26,10 @@ The built app is isolated under frontend-next/dist. It is **not** packaged by th
 
 ## Implemented scope
 
-Stage 1 scaffolding: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, read-only connectivity metrics, accessible navigation and explicit placeholders for unmigrated workspaces.
+Stage 1 foundation plus Stage 2 preview: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, searchable Ctrl+K navigation, and a read-only dashboard preserving all eight activity counters, four health/MIB tiles, six workspace shortcuts, and explicit API versus WebSocket state. Unmigrated workspaces still show placeholders with direct legacy links.
+
+The dashboard normalizes the legacy MIB REST response and the WebSocket summary without presenting missing counts as zero. Retry, stale/error and light/dark behavior still need real-browser sign-off.
 
 Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, migrated operational workspaces, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
 
-See docs/ui-modernization/architecture.md, docs/ui-modernization/migration-plan.md and docs/ui-modernization/design-system.md.
+See docs/ui-modernization/architecture.md, docs/ui-modernization/migration-plan.md, docs/ui-modernization/design-system.md, docs/ui-modernization/legacy-feature-inventory.md and docs/ui-modernization/dashboard-review-spec.md.

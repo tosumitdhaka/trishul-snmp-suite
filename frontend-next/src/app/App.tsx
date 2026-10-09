@@ -5,7 +5,7 @@ import { ThemeProvider } from '../lib/theme/ThemeProvider';
 import { AuthProvider, useAuth } from '../lib/auth/AuthProvider';
 import { RealtimeProvider } from '../lib/realtime/RealtimeProvider';
 import { WorkspaceShell } from '../components/shell/WorkspaceShell';
-import { ConnectivityOverview } from '../features/dashboard/ConnectivityOverview';
+import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { Placeholder } from '../features/shared/Placeholder';
 import { workspaces } from '../lib/navigation/workspaces';
 import { LoginView } from './LoginView';
@@ -23,7 +23,7 @@ function AuthenticatedApp() {
     <RealtimeProvider>
       <WorkspaceShell>
         <Routes>
-          <Route path="/" element={<ConnectivityOverview />} />
+          <Route path="/" element={<DashboardPage />} />
           {workspaces.filter((page) => page.path !== '/').map((page) => (
             <Route key={page.path} path={page.path} element={<Placeholder workspace={page} />} />
           ))}
