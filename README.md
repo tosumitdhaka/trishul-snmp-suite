@@ -7,7 +7,7 @@
 [![GHCR](https://img.shields.io/badge/GHCR-Packages-blue?style=for-the-badge&logo=github)](https://github.com/tosumitdhaka?tab=packages&repo_name=trishul-snmp-suite)
 
 Trishul SNMP Suite is a bundle-first SNMP lab and operations shell. The current
-`2.2.2` line keeps the FastAPI plus SQLite platform introduced in `2.0.0`, the
+`2.2.3` line keeps the FastAPI plus SQLite platform introduced in `2.0.0`, the
 `2.1.0` MIB schema integration (enum labels, units, and constraints surfaced
 end-to-end), and closes the full 151-finding end-to-end review: bundle
 lifecycle management, trap inform/replay/decode, walker controls, receiver
@@ -18,7 +18,9 @@ stack — no pysnmp, net-snmp, or other third-party SNMP dependency remains.
 
 ![Trishul SNMP Suite Demo](./assets/trishul_snmp_demo.gif)
 
-## 2.2.2 Highlights
+## 2.2.3 Highlights
+
+- simulator startup and custom updates accept valid empty hex/base64 byte values, including physical addresses with `SIZE (0 | 6)`; MIB size validation is preserved
 
 - production patch over 2.2.0: MIB catalog search at scale (the varbind picker and browser search now query a ranked, capped server-side search instead of downloading the full catalog), trap library datalist and default-varbind loading at catalog scale, received-traps header and row action layout, and the notifications handoff from the traps page — plus the earlier 2.2.1 fixes: simulator starts on MIBs with byte-sized PhysAddress/MacAddress objects; the trap sender accepts symbolic OID values and enum labels; numeric-root walks resolve the table name; TimeTicks metrics carry the raw wire integer; simulated counters stay non-negative; dashboard walk stats update live; TC constraints (range/size) render in the browser detail; walker table column alignment, form persistence, browser selection highlight, and modal Escape behavior fixed
 - one FastAPI application in `backend/app`
@@ -47,7 +49,7 @@ curl -LfsS -o install-trishul-snmp-suite.sh \
 ```
 
 If you want to pin the installer to a specific release, replace `main` in the
-URL with a release tag such as `v2.2.2`.
+URL with a release tag such as `v2.2.3`.
 
 From a local checkout, start the published image with:
 
@@ -98,7 +100,7 @@ Examples:
 If you need the pinned merged runtime from the old line:
 
 This section is intentional compatibility guidance for coexistence or rollback,
-not the normal `2.2.2` runtime path.
+not the normal `2.2.3` runtime path.
 
 ```bash
 ./install-trishul-snmp-suite-v1.4.1.sh up
@@ -124,7 +126,7 @@ It also accepts the same `--platform` and `--image` overrides.
 
 ## Runtime Model
 
-The current `2.2.2` path is built around:
+The current `2.2.3` path is built around:
 
 - `backend/app` as the live FastAPI runtime
 - `frontend/` as the authored release shell copied into `frontend/dist`
@@ -185,7 +187,7 @@ For Docker-backed local validation:
 
 ## Roadmap
 
-The current `2.2.2` line delivers the rewritten backend platform, SQLite
+The current `2.2.3` line delivers the rewritten backend platform, SQLite
 persistence, the bundle-first MIB pipeline with lifecycle management, and the
 operator UI closed against the full 151-finding end-to-end review.
 

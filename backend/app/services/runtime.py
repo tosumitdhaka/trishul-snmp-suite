@@ -1352,7 +1352,10 @@ class RuntimeService:
             if not isinstance(value, dict):
                 raise RuntimeServiceError("Each object entry must include a JSON object value payload")
             oid = self._coerce_oid(target, bundle=bundle)
-            parsed_value = self._parse_value_spec(value, bundle=bundle)
+            try:
+                parsed_value = self._parse_value_spec(value, bundle=bundle)
+            except RuntimeServiceError as exc:
+                raise RuntimeServiceError(f"{target}: {exc}") from exc
             self._validate_object_constraints(oid=oid, value=parsed_value, bundle=bundle)
             parsed.append(
                 RuntimeObjectSpec(
@@ -1562,8 +1565,14 @@ class RuntimeService:
                     raise RuntimeServiceError("Byte array values must contain integers from 0 to 255") from exc
             raise RuntimeServiceError("Text-encoded SNMP byte values must be a string or byte array")
 
+        # Empty octet strings are valid SNMP values (including SIZE (0 | 6)
+        # physical addresses). Encoded byte values require a string, but
+        # must not inherit the non-empty check used for IPs and targets.
+        if normalized_encoding in {"hex", "base64"} and not isinstance(value, str):
+            raise RuntimeServiceError("value must be a string")
+
         if normalized_encoding == "hex":
-            text = self._coerce_text(value, field_name="value").strip().replace(" ", "")
+            text = value.strip().replace(" ", "")
             if text.startswith("0x"):
                 text = text[2:]
             try:
@@ -1572,7 +1581,7 @@ class RuntimeService:
                 raise RuntimeServiceError("Hex-encoded byte values must contain valid hexadecimal text") from exc
 
         if normalized_encoding == "base64":
-            text = self._coerce_text(value, field_name="value")
+            text = value.strip()
             try:
                 return base64.b64decode(text, validate=True)
             except binascii.Error as exc:

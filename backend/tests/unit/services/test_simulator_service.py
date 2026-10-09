@@ -916,3 +916,38 @@ def test_simulator_bundle_objects_pass_runtime_parse_and_constraint_validation(i
 
     parsed = RuntimeService(settings=settings)._parse_runtime_objects(objects, bundle=bundle)
     assert len(parsed) == len(objects)
+
+
+def test_bridge_empty_address_defaults_and_custom_updates_parse(
+    isolated_db, zero_length_simulator_bundle, monkeypatch
+):
+    from app.services.runtime import RuntimeService
+    from app.services.simulator_service import _bundle_objects, get_custom_data, save_custom_data
+
+    settings = isolated_db["settings"]
+    runtime = RuntimeService(settings)
+    bundle = zero_length_simulator_bundle
+    objects = _bundle_objects(settings)
+    address = next(obj for obj in objects if obj["target"] == "1.3.6.1.4.1.53864.1.0")
+    assert address["value"] == {"type": "octet-string", "value": "", "encoding": "hex"}
+    parsed = runtime._parse_runtime_objects(objects, bundle=bundle)
+    assert next(obj for obj in parsed if obj.oid == (1, 3, 6, 1, 4, 1, 53864, 1, 0)).value.value == b""
+
+    async def no_broadcast(**kwargs):
+        pass
+
+    monkeypatch.setattr("app.services.simulator_service.broadcast_stats", no_broadcast)
+    payload = {"SNMPv2-MIB::sysName.0": "updated-agent"}
+    assert asyncio.run(save_custom_data(payload, settings=settings, runtime_service=runtime))["status"] == "saved"
+    assert get_custom_data(settings=settings) == payload
+
+
+def test_empty_hex_values_still_obey_minimum_size(isolated_db, zero_length_simulator_bundle):
+    from app.services.runtime import RuntimeService, RuntimeServiceError
+
+    with pytest.raises(RuntimeServiceError, match="requiredAddress: value length 0 is outside the declared size 6..6"):
+        RuntimeService(isolated_db["settings"])._parse_runtime_objects(
+            [{"target": "ZERO-LENGTH-MIB::requiredAddress.0",
+              "value": {"type": "octet-string", "value": "", "encoding": "hex"}}],
+            bundle=zero_length_simulator_bundle,
+        )

@@ -9,7 +9,7 @@ status and [issue_tracker.md](issue_tracker.md) for slice and backlog tracking.
 
 ## Current Delivery State
 
-`2.2.0` is the current shipped release. The initial `2.0.0` implementation
+`2.2.3` is the current shipped release. The initial `2.0.0` implementation
 slices `S0` through `S13` remain `Done`.
 
 ## Delivered In The 2.0.x Line
@@ -51,6 +51,10 @@ slices `S0` through `S13` remain `Done`.
 - MIB browser constraint badges (range/size/enum/bits), inline recompile notices, ETag-cached OID index, and sticky detail actions
 - Community-string redaction across list payloads, the live WS push, and exports
 - Performance: single-scan MIB status inventory, compile lock without held DB sessions, change-only table re-rendering, WS-aware polling
+
+## Delivered In 2.2.3
+
+- `PATCH-223-001`: simulator startup and custom updates accept valid empty encoded byte values, retain MIB size validation, and include target OIDs in parse errors; empty notification values survive replay. See [Changelog](changelog.md) for the intervening patch releases.
 
 ## Planned Beyond 2.2.0
 

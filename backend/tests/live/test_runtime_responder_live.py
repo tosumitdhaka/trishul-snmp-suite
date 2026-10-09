@@ -139,3 +139,66 @@ def test_live_runtime_responder_and_manager_flow(isolated_db):
             await service.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_live_simulator_empty_defaults_custom_updates_and_restart(
+    isolated_db, zero_length_simulator_bundle
+):
+    from app.services import simulator_service
+    from app.services.runtime import RuntimeService
+    from app.services.state_store import get_state_store
+
+    settings = isolated_db["settings"]
+    port = _pick_free_udp_port()
+
+    async def scenario():
+        runtime = RuntimeService(settings)
+        state = get_state_store()
+
+        async def read(target):
+            result = await runtime.manager_get(
+                host="127.0.0.1", port=port, community="public", targets=[target]
+            )
+            assert result["response"]["error_status"] == "no_error"
+            return result["response"]["varbinds"][0]["value"]
+
+        try:
+            started = await simulator_service.start(
+                port=port, community="public", settings=settings,
+                state=state, runtime_service=runtime,
+            )
+            assert started["status"] == "started"
+            assert (await read("ZERO-LENGTH-MIB::bridgeAddress.0"))["hex"] == ""
+            assert (await read("ZERO-LENGTH-MIB::statusBits.0"))["hex"] == ""
+
+            payload = {
+                "SNMPv2-MIB::sysName.0": "custom-agent",
+                "ZERO-LENGTH-MIB::bridgeAddress.0": {
+                    "type": "octet-string", "value": "001122334455", "encoding": "hex"
+                },
+            }
+            saved = await simulator_service.save_custom_data(
+                payload, settings=settings, runtime_service=runtime
+            )
+            assert saved["status"] == "saved"
+            assert (await read("SNMPv2-MIB::sysName.0"))["value"] == "custom-agent"
+            assert (await read("ZERO-LENGTH-MIB::bridgeAddress.0"))["hex"] == "001122334455"
+
+            # Restore an empty encoded override and verify it survives restart.
+            payload["ZERO-LENGTH-MIB::bridgeAddress.0"]["value"] = ""
+            payload["ZERO-LENGTH-MIB::bridgeAddress.0"]["encoding"] = "base64"
+            await simulator_service.save_custom_data(
+                payload, settings=settings, runtime_service=runtime
+            )
+            assert (await read("ZERO-LENGTH-MIB::bridgeAddress.0"))["hex"] == ""
+            assert simulator_service.get_custom_data(settings=settings) == payload
+            restarted = await simulator_service.restart(
+                settings=settings, state=state, runtime_service=runtime
+            )
+            assert restarted["status"] == "started"
+            assert (await read("SNMPv2-MIB::sysName.0"))["value"] == "custom-agent"
+            assert (await read("ZERO-LENGTH-MIB::bridgeAddress.0"))["hex"] == ""
+        finally:
+            await runtime.shutdown()
+
+    asyncio.run(scenario())

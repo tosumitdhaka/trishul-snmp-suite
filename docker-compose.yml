@@ -16,7 +16,7 @@ services:
       - LOG_DESTINATION=${LOG_DESTINATION:-stdout}
       # Application Metadata
       - APP_NAME=${APP_NAME:-Trishul SNMP Suite}
-      - APP_VERSION=${APP_VERSION:-2.2.2}
+      - APP_VERSION=${APP_VERSION:-2.2.3}
       - APP_AUTHOR=${APP_AUTHOR:-Sumit Dhaka}
       - APP_DESCRIPTION=${APP_DESCRIPTION:-Bundle-first SNMP lab and operations shell}
       # Security

@@ -107,6 +107,30 @@ def test_parse_runtime_objects_rejects_out_of_range_and_oversize_values(isolated
     ]
 
 
+@pytest.mark.parametrize("value_type", ["octet-string", "opaque"])
+@pytest.mark.parametrize("encoding", ["utf-8", "text", "hex", "base64"])
+def test_empty_encoded_byte_values_are_valid(isolated_db, value_type, encoding):
+    from app.services.runtime import RuntimeService
+
+    service = RuntimeService(isolated_db["settings"])
+    value = service._parse_value_spec(
+        {"type": value_type, "value": "", "encoding": encoding}, bundle=None
+    )
+    assert value.value == b""
+    # Serialized empty byte values must also survive notification replay.
+    replay = service._replay_value_input(service._serialize_value(value))
+    assert service._parse_value_spec(replay, bundle=None).value == b""
+
+
+@pytest.mark.parametrize("encoding", ["hex", "base64"])
+@pytest.mark.parametrize("value", [None, 0, False, {}, []])
+def test_encoded_byte_values_still_require_strings(isolated_db, encoding, value):
+    from app.services.runtime import RuntimeService, RuntimeServiceError
+
+    with pytest.raises(RuntimeServiceError, match="value must be a string"):
+        RuntimeService(isolated_db["settings"])._decode_value_bytes(value, encoding)
+
+
 def test_runtime_parsing_and_replay_helpers_cover_supported_inputs(
     isolated_db,
     monkeypatch,

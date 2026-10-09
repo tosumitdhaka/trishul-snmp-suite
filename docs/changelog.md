@@ -4,13 +4,31 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.2.2` UI or runtime behavior.
+`2.2.3` UI or runtime behavior.
 
-The current stable release line is `2.2.2`. The entries below `2.2.2` are
+The current stable release line is `2.2.3`. The entries below `2.2.3` are
 historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.2.3] - 2026-10-09
+
+`PATCH-223-001`: simulator patch for bundles containing valid empty byte values.
+
+### Fixed
+- **Simulator startup and custom-data updates** accept empty hex/base64 OCTET STRING values, including physical-address defaults with `SIZE (0 | 6)`, instead of failing with `value must be a non-empty string`. Both operations validate the complete bundle defaults, so the failure could also block edits to unrelated OIDs.
+- **Notification replay** preserves empty encoded OCTET STRING and Opaque values.
+- **Runtime validation errors** identify the target OID when a value cannot be parsed. MIB size constraints still reject empty values when a nonzero size is required.
+
+### Validation
+- Backend tests and the release coverage gate.
+- Live UDP simulator startup, custom-value updates, reads, and persistence across restart using a compiled bundle with empty physical-address and BITS defaults.
+
+### Migration
+- Rebuild or pull the `2.2.3` image and restart the suite. Existing data volumes, bundles, and custom overrides are retained; no database migration is required.
 
 ---
 
@@ -505,6 +523,7 @@ Closes the full 151-finding end-to-end review (backend-to-frontend, code-to-UI/U
 
 ---
 
+[2.2.3]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v2.2.2...v2.2.3
 [1.4.1]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.2.5...v1.3.0

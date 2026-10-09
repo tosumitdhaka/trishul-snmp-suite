@@ -14,6 +14,10 @@ Use `POST-200-*` IDs for explicitly deferred work beyond `2.0.0`.
 
 Use `POST-210-*` IDs for planned `2.2.2` backend/frontend parity work.
 
+## 2.2.3 Patch Status
+
+- `PATCH-223-001` `Done` Accept valid empty hex/base64 SNMP byte values so simulator startup, custom updates, and notification replay work; preserve size validation and verify live UDP updates and restart persistence.
+
 ## 2.0.0 Slice Status
 
 - `S0` `Done` Create the `2.0.0` repo skeleton with the new backend package, Alembic, and release-gate entrypoint.

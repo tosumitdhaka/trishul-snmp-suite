@@ -1,6 +1,6 @@
 # Documentation
 
-This directory is the canonical documentation set for Trishul SNMP Suite `2.2.2`.
+This directory is the canonical documentation set for Trishul SNMP Suite `2.2.3`.
 The shipped operator surface is the restored page-based shell in `frontend/`:
 `Dashboard`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`,
 `MIB Manager`, and `Settings`.
@@ -29,7 +29,7 @@ status references.
 
 ## Operator Guides
 
-These topic guides describe the current `2.2.2` release UI.
+These topic guides describe the current `2.2.3` release UI.
 
 - [MIB Manager Guide](mib_manager_guide.md)
 - [MIB Browser Guide](mib_browser_guide.md)
@@ -60,7 +60,7 @@ the `2.0.0` cleanup. Use [Architecture Overview](architecture_overview.md),
 
 ## 2.1 Follow-Up Planning
 
-`2.2.2` follow-up planning is tracked directly in [Roadmap](roadmap.md) and
+`2.2.3` follow-up planning is tracked directly in [Roadmap](roadmap.md) and
 [Issue Tracker](issue_tracker.md). No separate follow-up planning directory is
 kept in the live docs tree.
 

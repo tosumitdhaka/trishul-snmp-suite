@@ -82,6 +82,15 @@ Check these first if the simulator does not behave as expected:
 - symbolic targets with missing MIB support
 - querying the container-internal port instead of the host-exposed port
 
+If both startup and custom-data saves fail with `value must be a non-empty
+string`, older runtime code may be rejecting a valid empty hex/base64 OCTET
+STRING. Both operations validate the full set of bundle defaults, including
+physical addresses with `SIZE (0 | 6)`, even when the edited OID is unrelated.
+Update to code containing the empty-byte-value fix and rebuild the container
+with `./install-trishul-snmp-suite.sh restart-local` from that checkout. Keep
+the existing data volume; clearing custom overrides does not fix a failing
+bundle default. Empty values still have to satisfy their MIB size constraints.
+
 ## Related Docs
 
 - [Walk & Parse Guide](walker_guide.md)
