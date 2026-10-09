@@ -37,6 +37,16 @@ These topic guides describe the current `2.2.4` release UI.
 - [Walk & Parse Guide](walker_guide.md)
 - [Traps Guide](trap_manager_guide.md)
 
+## Planned UI Modernization (proposal, not shipped)
+
+The next-generation operator console is being designed **in parallel** with the
+existing Bootstrap UI. The current release interface remains the default until
+functional and operational parity is validated.
+
+- [Modern UI Architecture Decision](ui-modernization/architecture.md)
+- [Migration and Validation Plan](ui-modernization/migration-plan.md)
+- [Light/Dark Design System](ui-modernization/design-system.md)
+
 ## Development And Release
 
 - [Development Setup](development_setup.md)
