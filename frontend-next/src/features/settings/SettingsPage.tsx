@@ -107,7 +107,6 @@ export function SettingsPage() {
     queryKey: ['settings', 'app'],
     queryFn: ({ signal }) => apiRequest<AppPreferences>('/api/settings/app', token, { signal }),
     enabled: !!token,
-    retry: 1,
   });
   const meta = useQuery({
     queryKey: ['meta'],
