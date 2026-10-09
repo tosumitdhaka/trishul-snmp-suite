@@ -59,6 +59,8 @@ describe('Trishul desktop sidebar', () => {
     renderShell();
     expect(screen.queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument();
     expect(document.querySelectorAll('header button[aria-controls]')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' }).querySelector('svg'))
+      .toHaveClass('lucide-menu');
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-pressed', 'true');
     expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe('true');
@@ -88,6 +90,7 @@ describe('Trishul desktop sidebar', () => {
     fireEvent(window, new Event('resize'));
     expect(screen.getByRole('button', { name: 'Open menu' })).toBe(navigation);
     expect(navigation).toHaveAttribute('aria-controls', 'mobile-navigation');
+    expect(navigation.querySelector('svg')).toHaveClass('lucide-menu');
     fireEvent.click(navigation);
     expect(screen.getByRole('dialog', { name: 'Navigate workspaces' })).toBeInTheDocument();
 

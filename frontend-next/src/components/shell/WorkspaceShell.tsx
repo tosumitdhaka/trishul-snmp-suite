@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   Bell, Database, LayoutDashboard, LogOut, Menu, Moon, Network,
-  PanelLeftClose, PanelLeftOpen, Route as RouteIcon,
+  Route as RouteIcon,
   Server, Settings, Sun, Wifi, WifiOff, X,
 } from 'lucide-react';
 import { Link, NavLink, useLocation } from 'react-router';
@@ -187,10 +187,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
               else setMobileOpen((value) => !value);
             }}
           >
-            {isDesktop
-              ? collapsed ? <PanelLeftOpen size={19} aria-hidden="true" />
-                : <PanelLeftClose size={19} aria-hidden="true" />
-              : <Menu size={20} aria-hidden="true" />}
+            <Menu size={20} aria-hidden="true" />
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-base font-semibold leading-tight sm:text-lg">{active.label}</p>
