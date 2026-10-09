@@ -35,10 +35,16 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       if (disposed) return;
       setConnection(delay === 1_000 ? 'connecting' : 'reconnecting');
       // URL is deliberately never written to logs (it contains a session token).
-      const current = new WebSocket(socketEndpoint(token!, window.location, {
+      const endpoint = socketEndpoint(token!, window.location, {
         development: import.meta.env.DEV,
         directWsOrigin,
-      }));
+      });
+      if (debugSocket) {
+        const route = new URL(endpoint).host === window.location.host
+          ? 'vite-proxy' : 'direct-loopback';
+        console.info('[Trishul WS] connecting', { route });
+      }
+      const current = new WebSocket(endpoint);
       const startedAt = Date.now();
       socket = current;
       current.onopen = () => {

@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { parseRealtimeEvent, type RealtimeEvent } from '../api/types';
+import { getSafeDirectWsOrigin, isLoopbackHost } from './dev-ws-origin';
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline' | 'unauthorized';
 
@@ -66,12 +67,8 @@ export function socketEndpoint(
   if (options.development && options.directWsOrigin && location.protocol === 'http:') {
     try {
       const browserHost = new URL('http://' + location.host).hostname;
-      const direct = new URL(options.directWsOrigin);
-      const loopback = (hostname: string) => hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-      if (loopback(browserHost) && loopback(direct.hostname) &&
-          (direct.protocol === 'ws:' || direct.protocol === 'wss:') &&
-          direct.port && direct.pathname === '/' &&
-          !direct.username && !direct.password && !direct.search && !direct.hash) {
+      const direct = getSafeDirectWsOrigin(options.directWsOrigin);
+      if (isLoopbackHost(browserHost) && direct) {
         endpoint = new URL('/api/ws', direct);
       }
     } catch {

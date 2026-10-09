@@ -28,6 +28,12 @@ describe('live backend events', () => {
     expect(socketEndpoint('demo', { protocol: 'http:', host: 'example.com' }, opts))
       .toBe('ws://example.com/api/ws?token=demo');
   });
+  it('rejects using the Vite dev server port as a direct FastAPI origin', () => {
+    const location = { protocol: 'http:', host: 'localhost:5173' };
+    expect(socketEndpoint('token', location, { development: true, directWsOrigin: 'ws://localhost:5173' }))
+      .toBe('ws://localhost:5173/api/ws?token=token');
+  });
+
   it('never forwards a session token to an arbitrary or malformed WebSocket origin', () => {
     const local = { protocol: 'http:', host: 'localhost:5173' };
     for (const unsafe of [
