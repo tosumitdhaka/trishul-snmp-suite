@@ -7,8 +7,11 @@ import { RealtimeProvider } from '../lib/realtime/RealtimeProvider';
 import { WorkspaceShell } from '../components/shell/WorkspaceShell';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
-import { Placeholder } from '../features/shared/Placeholder';
-import { workspaces } from '../lib/navigation/workspaces';
+import { SimulatorPage } from '../features/simulator/SimulatorPage';
+import { WalkerPage } from '../features/walker/WalkerPage';
+import { TrapsPage } from '../features/traps/TrapsPage';
+import { BrowserPage } from '../features/browser/BrowserPage';
+import { MibsPage } from '../features/mibs/MibsPage';
 import { LoginView } from './LoginView';
 import { ErrorBoundary } from './ErrorBoundary';
 
@@ -26,9 +29,11 @@ function AuthenticatedApp() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          {workspaces.filter((page) => page.path !== '/' && page.path !== '/settings').map((page) => (
-            <Route key={page.path} path={page.path} element={<Placeholder workspace={page} />} />
-          ))}
+          <Route path="/simulator" element={<SimulatorPage />} />
+          <Route path="/walker" element={<WalkerPage />} />
+          <Route path="/traps" element={<TrapsPage />} />
+          <Route path="/browser" element={<BrowserPage />} />
+          <Route path="/mibs" element={<MibsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </WorkspaceShell>

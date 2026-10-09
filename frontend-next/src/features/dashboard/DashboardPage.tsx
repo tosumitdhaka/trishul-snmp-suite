@@ -220,7 +220,7 @@ export function DashboardPage() {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 id="launchers-heading" className="text-lg font-semibold tracking-tight">Workspaces</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">Explore the new shell. Operational workflows remain in the legacy console.</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">Explore all seven React workspaces. Operational workflows are available for integration testing.</p>
           </div>
           <HardDrive size={20} className="text-[var(--muted)]" aria-hidden="true" />
         </div>
@@ -232,7 +232,7 @@ export function DashboardPage() {
                 <span className="block text-sm font-semibold">{page.label}</span>
                 <span className="mt-1 block text-xs leading-relaxed text-[var(--muted)]">{page.description}</span>
                 <span className="mt-2 block text-[0.68rem] font-medium text-[var(--accent)]">
-                  {page.path === '/settings' ? 'Stage 3 preview · functional settings' : 'Preview placeholder'}
+                  Live workspace · integration review pending
                 </span>
               </span>
               <ArrowRight size={18} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
@@ -241,7 +241,7 @@ export function DashboardPage() {
         </div>
       </section>
       <p className="text-xs text-[var(--muted)]">
-        Modernization preview only. The dashboard is read-only; Settings can change server preferences, credentials and statistics. Other operational controls remain in the legacy interface.
+        Modernization preview only. The dashboard is read-only; operational workspace controls act on the existing backend. Verify the destination before mutations.
       </p>
     </div>
   );

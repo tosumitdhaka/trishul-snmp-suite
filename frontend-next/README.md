@@ -1,4 +1,4 @@
-# Trishul Modern UI — Stage 3 Settings preview
+# Trishul Modern UI — Seven-workspace integrated preview
 
 This is a separate React + TypeScript application, **not** the released UI. It does not replace anything in the legacy frontend directory.
 
@@ -57,12 +57,29 @@ If direct mode remains connected while the regular proxy mode aborts, investigat
 
 ## Implemented scope
 
-Stage 1 foundation, Stage 2 dashboard and Stage 3 Settings slice: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, searchable Ctrl+K navigation, and a read-only dashboard preserving all eight activity counters, four health/MIB tiles, six workspace shortcuts, and explicit API versus WebSocket state. Settings now provides authenticated password rotation (including all-session invalidation), validated server-backed startup/session/MIB preferences, export and confirmed reset of activity statistics, and About/active bundle details. The remaining five unmigrated workspaces still show placeholders with direct legacy links.
+Stage 1 foundation, Stage 2 dashboard, Stage 3 Settings and all remaining five workspaces: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, searchable Ctrl+K navigation, and a read-only dashboard preserving all eight activity counters, four health/MIB tiles, six workspace shortcuts, and explicit API versus WebSocket state. Settings now provides authenticated password rotation (including all-session invalidation), validated server-backed startup/session/MIB preferences, export and confirmed reset of activity statistics, and About/active bundle details. Simulator, Walk & Parse, Traps, MIB Browser and MIB Manager are now wired to the existing endpoints. These operational workspaces require real-backend and manual UI parity validation before sign-off.
 
 The dashboard normalizes the legacy MIB REST response and the WebSocket summary without presenting missing counts as zero.
 
 The Stage 2 shell uses the unchanged legacy Trishul SVG brand mark in both the sidebar and sign-in screen. One header navigation button controls either the sidebar or mobile drawer (no duplicate hamburger button): on desktop (lg and wider) it toggles between the labeled 256px sidebar and compact icon rail (76px), while on smaller viewports it opens the full-label drawer. The desktop choice is persisted in `localStorage` as `trishul_next_sidebar_collapsed`. Compact icons have accessible names and hover titles. The single button always displays the three-line hamburger icon at every viewport size; its accessible label describes its current action. This setting is independent from `trishul_theme` and login state. Retry, stale/error and light/dark behavior still need real-browser sign-off.
 
-Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, remaining five operational workspaces, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
+Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
 
 See docs/ui-modernization/settings-review-spec.md, docs/ui-modernization/architecture.md, docs/ui-modernization/migration-plan.md, docs/ui-modernization/design-system.md, docs/ui-modernization/legacy-feature-inventory.md and docs/ui-modernization/dashboard-review-spec.md.
+
+
+## Integrated seven-workspace review
+
+This preview provides all seven navigable pages. **Operational actions are live backend mutations**, not mocked demos. Testing against a disposable local environment is strongly recommended; sending SNMP notifications, MIB uploads/activation, deleting histories, changing credentials and service restarts change runtime state.
+
+| Workspace | Connected workflows | Manual parity gates |
+| --- | --- | --- |
+| Dashboard | Health/MIB/stats/WS overview | Offline, real WS, light/dark mobile screenshots |
+| Simulator | Start/stop/restart, custom JSON, activity log search, pause, export and clear | Real SNMP interactions, event fidelity, backend warnings |
+| Walk & Parse | SNMP walk/cancel, numeric/symbolic OIDs, parsed/raw/table/search/sort/TSV/JSON, recent local history | Large structured data, SNMP timeouts, cancel semantics |
+| Traps | Send Trap/Inform, varbind picker, listener, MIB resolution, decode, paginated received history, replay/delete/clear/CSV | Real UDP notifications, informs, enum/type constraints, live history |
+| MIB Browser | Server-ranked capped search, module selection, lazy OID descendants, node detail and cross-workspace handoff | Large MIB catalog, deep tree, empty/mixed filters |
+| MIB Manager | Active/inventory status, validate/upload, reload, remote fetch, bundle list/diff/activate, export/download/delete | Compile errors, partial compile, bundle rollback, large source inventories |
+| Settings | Credentials, preferences, statistics, about | Password rotation and re-login, export/reset, mobile focus/dialog tests |
+
+See `docs/ui-modernization/all-workspaces-review.md` for known limitations and checklist. **No production route cutover is authorized.**

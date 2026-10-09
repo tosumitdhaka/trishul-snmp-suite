@@ -87,3 +87,5 @@ kept in the live docs tree.
 7. Use `Dashboard` and `Settings` for health, stats, and metadata.
 
 - [Modern Settings slice review specification](ui-modernization/settings-review-spec.md) — Stage 3 Settings implementation scope and validation gates.
+
+- [Seven-workspace integrated preview review checklist](ui-modernization/all-workspaces-review.md) — all operational pages and outstanding parity gates.
