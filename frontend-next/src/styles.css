@@ -88,6 +88,12 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   color: var(--text);
 }
 .field-input:focus-visible { border-color: var(--accent); }
+/* Textareas must not inherit the fixed single-line input height. */
+textarea.field-input { height: auto; min-height: 7rem; resize: vertical; }
+textarea.field-input.h-72 { min-height: 18rem; }
+textarea.field-input.h-24 { min-height: 6rem; }
+/* Preserve readable control text at all viewport widths. */
+select.field-input { padding-right: 2rem; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
