@@ -29,6 +29,7 @@ export function TrapsPage() {
   const [picker, setPicker] = useState('');
   const [offset, setOffset] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [pausedRows, setPausedRows] = useState<EventRow[] | null>(null);
   const [selected, setSelected] = useState<EventRow | null>(null);
   const [confirm, setConfirm] = useState<'clear' | 'delete' | 'replay' | null>(null);
   const [decodeInput, setDecodeInput] = useState('');
@@ -75,8 +76,14 @@ export function TrapsPage() {
       }
     } catch { /* handoff is optional */ }
   }, []);
-  const filtered = useMemo(() => (Array.isArray(history.data?.data) ? history.data.data : []).filter(row =>
-    JSON.stringify({ ...row, community: undefined }).toLowerCase().includes(search.toLowerCase())), [history.data, search]);
+  const filtered = useMemo(() => (paused && pausedRows ? pausedRows :
+    Array.isArray(history.data?.data) ? history.data.data : []).filter(row =>
+    JSON.stringify({ ...row, community: undefined }).toLowerCase().includes(search.toLowerCase())), [history.data, search, paused, pausedRows]);
+  function toggleHistoryPause() {
+    if (!paused) setPausedRows(Array.isArray(history.data?.data) ? [...history.data.data] : []);
+    else { setPausedRows(null); void history.refetch(); }
+    setPaused(!paused);
+  }
   function selectTrap(option: TrapOption) {
     setTrapOid(option.oid);
     setVarbinds((option.objects || []).filter(x => x.oid).map(x => ({ oid: x.oid, type: x.input_type || 'String', value: '' })));
@@ -197,7 +204,7 @@ export function TrapsPage() {
       <div className="flex flex-wrap gap-2">
         <label className="min-w-44 flex-1"><span className="sr-only">Filter current page</span><span className="flex items-center gap-2"><Search size={16}/>
           <input className="field-input" placeholder="Filter current page" value={search} onChange={e=>setSearch(e.target.value)}/></span></label>
-        <button className="btn-secondary" onClick={() => setPaused(v=>!v)}>{paused?'Resume':'Pause'} polling</button>
+        <button className="btn-secondary" onClick={toggleHistoryPause}>{paused?'Resume':'Pause'} live updates</button>
         <button className="btn-secondary" onClick={() => void history.refetch()}><RefreshCw size={16}/> Refresh</button>
         <button className="btn-secondary" onClick={downloadCsv} disabled={!filtered.length}><Download size={16}/> Export current page CSV</button>
         <button className="btn-secondary text-[var(--danger)]" disabled={pending || !history.data?.total} onClick={()=>setConfirm('clear')}><Trash2 size={16}/> Clear all</button>
