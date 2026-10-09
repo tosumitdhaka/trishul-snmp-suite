@@ -231,7 +231,9 @@ export function DashboardPage() {
               <span className="min-w-0">
                 <span className="block text-sm font-semibold">{page.label}</span>
                 <span className="mt-1 block text-xs leading-relaxed text-[var(--muted)]">{page.description}</span>
-                <span className="mt-2 block text-[0.68rem] font-medium text-[var(--accent)]">Preview placeholder</span>
+                <span className="mt-2 block text-[0.68rem] font-medium text-[var(--accent)]">
+                  {page.path === '/settings' ? 'Stage 3 preview · functional settings' : 'Preview placeholder'}
+                </span>
               </span>
               <ArrowRight size={18} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
             </Link>
@@ -239,7 +241,7 @@ export function DashboardPage() {
         </div>
       </section>
       <p className="text-xs text-[var(--muted)]">
-        Modernization preview only. Readouts do not change device state; operation controls are still provided by the legacy interface.
+        Modernization preview only. The dashboard is read-only; Settings can change server preferences, credentials and statistics. Other operational controls remain in the legacy interface.
       </p>
     </div>
   );

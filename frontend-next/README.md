@@ -1,4 +1,4 @@
-# Trishul Modern UI — Stage 2 dashboard preview
+# Trishul Modern UI — Stage 3 Settings preview
 
 This is a separate React + TypeScript application, **not** the released UI. It does not replace anything in the legacy frontend directory.
 
@@ -57,12 +57,12 @@ If direct mode remains connected while the regular proxy mode aborts, investigat
 
 ## Implemented scope
 
-Stage 1 foundation plus Stage 2 preview: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, searchable Ctrl+K navigation, and a read-only dashboard preserving all eight activity counters, four health/MIB tiles, six workspace shortcuts, and explicit API versus WebSocket state. Unmigrated workspaces still show placeholders with direct legacy links.
+Stage 1 foundation, Stage 2 dashboard and Stage 3 Settings slice: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, searchable Ctrl+K navigation, and a read-only dashboard preserving all eight activity counters, four health/MIB tiles, six workspace shortcuts, and explicit API versus WebSocket state. Settings now provides authenticated password rotation (including all-session invalidation), validated server-backed startup/session/MIB preferences, export and confirmed reset of activity statistics, and About/active bundle details. The remaining five unmigrated workspaces still show placeholders with direct legacy links.
 
 The dashboard normalizes the legacy MIB REST response and the WebSocket summary without presenting missing counts as zero.
 
 The Stage 2 shell uses the unchanged legacy Trishul SVG brand mark in both the sidebar and sign-in screen. One header navigation button controls either the sidebar or mobile drawer (no duplicate hamburger button): on desktop (lg and wider) it toggles between the labeled 256px sidebar and compact icon rail (76px), while on smaller viewports it opens the full-label drawer. The desktop choice is persisted in `localStorage` as `trishul_next_sidebar_collapsed`. Compact icons have accessible names and hover titles. The single button always displays the three-line hamburger icon at every viewport size; its accessible label describes its current action. This setting is independent from `trishul_theme` and login state. Retry, stale/error and light/dark behavior still need real-browser sign-off.
 
-Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, migrated operational workspaces, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
+Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, remaining five operational workspaces, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
 
-See docs/ui-modernization/architecture.md, docs/ui-modernization/migration-plan.md, docs/ui-modernization/design-system.md, docs/ui-modernization/legacy-feature-inventory.md and docs/ui-modernization/dashboard-review-spec.md.
+See docs/ui-modernization/settings-review-spec.md, docs/ui-modernization/architecture.md, docs/ui-modernization/migration-plan.md, docs/ui-modernization/design-system.md, docs/ui-modernization/legacy-feature-inventory.md and docs/ui-modernization/dashboard-review-spec.md.
