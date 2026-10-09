@@ -35,6 +35,26 @@ Vite proxies `/api/ws` to the same FastAPI backend as other `/api` requests. A t
 
 The client retains the existing ping/pong lifecycle and reconnect-with-backoff behavior. Actual local-stack integration testing is required to establish the root cause of a recurring disconnect.
 
+### Isolate repeated Vite WebSocket proxy aborts (development only)
+
+A green `/api/health` result proves **HTTP** connectivity, not WebSocket uptime. FastAPI does not necessarily log every routine WebSocket connect/disconnect. If Vite repeatedly reports `ws proxy socket error: write ECONNABORTED`, use this **A/B diagnostic**, not a blanket error-suppression patch:
+
+**A — Normal proxy (baseline).** Run `npm run dev`, log in and leave the browser tab open. Note whether `Live updates` repeatedly changes to `WS: reconnecting`. If it does, inspect the browser Network > WS status and frames. Avoid sharing or copying the token-bearing request URL.
+
+**B — Direct loopback WebSocket (without the Vite WS proxy).** Stop Vite, then from `frontend-next/` run:
+
+```bash
+VITE_TRISHUL_WS_ORIGIN=ws://127.0.0.1:8980 VITE_TRISHUL_WS_DEBUG=1 npm run dev
+```
+
+This option changes **only the WebSocket target** to FastAPI at localhost:8980; REST calls still use Vite's `/api` proxy. For a native backend on port 8000, also set `TRISHUL_API_ORIGIN=http://127.0.0.1:8000` and set the WebSocket origin to `ws://127.0.0.1:8000`. Both the browser and backend must be reachable on the same loopback interface. Open `http://127.0.0.1:5173/next/` again.
+
+The direct target override is accepted **only in development**, with an HTTP-served local UI, and a loopback `ws://` or `wss://` target with an explicit port. Non-loopback URLs, embedded credentials, unexpected paths/query strings, and production usage fall back to the same-origin Vite proxy. Do not configure a public WebSocket origin; the backend has no origin-checking mechanism for direct cross-site exposure.
+
+With `VITE_TRISHUL_WS_DEBUG=1`, browser DevTools **Console** shows `[Trishul WS] connected` and sanitized close diagnostics: `code`, `wasClean`, and `durationSeconds`. These omit URLs, payloads, and session tokens. Common codes: `1000` orderly close, `1006` abnormal transport close, `4000` heartbeat timeout, `4001` expired/unauthorized session.
+
+If direct mode remains connected while the regular proxy mode aborts, investigate Vite's dev WebSocket proxy rather than changing FastAPI auth. If **both** modes drop, inspect backend runtime logs, container restarts, browser lifecycle and the close code. Debug logging and direct mode are disabled by default; neither changes deployed Docker/runtime behavior. Stop Vite and run plain `npm run dev` to return to normal.
+
 ## Implemented scope
 
 Stage 1 foundation plus Stage 2 preview: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, searchable Ctrl+K navigation, and a read-only dashboard preserving all eight activity counters, four health/MIB tiles, six workspace shortcuts, and explicit API versus WebSocket state. Unmigrated workspaces still show placeholders with direct legacy links.

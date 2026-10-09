@@ -13,6 +13,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const token = auth.state === 'authenticated' ? auth.token : null;
   const cache = useQueryClient();
   const [connection, setConnection] = useState<ConnectionState>('connecting');
+  // Diagnostic output contains no URL, token, server payload, or close reason.
+  const debugSocket = import.meta.env.DEV && import.meta.env.VITE_TRISHUL_WS_DEBUG === '1';
+  const directWsOrigin = import.meta.env.DEV ? import.meta.env.VITE_TRISHUL_WS_ORIGIN : undefined;
 
   useEffect(() => {
     if (!token) return;
@@ -32,12 +35,17 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       if (disposed) return;
       setConnection(delay === 1_000 ? 'connecting' : 'reconnecting');
       // URL is deliberately never written to logs (it contains a session token).
-      const current = new WebSocket(socketEndpoint(token!, window.location));
+      const current = new WebSocket(socketEndpoint(token!, window.location, {
+        development: import.meta.env.DEV,
+        directWsOrigin,
+      }));
+      const startedAt = Date.now();
       socket = current;
       current.onopen = () => {
         if (disposed || socket !== current) return;
         delay = 1_000;
         setConnection('live');
+        if (debugSocket) console.info('[Trishul WS] connected');
         void cache.invalidateQueries({ queryKey: ['stats'] });
         stopTimers();
         pingTimer = setInterval(() => {
@@ -61,6 +69,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         if (disposed || socket !== current) return;
         stopTimers();
         socket = null;
+        if (debugSocket) console.info('[Trishul WS] closed', {
+          code: event.code,
+          wasClean: event.wasClean,
+          durationSeconds: Math.round((Date.now() - startedAt) / 1000),
+        });
         if (event.code === 4001) {
           setConnection('unauthorized');
           expire(token!);
@@ -81,7 +94,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       stopTimers();
       socket?.close(1000, 'leaving preview');
     };
-  }, [token, cache, expire]);
+  }, [token, cache, expire, debugSocket, directWsOrigin]);
   return <RealtimeContext.Provider value={connection}>{children}</RealtimeContext.Provider>;
 }
 export function useRealtime() {
