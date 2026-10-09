@@ -2688,6 +2688,15 @@ table {
 }
 
 
+/* Sidebar section headings can exceed the viewport on compact devices. */
+#sidebar-wrapper > nav {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+
 /* ==================== Workspace Discovery ==================== */
 
 .app-sidebar-group-label {

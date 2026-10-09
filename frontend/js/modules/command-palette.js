@@ -135,6 +135,9 @@
             closeMobileSidebar({ restoreFocus: false });
         }
         priorFocus = document.activeElement;
+        // The mobile drawer becomes hidden when opening the palette.
+        // Never restore focus to its now-invisible links.
+        if (priorFocus?.closest?.('#sidebar-wrapper')) priorFocus = trigger;
         navigating = false;
         input.value = '';
         render('');
