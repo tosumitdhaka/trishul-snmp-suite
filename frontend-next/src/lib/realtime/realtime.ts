@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { parseRealtimeEvent, type RealtimeEvent } from '../api/types';
+import { getSafeDirectWsOrigin, isLoopbackHost } from './dev-ws-origin';
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline' | 'unauthorized';
 
@@ -42,9 +43,39 @@ export function handleRealtimePayload(cache: QueryClient, raw: string): Realtime
   }
 }
 
-export function socketEndpoint(token: string, location: Pick<Location, 'protocol' | 'host'>): string {
+export interface SocketEndpointOptions {
+  /** Diagnostic only: never override WebSocket origin in a production bundle. */
+  development?: boolean;
+  directWsOrigin?: string;
+}
+
+/**
+ * The normal socket is same-origin via Vite's /api proxy.
+ * For isolating proxy failures, local development can opt into a DIRECT,
+ * loopback-only WebSocket connection to an existing FastAPI instance.
+ * Never allow a token-bearing URL to be directed to an arbitrary host.
+ */
+export function socketEndpoint(
+  token: string,
+  location: Pick<Location, 'protocol' | 'host'>,
+  options: SocketEndpointOptions = {},
+): string {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = new URL(protocol + '//' + location.host + '/api/ws');
-  url.searchParams.set('token', token);
-  return url.toString();
+  const sameOrigin = new URL(protocol + '//' + location.host + '/api/ws');
+  let endpoint = sameOrigin;
+
+  if (options.development && options.directWsOrigin && location.protocol === 'http:') {
+    try {
+      const browserHost = new URL('http://' + location.host).hostname;
+      const direct = getSafeDirectWsOrigin(options.directWsOrigin);
+      if (isLoopbackHost(browserHost) && direct) {
+        endpoint = new URL('/api/ws', direct);
+      }
+    } catch {
+      // Invalid or unsafe overrides quietly fall back to the same-origin proxy.
+    }
+  }
+
+  endpoint.searchParams.set('token', token);
+  return endpoint.toString();
 }

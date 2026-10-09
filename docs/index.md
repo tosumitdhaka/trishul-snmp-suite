@@ -46,6 +46,8 @@ functional and operational parity is validated.
 - [Modern UI Architecture Decision](ui-modernization/architecture.md)
 - [Migration and Validation Plan](ui-modernization/migration-plan.md)
 - [Light/Dark Design System](ui-modernization/design-system.md)
+- [Legacy UI Source Inventory](ui-modernization/legacy-feature-inventory.md)
+- [Stage 2 Dashboard Review Specification](ui-modernization/dashboard-review-spec.md)
 
 ## Development And Release
 

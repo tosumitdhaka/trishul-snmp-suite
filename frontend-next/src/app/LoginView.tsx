@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, LockKeyhole, Network, Moon, Sun } from 'lucide-react';
+import { ArrowRight, LockKeyhole, Moon, Sun } from 'lucide-react';
+import trishulLogo from '../assets/trishul-icon.svg';
 import { useAuth } from '../lib/auth/AuthProvider';
 import { useTheme } from '../lib/theme/ThemeProvider';
 
@@ -28,7 +29,7 @@ export function LoginView() {
       <div className="w-full max-w-md space-y-6">
         <div className="flex items-center justify-between gap-3">
           <a href="/" className="flex items-center gap-3 text-sm font-semibold">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent)] text-white"><Network size={23} aria-hidden="true" /></span>
+            <img src={trishulLogo} alt="" aria-hidden="true" className="h-10 w-10 shrink-0 object-contain" width={40} height={40} />
             <span>Trishul <span className="block text-xs font-medium text-[var(--muted)]">SNMP Suite</span></span>
           </a>
           <button className="btn-secondary" type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
