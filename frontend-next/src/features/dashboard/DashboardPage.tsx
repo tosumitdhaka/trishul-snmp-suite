@@ -102,9 +102,12 @@ export function DashboardPage() {
     refetchInterval: connection === 'live' ? false : 30_000,
   });
   const failedQueries = [
-    ['metadata', meta], ['simulator', simulator], ['receiver', receiver],
-    ['MIB summary', mibs], ['activity', stats],
-  ].filter(([, query]) => query.isError).map(([name]) => name as string);
+    meta.isError ? 'metadata' : null,
+    simulator.isError ? 'simulator' : null,
+    receiver.isError ? 'receiver' : null,
+    mibs.isError ? 'MIB summary' : null,
+    stats.isError ? 'activity' : null,
+  ].filter((item): item is string => item !== null);
   const mostRecentUpdate = Math.max(
     meta.dataUpdatedAt, simulator.dataUpdatedAt, receiver.dataUpdatedAt, mibs.dataUpdatedAt, stats.dataUpdatedAt,
   );
