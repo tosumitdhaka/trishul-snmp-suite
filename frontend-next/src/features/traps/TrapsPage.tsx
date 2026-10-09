@@ -97,7 +97,15 @@ export function TrapsPage() {
     const response = await invoke('/api/traps/' + (selectedMode === 'inform' ? 'send-inform' : 'send'),
       jsonPost({ target: sendHost.trim(), port, community: sendCommunity, oid: trapOid.trim(),
         varbinds: varbinds.map(row => ({ oid: row.oid, type: row.type, value: row.value })) }), [['stats'], historyKey]);
-    if (response) setOperationResult(response);
+    if (response) {
+      setOperationResult(response);
+      const detail = response as { response?: { error_status_code?: number; error_status?: string } };
+      if (selectedMode === 'inform' && detail.response?.error_status_code &&
+          detail.response.error_status_code !== 0) {
+        setNotice({ tone: 'error', text: 'Inform response reported ' +
+          (detail.response.error_status || 'error status ' + detail.response.error_status_code) });
+      }
+    }
   }
   async function confirmOperation() {
     if (confirm === 'clear') await invoke('/api/traps/', { method: 'DELETE' }, [historyKey, ['stats']]);

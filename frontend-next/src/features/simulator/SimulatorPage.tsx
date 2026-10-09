@@ -48,7 +48,10 @@ export function SimulatorPage() {
       setNotice({ tone: 'error', text: 'Enter a valid UDP port and community.' }); return;
     }
     const body = action === 'start' ? jsonPost({ port: positivePort(port), community }) : { method: 'POST' };
-    await invoke('/api/simulator/' + action, body, [statusKey, ['stats']]);
+    const response = await invoke<{ custom_data_warnings?: string[] }>('/api/simulator/' + action, body, [statusKey, ['stats']]);
+    if (response?.custom_data_warnings?.length) {
+      setNotice({ tone: 'error', text: 'Started with override warnings: ' + response.custom_data_warnings.join('; ') });
+    }
   }
   async function saveData() {
     let parsed: unknown;

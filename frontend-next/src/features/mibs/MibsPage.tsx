@@ -87,6 +87,11 @@ export function MibsPage() {
     const result = await invoke('/api/mibs/upload', { method: 'POST', body: form }, [['mibs'], ['bundles'], ['stats']]);
     if (result) {
       setLastResult(result); setFiles([]); setValidation(null);
+      const report = result as { results?: { status?: string; error?: string }[]; compile_error?: string };
+      const problems = (report.results || []).filter(item => ['failed','error','skipped'].includes(item.status || ''));
+      if (report.compile_error || problems.length) {
+        setNotice({ tone: 'error', text: 'Upload finished with compile issues. Review Last operation details below before using the bundle.' });
+      }
       const input = document.getElementById('mib-files') as HTMLInputElement | null;
       if (input) input.value = '';
     }
