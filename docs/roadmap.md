@@ -79,6 +79,16 @@ Initial targets:
 - schema depth and protocol reach: display hints, SMIv1 generic-trap decoding, a compile-time lint gate, v1 walker support, and SNMPv3 exposure
 - API and page refinements on the existing unified `/api/...` surface where they simplify the current UI
 
+## Parallel Modern Operator UI Initiative (planning)
+
+The [Modern UI Architecture](ui-modernization/architecture.md),
+[Migration Plan](ui-modernization/migration-plan.md), and
+[Design System](ui-modernization/design-system.md) specify a React/TypeScript
+frontend built alongside the existing operator shell. This is a separate,
+review-gated initiative—not an immediate replacement of the current UI or
+an assumed part of the 2.2.4 release line. Existing UI/runtime work can
+continue while the new interface is developed and validated.
+
 ## Deferred Beyond 2.0.x
 
 These items are intentionally out of the current release cut:

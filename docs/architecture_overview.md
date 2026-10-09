@@ -9,6 +9,13 @@ runtime is centered on:
 - one in-process SNMP runtime built on `trishul-snmp`
 - one compiled-bundle pipeline built on `trishul-smi`
 
+> **Future UI plan (not part of the shipped 2.2.4 runtime):** A separate React/TypeScript
+> operator frontend is proposed alongside the current release UI. See the
+> [Modern UI Architecture Decision](ui-modernization/architecture.md) and
+> [Migration Plan](ui-modernization/migration-plan.md). Until separately approved
+> and implemented, the current single-frontend runtime described below remains
+> authoritative.
+
 ## High-Level Shape
 
 The shipped runtime provides:
