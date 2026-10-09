@@ -115,7 +115,7 @@ export function BrowserPage() {
           <p className="text-xs text-[var(--muted)]">{tree.data?.count ?? '…'} nodes in selected view</p>
           <ul className="max-h-[38rem] space-y-1 overflow-auto" aria-label="OID hierarchy">
             {tree.data?.modules.flatMap(mod => mod.children.map((item,i) =>
-              <TreeItem key={mod.name + item.oid + i} node={item} module={mod.name} onSelect={setSelected} />))}</ul>
+              <TreeItem key={mod.name + item.oid + i} node={item} module={mod.name || mod.module || ''} onSelect={setSelected} />))}</ul>
         </> : <p className="text-sm text-[var(--muted)]">Select a module for a lazy tree or enter a search term to query all modules.</p>}
       </Card>
       <Card title="Object details" description="Selected OID, metadata, constraints and cross-workspace actions.">
