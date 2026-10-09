@@ -28,7 +28,9 @@ The built app is isolated under frontend-next/dist. It is **not** packaged by th
 
 Stage 1 foundation plus Stage 2 preview: React Router with seven routes, theme control, authentication, one typed API client, WS reconnect/cache lifecycle, searchable Ctrl+K navigation, and a read-only dashboard preserving all eight activity counters, four health/MIB tiles, six workspace shortcuts, and explicit API versus WebSocket state. Unmigrated workspaces still show placeholders with direct legacy links.
 
-The dashboard normalizes the legacy MIB REST response and the WebSocket summary without presenting missing counts as zero. Retry, stale/error and light/dark behavior still need real-browser sign-off.
+The dashboard normalizes the legacy MIB REST response and the WebSocket summary without presenting missing counts as zero.
+
+The Stage 2 shell uses the unchanged legacy Trishul SVG brand mark in both the sidebar and sign-in screen. On desktop (lg and wider), the header's sidebar control toggles between the labeled 256px sidebar and compact icon rail (76px). The choice is persisted in `localStorage` as `trishul_next_sidebar_collapsed`. The compact icons have accessible names and hover titles; the mobile drawer always keeps full labels. This setting is independent from `trishul_theme` and login state. Retry, stale/error and light/dark behavior still need real-browser sign-off.
 
 Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, migrated operational workspaces, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
 

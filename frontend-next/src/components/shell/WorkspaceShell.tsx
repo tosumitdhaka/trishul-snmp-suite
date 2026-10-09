@@ -1,33 +1,65 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Bell, Database, LayoutDashboard, LogOut, Menu, Moon, Network, Route as RouteIcon, Server, Settings, Sun, Wifi, WifiOff, X } from 'lucide-react';
-import { NavLink, useLocation } from 'react-router';
+import {
+  Bell, Database, LayoutDashboard, LogOut, Menu, Moon, Network,
+  PanelLeftClose, PanelLeftOpen, Route as RouteIcon,
+  Server, Settings, Sun, Wifi, WifiOff, X,
+} from 'lucide-react';
+import { Link, NavLink, useLocation } from 'react-router';
+import trishulLogo from '../../assets/trishul-icon.svg';
 import { workspaces, type Workspace } from '../../lib/navigation/workspaces';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { useTheme } from '../../lib/theme/ThemeProvider';
 import { WorkspaceSearch } from './WorkspaceSearch';
 
+export const SIDEBAR_STORAGE_KEY = 'trishul_next_sidebar_collapsed';
+
+export function getSavedSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 const icons = {
   layout: LayoutDashboard, server: Server, route: RouteIcon, bell: Bell,
   network: Network, database: Database, settings: Settings,
 };
 
-function SidebarLinks({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarLinks({ collapsed = false, onNavigate }: {
+  collapsed?: boolean;
+  onNavigate?: () => void;
+}) {
   let previousGroup = '';
   return (
-    <nav aria-label="Workspaces" className="space-y-1 px-3 py-4">
+    <nav aria-label="Workspaces" className={'space-y-1 py-4 ' + (collapsed ? 'px-2' : 'px-3')}>
       {workspaces.map((workspace) => {
         const Icon = icons[workspace.icon];
-        const groupLabel = workspace.group !== previousGroup;
+        const isNewGroup = workspace.group !== previousGroup;
         previousGroup = workspace.group;
         return (
           <div key={workspace.path}>
-            {groupLabel && <p className="px-3 pb-2 pt-5 text-[0.68rem] font-bold uppercase tracking-widest text-[var(--muted)] first:pt-1">{workspace.group}</p>}
-            <NavLink to={workspace.path} end={workspace.path === '/'} onClick={onNavigate}
-              className={({ isActive }) => 'nav-item ' + (isActive ? 'nav-item-active' : '')}>
-              <Icon size={18} aria-hidden="true" />
-              <span>{workspace.label}</span>
+            {isNewGroup && (collapsed ? (
+              <div className="mx-3 my-4 border-t border-[var(--border)]" aria-hidden="true" />
+            ) : (
+              <p className="px-3 pb-2 pt-5 text-[0.68rem] font-bold uppercase tracking-widest text-[var(--muted)] first:pt-1">
+                {workspace.group}
+              </p>
+            ))}
+            <NavLink
+              to={workspace.path}
+              end={workspace.path === '/'}
+              onClick={onNavigate}
+              title={collapsed ? workspace.label : undefined}
+              aria-label={collapsed ? workspace.label : undefined}
+              className={({ isActive }) => 'nav-item ' +
+                (collapsed ? 'justify-center px-0 ' : '') +
+                (isActive ? 'nav-item-active' : '')}
+            >
+              <Icon size={19} className="shrink-0" aria-hidden="true" />
+              <span className={collapsed ? 'sr-only' : ''}>{workspace.label}</span>
             </NavLink>
           </div>
         );
@@ -36,45 +68,93 @@ function SidebarLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function Brand() {
-  return <a href="/next/" className="flex items-center gap-3 rounded-lg p-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
-    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent)] text-white"><Network size={23} aria-hidden="true" /></span>
-    <span className="leading-tight"><strong className="block text-base font-bold">Trishul</strong><span className="block text-xs text-[var(--muted)]">SNMP Suite · Preview</span></span>
-  </a>;
+function Brand({ compact = false }: { compact?: boolean }) {
+  return (
+    <Link to="/" aria-label="Trishul SNMP Suite — Dashboard"
+      className={'flex items-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ' +
+        (compact ? 'justify-center p-1' : 'gap-3 p-2')}
+      title={compact ? 'Trishul SNMP Suite' : undefined}>
+      <img src={trishulLogo} alt="" aria-hidden="true"
+        className="h-10 w-10 shrink-0 object-contain" width={40} height={40} />
+      <span className={compact ? 'sr-only' : 'min-w-0 leading-tight'}>
+        <strong className="block text-base font-bold">Trishul</strong>
+        <span className="block whitespace-nowrap text-xs text-[var(--muted)]">SNMP Suite · Preview</span>
+      </span>
+    </Link>
+  );
 }
 
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(getSavedSidebarCollapsed);
   const { auth, logout } = useAuth();
   const ws = useRealtime();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
   const active: Workspace = workspaces.find((item) => item.path === location.pathname) || workspaces[0];
   const connected = ws === 'live';
+
+  useEffect(() => {
+    try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed)); }
+    catch { /* The sidebar still works when localStorage is disabled. */ }
+  }, [collapsed]);
+
   return (
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--text)]">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-[var(--border)] bg-[var(--surface)] lg:flex">
-        <div className="border-b border-[var(--border)] px-4 py-4"><Brand /></div>
-        <div className="min-h-0 flex-1 overflow-y-auto"><SidebarLinks /></div>
-        <div className="border-t border-[var(--border)] px-5 py-4 text-xs text-[var(--muted)]">Modern UI · Stage 2 preview</div>
+      <a href="#main-content"
+        className="sr-only focus:fixed focus:left-3 focus:top-3 focus:z-80 focus:not-sr-only focus:rounded-lg focus:bg-[var(--surface)] focus:p-3">
+        Skip to main content
+      </a>
+      <aside aria-label="Desktop sidebar"
+        className={'fixed inset-y-0 left-0 hidden flex-col overflow-x-hidden border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-200 motion-reduce:transition-none lg:flex ' +
+          (collapsed ? 'w-[4.75rem]' : 'w-64')}>
+        <div className={'border-b border-[var(--border)] py-4 ' + (collapsed ? 'px-2' : 'px-4')}>
+          <Brand compact={collapsed} />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <SidebarLinks collapsed={collapsed} />
+        </div>
+        <div className={'border-t border-[var(--border)] py-4 text-center text-xs text-[var(--muted)] ' +
+          (collapsed ? 'px-1' : 'px-4')}>
+          {collapsed ? <span aria-label="Modern UI · Stage 2 preview" title="Modern UI · Stage 2 preview">v2</span>
+            : 'Modern UI · Stage 2 preview'}
+        </div>
       </aside>
+
       <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/60" />
-          <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,90vw)] flex-col overflow-hidden bg-[var(--surface)] p-0 shadow-2xl focus:outline-none">
+          <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,90vw)] flex-col overflow-hidden bg-[var(--surface)] p-0 text-[var(--text)] shadow-2xl focus:outline-none">
             <Dialog.Title className="sr-only">Navigate workspaces</Dialog.Title>
             <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-4">
               <Brand />
-              <Dialog.Close className="btn-secondary p-2" aria-label="Close menu"><X size={18} aria-hidden="true" /></Dialog.Close>
+              <Dialog.Close className="btn-secondary p-2" aria-label="Close menu">
+                <X size={18} aria-hidden="true" />
+              </Dialog.Close>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto"><SidebarLinks onNavigate={() => setMobileOpen(false)} /></div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <SidebarLinks onNavigate={() => setMobileOpen(false)} />
+            </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      <div className="min-w-0 lg:pl-64">
+
+      <div className={'min-w-0 transition-[padding] duration-200 motion-reduce:transition-none ' +
+        (collapsed ? 'lg:pl-[4.75rem]' : 'lg:pl-64')}>
         <header className="sticky top-0 z-30 flex min-h-18 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3 sm:px-7">
           <button className="btn-secondary p-2 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
             <Menu size={20} aria-hidden="true" />
+          </button>
+          <button
+            className="btn-secondary hidden p-2 lg:inline-flex"
+            type="button"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-pressed={collapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={() => setCollapsed((value) => !value)}
+          >
+            {collapsed ? <PanelLeftOpen size={19} aria-hidden="true" />
+              : <PanelLeftClose size={19} aria-hidden="true" />}
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-base font-semibold leading-tight sm:text-lg">{active.label}</p>
@@ -87,17 +167,19 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
               : <WifiOff size={15} className="text-[var(--warning)]" aria-hidden="true" />}
             {connected ? 'Live updates' : 'WS: ' + ws}
           </span>
-          <button className="btn-secondary p-2" type="button" aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          <button className="btn-secondary p-2" type="button"
+            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
             onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
             {theme === 'light' ? <Moon size={18} aria-hidden="true" /> : <Sun size={18} aria-hidden="true" />}
           </button>
           <button className="btn-secondary p-2 sm:px-3" type="button" onClick={() => void logout()} title="Log out">
             <LogOut size={17} aria-hidden="true" />
-            <span className="hidden text-sm sm:inline">{auth.state === 'authenticated' ? auth.username : 'Log out'}</span>
+            <span className="hidden text-sm sm:inline">
+              {auth.state === 'authenticated' ? auth.username : 'Log out'}
+            </span>
           </button>
         </header>
         <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-[1680px] px-4 py-6 sm:px-7 sm:py-8">
-          <a className="sr-only focus:not-sr-only" href="#workspace-content">Skip workspace navigation</a>
           <div id="workspace-content">{children}</div>
         </main>
       </div>
