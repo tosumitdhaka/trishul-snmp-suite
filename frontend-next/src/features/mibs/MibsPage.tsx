@@ -40,6 +40,7 @@ export function MibsPage() {
   const [compileMode, setCompileMode] = useState('full');
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [validation, setValidation] = useState<unknown>(null);
+  const [compileTargets, setCompileTargets] = useState<string[]>([]);
   const [lastResult, setLastResult] = useState<unknown>(null);
   const [confirm, setConfirm] = useState<'reload'|'delete'|'activate'|'fetch'|null>(null);
   const [dependencies, setDependencies] = useState('');
@@ -79,11 +80,19 @@ export function MibsPage() {
   async function validate() {
     if (!files.length) { setNotice({ tone: 'error', text: 'Select MIB source files first.' }); return; }
     const result = await invoke('/api/mibs/validate-batch', { method: 'POST', body: makeUploadForm() });
-    if (result) setValidation(result);
+    if (result) {
+      setValidation(result);
+      const report = result as { partial_compile?: { ready_mibs?: string[] } };
+      setCompileTargets(report.partial_compile?.ready_mibs || []);
+    }
   }
   async function upload() {
     if (!files.length) { setNotice({ tone: 'error', text: 'Select MIB source files first.' }); return; }
     const form = makeUploadForm(); form.append('compile_mode', compileMode);
+    if (compileMode === 'partial' && validation) {
+      if (!compileTargets.length) { setNotice({ tone: 'error', text: 'No validated ready modules selected for partial compile.' }); return; }
+      form.append('compile_targets', JSON.stringify(compileTargets));
+    }
     const result = await invoke('/api/mibs/upload', { method: 'POST', body: form }, [['mibs'], ['bundles'], ['stats']]);
     if (result) {
       setLastResult(result); setFiles([]); setValidation(null);
@@ -195,11 +204,22 @@ export function MibsPage() {
       <div className="space-y-5">
         <Card title="Validate and upload" description="Validate without persisting; upload with explicit compile mode.">
           <Field label="Source files"><input id="mib-files" className="field-input h-auto" type="file" multiple
-            onChange={(e: ChangeEvent<HTMLInputElement>)=>{setFiles(Array.from(e.target.files||[]));setValidation(null);}} /></Field>
+            accept=".mib,.txt,.my"
+            onChange={(e: ChangeEvent<HTMLInputElement>)=>{setFiles(Array.from(e.target.files||[]));setValidation(null);setCompileTargets([]);}} /></Field>
           <Field label="Source group" hint="Optional; uploaded group name stored by the backend."><input className="field-input" value={sourceGroup} onChange={e=>setSourceGroup(e.target.value)} /></Field>
           <Field label="Compile mode"><select className="field-input" value={compileMode} onChange={e=>setCompileMode(e.target.value)}>
             <option value="full">Full compile</option><option value="partial">Partial compile</option></select></Field>
           <p className="text-xs text-[var(--muted)]">{files.length} files selected. Validation does not contact remote MIB sources.</p>
+          {compileMode === 'partial' && <div className="space-y-2 rounded-lg bg-[var(--surface-muted)] p-3">
+            <p className="text-xs font-semibold">Partial compile targets</p>
+            <p className="text-xs text-[var(--muted)]">Validate first to select ready modules. Without prior validation, the backend selects all dependency-ready modules automatically.</p>
+            {((validation as { partial_compile?: { ready_mibs?: string[] } } | null)?.partial_compile?.ready_mibs || []).map(name =>
+              <label key={name} className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={compileTargets.includes(name)}
+                  onChange={e=>setCompileTargets(old=>e.target.checked?[...old,name]:old.filter(x=>x!==name))} />
+                {name}
+              </label>)}
+          </div>}
           <div className="flex flex-wrap gap-2"><button className="btn-secondary" disabled={!files.length||pending} onClick={()=>void validate()}><FileUp size={16}/> Validate</button>
             <button className="btn-primary" disabled={!files.length||pending} onClick={()=>void upload()}><FileUp size={16}/> Upload and compile</button></div>
           {validation != null && <details open><summary className="cursor-pointer text-sm font-semibold">Validation report</summary><JsonView data={validation}/></details>}
