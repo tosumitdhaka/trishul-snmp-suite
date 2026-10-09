@@ -15,6 +15,14 @@ import { WorkspaceSearch } from './WorkspaceSearch';
 
 export const SIDEBAR_STORAGE_KEY = 'trishul_next_sidebar_collapsed';
 
+export const DESKTOP_SIDEBAR_MEDIA_QUERY = '(min-width: 1024px)';
+
+function getIsDesktopViewport(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia?.(DESKTOP_SIDEBAR_MEDIA_QUERY).matches ?? window.innerWidth >= 1024;
+}
+
+
 export function getSavedSidebarCollapsed(): boolean {
   try {
     return localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true';
@@ -87,12 +95,36 @@ function Brand({ compact = false }: { compact?: boolean }) {
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(getSavedSidebarCollapsed);
+  const [isDesktop, setIsDesktop] = useState(getIsDesktopViewport);
   const { auth, logout } = useAuth();
   const ws = useRealtime();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
   const active: Workspace = workspaces.find((item) => item.path === location.pathname) || workspaces[0];
   const connected = ws === 'live';
+
+  useEffect(() => {
+    const media = window.matchMedia?.(DESKTOP_SIDEBAR_MEDIA_QUERY);
+    const syncViewport = () => {
+      setIsDesktop(media?.matches ?? window.innerWidth >= 1024);
+    };
+    syncViewport();
+
+    if (media?.addEventListener) {
+      media.addEventListener('change', syncViewport);
+      return () => media.removeEventListener('change', syncViewport);
+    }
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (isDesktop) setMobileOpen(false);
+  }, [isDesktop]);
+
+  const navButtonLabel = isDesktop
+    ? collapsed ? 'Expand sidebar' : 'Collapse sidebar'
+    : mobileOpen ? 'Close menu' : 'Open menu';
 
   useEffect(() => {
     try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed)); }
@@ -105,7 +137,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         className="sr-only focus:fixed focus:left-3 focus:top-3 focus:z-80 focus:not-sr-only focus:rounded-lg focus:bg-[var(--surface)] focus:p-3">
         Skip to main content
       </a>
-      <aside aria-label="Desktop sidebar"
+      <aside id="desktop-sidebar" aria-label="Desktop sidebar"
         className={'fixed inset-y-0 left-0 hidden flex-col overflow-x-hidden border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-200 motion-reduce:transition-none lg:flex ' +
           (collapsed ? 'w-[4.75rem]' : 'w-64')}>
         <div className={'border-b border-[var(--border)] py-4 ' + (collapsed ? 'px-2' : 'px-4')}>
@@ -121,10 +153,10 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
+      <Dialog.Root open={!isDesktop && mobileOpen} onOpenChange={setMobileOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/60" />
-          <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,90vw)] flex-col overflow-hidden bg-[var(--surface)] p-0 text-[var(--text)] shadow-2xl focus:outline-none">
+          <Dialog.Content id="mobile-navigation" className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,90vw)] flex-col overflow-hidden bg-[var(--surface)] p-0 text-[var(--text)] shadow-2xl focus:outline-none">
             <Dialog.Title className="sr-only">Navigate workspaces</Dialog.Title>
             <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-4">
               <Brand />
@@ -142,19 +174,23 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <div className={'min-w-0 transition-[padding] duration-200 motion-reduce:transition-none ' +
         (collapsed ? 'lg:pl-[4.75rem]' : 'lg:pl-64')}>
         <header className="sticky top-0 z-30 flex min-h-18 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3 sm:px-7">
-          <button className="btn-secondary p-2 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
-            <Menu size={20} aria-hidden="true" />
-          </button>
           <button
-            className="btn-secondary hidden p-2 lg:inline-flex"
+            className="btn-secondary shrink-0 p-2"
             type="button"
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-pressed={collapsed}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            onClick={() => setCollapsed((value) => !value)}
+            aria-label={navButtonLabel}
+            aria-pressed={isDesktop ? collapsed : undefined}
+            aria-expanded={isDesktop ? !collapsed : mobileOpen}
+            aria-controls={isDesktop ? 'desktop-sidebar' : 'mobile-navigation'}
+            title={navButtonLabel}
+            onClick={() => {
+              if (isDesktop) setCollapsed((value) => !value);
+              else setMobileOpen((value) => !value);
+            }}
           >
-            {collapsed ? <PanelLeftOpen size={19} aria-hidden="true" />
-              : <PanelLeftClose size={19} aria-hidden="true" />}
+            {isDesktop
+              ? collapsed ? <PanelLeftOpen size={19} aria-hidden="true" />
+                : <PanelLeftClose size={19} aria-hidden="true" />
+              : <Menu size={20} aria-hidden="true" />}
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-base font-semibold leading-tight sm:text-lg">{active.label}</p>

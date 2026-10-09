@@ -34,10 +34,14 @@ function renderShell() {
     </MemoryRouter>,
   );
 }
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => {
+  window.localStorage.clear();
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1280 });
+});
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1024 });
 });
 
 describe('Trishul desktop sidebar', () => {
@@ -53,6 +57,8 @@ describe('Trishul desktop sidebar', () => {
 
   it('collapses to icon-only links, saves preference, expands on demand', () => {
     renderShell();
+    expect(screen.queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('header button[aria-controls]')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-pressed', 'true');
     expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe('true');
@@ -73,9 +79,32 @@ describe('Trishul desktop sidebar', () => {
     expect(screen.getByRole('main')).toHaveClass('mx-auto');
   });
 
+  it('switches the same control across breakpoints without opening a second menu', () => {
+    renderShell();
+    const navigation = screen.getByRole('button', { name: 'Collapse sidebar' });
+    expect(navigation).toHaveAttribute('aria-controls', 'desktop-sidebar');
+
+    window.innerWidth = 390;
+    fireEvent(window, new Event('resize'));
+    expect(screen.getByRole('button', { name: 'Open menu' })).toBe(navigation);
+    expect(navigation).toHaveAttribute('aria-controls', 'mobile-navigation');
+    fireEvent.click(navigation);
+    expect(screen.getByRole('dialog', { name: 'Navigate workspaces' })).toBeInTheDocument();
+
+    window.innerWidth = 1280;
+    fireEvent(window, new Event('resize'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBe(navigation);
+    expect(document.querySelectorAll('header button[aria-controls]')).toHaveLength(1);
+  });
+
   it('keeps full-label mobile navigation when desktop rail is collapsed', () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, 'true');
+    window.innerWidth = 390;
     renderShell();
+    expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open menu' })).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('header button[aria-controls]')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
     const dialog = screen.getByRole('dialog', { name: 'Navigate workspaces' });
     expect(within(dialog).getByRole('link', { name: 'MIB Manager' }))

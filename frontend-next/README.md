@@ -30,7 +30,7 @@ Stage 1 foundation plus Stage 2 preview: React Router with seven routes, theme c
 
 The dashboard normalizes the legacy MIB REST response and the WebSocket summary without presenting missing counts as zero.
 
-The Stage 2 shell uses the unchanged legacy Trishul SVG brand mark in both the sidebar and sign-in screen. On desktop (lg and wider), the header's sidebar control toggles between the labeled 256px sidebar and compact icon rail (76px). The choice is persisted in `localStorage` as `trishul_next_sidebar_collapsed`. The compact icons have accessible names and hover titles; the mobile drawer always keeps full labels. This setting is independent from `trishul_theme` and login state. Retry, stale/error and light/dark behavior still need real-browser sign-off.
+The Stage 2 shell uses the unchanged legacy Trishul SVG brand mark in both the sidebar and sign-in screen. One header navigation button controls either the sidebar or mobile drawer (no duplicate hamburger button): on desktop (lg and wider) it toggles between the labeled 256px sidebar and compact icon rail (76px), while on smaller viewports it opens the full-label drawer. The desktop choice is persisted in `localStorage` as `trishul_next_sidebar_collapsed`. Compact icons have accessible names and hover titles. This setting is independent from `trishul_theme` and login state. Retry, stale/error and light/dark behavior still need real-browser sign-off.
 
 Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, migrated operational workspaces, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
 
