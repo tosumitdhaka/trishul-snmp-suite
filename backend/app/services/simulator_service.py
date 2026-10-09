@@ -222,13 +222,13 @@ def load_custom_data(settings: Settings) -> tuple[dict[str, Any], str | None]:
 import random as _random
 
 _BUNDLE_OBJECTS_TABLE_ROWS = 2
-_COUNTER_SYNTAXES = {"Counter32", "Counter64"}
+_COUNTER_SYNTAXES = {"Counter", "Counter32", "Counter64"}
 _GAUGE_SYNTAXES = {"Gauge32", "Gauge", "Unsigned32"}
 _TIMETICKS_SYNTAXES = {"TimeTicks", "TimeStamp", "TimeTicks32"}
 _INTEGER_SYNTAXES = {"Integer32", "INTEGER", "Integer", "TruthValue"}
 _OID_SYNTAXES = {"OBJECT IDENTIFIER", "AutonomousType", "ObjectIdentifier"}
 _IP_SYNTAXES = {"IpAddress", "InetAddress", "IpV4orV6Addr"}
-_STRING_SYNTAXES = {"OctetString", "DisplayString", "SnmpAdminString", "DateAndTime",
+_STRING_SYNTAXES = {"OCTET STRING", "OctetString", "DisplayString", "SnmpAdminString", "DateAndTime",
                     "PhysAddress", "MacAddress"}
 
 
@@ -249,12 +249,33 @@ def _default_value_for_syntax(
     )
 
     s = (syntax or "").split("(")[0].strip()
+    declared_syntax = s
     low = name.lower()
     constraints = effective_constraints(node, bundle=bundle)
 
+    # Resolve textual conventions to their wire syntax, including aliases of
+    # other conventions. Names alone cannot distinguish a string index from
+    # an Unsigned32 index or a Counter64 alias from an INTEGER.
+    module = getattr(node, "module", None)
+    seen: set[tuple[str, str]] = set()
+    wire_syntaxes = (
+        _COUNTER_SYNTAXES | _GAUGE_SYNTAXES | _TIMETICKS_SYNTAXES | _INTEGER_SYNTAXES
+        | _OID_SYNTAXES | {"IpAddress", "OCTET STRING", "OctetString", "BITS", "Opaque"}
+    )
+    while bundle is not None and module and s not in wire_syntaxes and (module, s) not in seen:
+        seen.add((module, s))
+        try:
+            type_record = bundle.resolve_type(module, s)
+        except (AttributeError, KeyError):
+            break
+        if type_record is None or not getattr(type_record, "base_type", None):
+            break
+        module = getattr(type_record, "module", module)
+        s = type_record.base_type.split("(")[0].strip()
+
     # SIM-10: BITS-typed objects serve an octet string, not the integer bit
     # number that the shared enum map would otherwise resolve to.
-    if is_bits_node(node, bundle=bundle):
+    if s == "BITS" or is_bits_node(node, bundle=bundle):
         return {"type": "octet-string", "value": ""}
 
     # Enum INTEGER: use first enum value regardless of object name
@@ -291,17 +312,22 @@ def _default_value_for_syntax(
         return {"type": "object-identifier", "value": "1.3.6.1.2.1.1"}
     if s in _IP_SYNTAXES:
         return {"type": "ip-address", "value": f"127.0.0.{index}"}
-    if "phys" in low or "mac" in low or s == "PhysAddress" or s == "MacAddress":
+    if s == "Opaque":
+        return {"type": "opaque", "value": f"{index:016x}", "encoding": "hex"}
+    if s in _INTEGER_SYNTAXES:
+        return {"type": "integer", "value": _random.randint(1, 100)}
+    if (
+        (s in _STRING_SYNTAXES or not s)
+        and ("phys" in low or "mac" in low or declared_syntax in {"PhysAddress", "MacAddress"})
+    ):
         mac_hex = f"0011223344{index:02x}"
         return {
             "type": "octet-string",
             "value": _clamp_mac_to_size(mac_hex, constraints),
             "encoding": "hex",
         }
-    if "descr" in low or "name" in low or "alias" in low:
+    if (s in _STRING_SYNTAXES or not s) and ("descr" in low or "name" in low or "alias" in low):
         return {"type": "octet-string", "value": _clamp_string_to_size(f"{name}-{index}", constraints)}
-    if s in _INTEGER_SYNTAXES:
-        return {"type": "integer", "value": _random.randint(1, 100)}
     if s in _STRING_SYNTAXES or not s:
         return {"type": "octet-string", "value": _clamp_string_to_size(f"{name}-{index}", constraints)}
     return {"type": "integer", "value": _random.randint(1, 100)}
@@ -351,6 +377,7 @@ def _clamp_mac_to_size(value: str, constraints) -> str:
 def _bundle_objects(settings: Settings) -> list[dict[str, Any]]:
     """Generate default simulator objects from the active bundle when custom_data is empty."""
     from app.services.bundle_state import get_bundle
+    from app.services.mib_metadata import constraint_violation, effective_constraints, first_enum_value
     bundle = get_bundle()
     if bundle is None:
         return []
@@ -379,10 +406,17 @@ def _bundle_objects(settings: Settings) -> list[dict[str, Any]]:
             else:
                 is_index_col = "index" in node_name.lower()
                 for i in range(1, _BUNDLE_OBJECTS_TABLE_ROWS + 1):
-                    if is_index_col:
-                        value = {"type": "integer", "value": i}
-                    else:
-                        value = _default_value_for_syntax(syntax, node_name, index=i, node=node, bundle=bundle)
+                    value = _default_value_for_syntax(syntax, node_name, index=i, node=node, bundle=bundle)
+                    # Preserve simple row-number defaults only for numeric
+                    # indexes that allow them. A name containing "index"
+                    # must not bypass the node's syntax, enums, or range.
+                    if (
+                        is_index_col
+                        and value["type"] in {"integer", "gauge32", "counter32", "counter64", "timeticks"}
+                        and first_enum_value(node) is None
+                        and constraint_violation(i, effective_constraints(node, bundle=bundle)) is None
+                    ):
+                        value = {**value, "value": i}
                     objects.append({"target": f"{oid_str}.{i}", "value": value})
 
     return objects

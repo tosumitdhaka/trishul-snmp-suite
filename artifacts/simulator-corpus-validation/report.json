@@ -1,0 +1,164 @@
+{
+  "bundle": "/tmp/trishul-simulator-corpus/full-bundle",
+  "seeds": 3,
+  "modules": 429,
+  "mib_nodes": 92677,
+  "compilation": {
+    "statuses": {
+      "compiled": 9,
+      "cached": 420,
+      "failed": 5,
+      "missing": 5
+    },
+    "excluded_modules": [
+      {
+        "module": "WWP-LEOS-CHASSIS-MIB",
+        "status": "failed",
+        "error": "Unresolved non-base imports for WWP-LEOS-CHASSIS-MIB: WWP-SMI"
+      },
+      {
+        "module": "CIENA-CES-CHASSIS-MIB",
+        "status": "failed",
+        "error": "Unresolved non-base imports for CIENA-CES-CHASSIS-MIB: CIENA-CES-MODULE-MIB"
+      },
+      {
+        "module": "PW-STD-MIB",
+        "status": "failed",
+        "error": "Unresolved non-base imports for PW-STD-MIB: HC-PerfHist-TC-MIB, IANA-PWE3-MIB, PW-TC-STD-MIB"
+      },
+      {
+        "module": "CIENA-CES-PORT-MIB",
+        "status": "failed",
+        "error": "Unresolved non-base imports for CIENA-CES-PORT-MIB: CIENA-CES-CHASSIS-MIB"
+      },
+      {
+        "module": "WWP-LEOS-PORT-MIB",
+        "status": "failed",
+        "error": "Unresolved non-base imports for WWP-LEOS-PORT-MIB: WWP-SMI"
+      },
+      {
+        "module": "CIENA-CES-MODULE-MIB",
+        "status": "missing",
+        "error": "MIB 'CIENA-CES-MODULE-MIB' not found in directories: /tmp/trishul-simulator-corpus/sources"
+      },
+      {
+        "module": "HC-PerfHist-TC-MIB",
+        "status": "missing",
+        "error": "MIB 'HC-PerfHist-TC-MIB' not found in directories: /tmp/trishul-simulator-corpus/sources"
+      },
+      {
+        "module": "IANA-PWE3-MIB",
+        "status": "missing",
+        "error": "MIB 'IANA-PWE3-MIB' not found in directories: /tmp/trishul-simulator-corpus/sources"
+      },
+      {
+        "module": "PW-TC-STD-MIB",
+        "status": "missing",
+        "error": "MIB 'PW-TC-STD-MIB' not found in directories: /tmp/trishul-simulator-corpus/sources"
+      },
+      {
+        "module": "WWP-SMI",
+        "status": "missing",
+        "error": "MIB 'WWP-SMI' not found in directories: /tmp/trishul-simulator-corpus/sources"
+      }
+    ]
+  },
+  "baseline_ref": "v2.2.3",
+  "baseline": {
+    "objects_per_seed": 104429,
+    "validated_objects": 313287,
+    "value_types": {
+      "integer": 140262,
+      "octet-string": 24912,
+      "gauge32": 46065,
+      "counter32": 41292,
+      "timeticks": 15990,
+      "object-identifier": 456,
+      "ip-address": 7818,
+      "counter64": 36492
+    },
+    "failure_count": 6,
+    "failure_samples": [
+      {
+        "seed": 0,
+        "target": "1.3.6.1.4.1.1271.2.1.18.1.4.1.1.27.1",
+        "value": {
+          "type": "integer",
+          "value": 1
+        },
+        "error": "CIENA-CES-MPLS-MIB::cienaCesMplsPwVifIndex: value 1 is outside the declared range 32769..2147483647"
+      },
+      {
+        "seed": 0,
+        "target": "1.3.6.1.4.1.1271.2.1.18.1.4.1.1.27.2",
+        "value": {
+          "type": "integer",
+          "value": 2
+        },
+        "error": "CIENA-CES-MPLS-MIB::cienaCesMplsPwVifIndex: value 2 is outside the declared range 32769..2147483647"
+      },
+      {
+        "seed": 1,
+        "target": "1.3.6.1.4.1.1271.2.1.18.1.4.1.1.27.1",
+        "value": {
+          "type": "integer",
+          "value": 1
+        },
+        "error": "CIENA-CES-MPLS-MIB::cienaCesMplsPwVifIndex: value 1 is outside the declared range 32769..2147483647"
+      },
+      {
+        "seed": 1,
+        "target": "1.3.6.1.4.1.1271.2.1.18.1.4.1.1.27.2",
+        "value": {
+          "type": "integer",
+          "value": 2
+        },
+        "error": "CIENA-CES-MPLS-MIB::cienaCesMplsPwVifIndex: value 2 is outside the declared range 32769..2147483647"
+      },
+      {
+        "seed": 2,
+        "target": "1.3.6.1.4.1.1271.2.1.18.1.4.1.1.27.1",
+        "value": {
+          "type": "integer",
+          "value": 1
+        },
+        "error": "CIENA-CES-MPLS-MIB::cienaCesMplsPwVifIndex: value 1 is outside the declared range 32769..2147483647"
+      },
+      {
+        "seed": 2,
+        "target": "1.3.6.1.4.1.1271.2.1.18.1.4.1.1.27.2",
+        "value": {
+          "type": "integer",
+          "value": 2
+        },
+        "error": "CIENA-CES-MPLS-MIB::cienaCesMplsPwVifIndex: value 2 is outside the declared range 32769..2147483647"
+      }
+    ]
+  },
+  "current": {
+    "objects_per_seed": 104429,
+    "validated_objects": 313287,
+    "value_types": {
+      "integer": 102381,
+      "object-identifier": 1086,
+      "octet-string": 49140,
+      "gauge32": 61701,
+      "counter32": 42393,
+      "timeticks": 16116,
+      "ip-address": 1980,
+      "counter64": 38319,
+      "opaque": 171
+    },
+    "failure_count": 0,
+    "failure_samples": []
+  },
+  "live": {
+    "passed": true,
+    "checks": [
+      "startup",
+      "UDP GET",
+      "custom update",
+      "persisted restart"
+    ]
+  }
+}

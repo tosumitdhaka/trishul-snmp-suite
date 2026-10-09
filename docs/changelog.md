@@ -4,13 +4,35 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.2.3` UI or runtime behavior.
+`2.2.4` UI or runtime behavior.
 
-The current stable release line is `2.2.3`. The entries below `2.2.3` are
+The current stable release line is `2.2.4`. The entries below `2.2.4` are
 historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.2.4] - 2026-10-09
+
+`PATCH-224-001`: simulator default generation validated against the local vendor MIB corpus.
+
+### Fixed
+- **Index-column defaults** retain their declared SNMP type and constraints. Row values `1` and `2` are used only when allowed, fixing startup and custom-data saves for `CIENA-CES-MPLS-MIB::cienaCesMplsPwVifIndex` (`Unsigned32 (32769..2147483647)`). String, BITS, and enum columns containing “index” in their name also retain their type and valid default.
+- **Textual-convention defaults** follow imported alias chains to their SNMP wire types, preserving Counter64, unsigned, string, OID, IP, and Opaque values. Numeric types take precedence over object-name hints.
+
+### Validation
+- Offline local corpus: 429 compiled modules, 104,429 generated objects across three random seeds; no runtime parse or size/range validation failures. Five source modules with unavailable dependencies are explicitly excluded from this result.
+- Compared with `v2.2.3`, which reproduces the reported CIENA failure for both generated rows.
+- Live UDP startup, GET, custom updates to both `sysName` and the CIENA index, and persistence across restart.
+- Backend release tests, coverage thresholds, migrations, startup smoke, frontend build, and live runtime tests.
+
+### Added
+- `scripts/validate_simulator_corpus.py`: repeatable validation of a compiled corpus, optional baseline comparison, JSON evidence, and live simulator checks using isolated temporary runtime data.
+
+### Migration
+- Pull or rebuild `2.2.4` and restart the suite. Existing data, bundles, and custom overrides remain compatible; no database migration is required.
 
 ---
 
@@ -523,6 +545,7 @@ Closes the full 151-finding end-to-end review (backend-to-frontend, code-to-UI/U
 
 ---
 
+[2.2.4]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v2.2.3...v2.2.4
 [2.2.3]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v2.2.2...v2.2.3
 [1.4.1]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.3.0...v1.4.0

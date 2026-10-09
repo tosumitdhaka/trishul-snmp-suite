@@ -9,7 +9,7 @@ status and [issue_tracker.md](issue_tracker.md) for slice and backlog tracking.
 
 ## Current Delivery State
 
-`2.2.3` is the current shipped release. The initial `2.0.0` implementation
+`2.2.4` is the current shipped release. The initial `2.0.0` implementation
 slices `S0` through `S13` remain `Done`.
 
 ## Delivered In The 2.0.x Line
@@ -51,6 +51,10 @@ slices `S0` through `S13` remain `Done`.
 - MIB browser constraint badges (range/size/enum/bits), inline recompile notices, ETag-cached OID index, and sticky detail actions
 - Community-string redaction across list payloads, the live WS push, and exports
 - Performance: single-scan MIB status inventory, compile lock without held DB sessions, change-only table re-rendering, WS-aware polling
+
+## Delivered In 2.2.4
+
+- `PATCH-224-001`: constrained index defaults and textual-convention wire types, verified against the local vendor corpus and live UDP simulator startup, updates, and restart.
 
 ## Delivered In 2.2.3
 

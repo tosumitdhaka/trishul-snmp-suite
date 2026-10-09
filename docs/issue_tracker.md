@@ -14,6 +14,10 @@ Use `POST-200-*` IDs for explicitly deferred work beyond `2.0.0`.
 
 Use `POST-210-*` IDs for planned `2.2.2` backend/frontend parity work.
 
+## 2.2.4 Patch Status
+
+- `PATCH-224-001` `Done` Generate index defaults within their declared ranges and preserve SNMP types and textual-convention aliases; validate the local vendor corpus and live updates/restart against the CIENA MIB.
+
 ## 2.2.3 Patch Status
 
 - `PATCH-223-001` `Done` Accept valid empty hex/base64 SNMP byte values so simulator startup, custom updates, and notification replay work; preserve size validation and verify live UDP updates and restart persistence.

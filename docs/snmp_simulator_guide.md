@@ -91,6 +91,26 @@ with `./install-trishul-snmp-suite.sh restart-local` from that checkout. Keep
 the existing data volume; clearing custom overrides does not fix a failing
 bundle default. Empty values still have to satisfy their MIB size constraints.
 
+If startup reports an index value outside its declared range, update to
+`2.2.4` or later. Earlier defaults forced numeric values `1` and `2` onto
+every column whose name included “index”, even for string columns or ranges
+starting above two. Current defaults use the MIB syntax and constraints.
+
+For a compiled local corpus, run the same validation and live update checks
+used for this fix without modifying the suite's existing runtime data:
+
+```bash
+.venv/bin/python scripts/validate_simulator_corpus.py /path/to/compiled-bundle \
+  --report /tmp/simulator-corpus-report.json --baseline-ref v2.2.3 --live
+```
+
+The baseline comparison needs the local `v2.2.3` Git tag. Omit that option to
+validate just the current code. `--live` requires UDP socket access and a
+bundle containing `SNMPv2-MIB`; it also checks the reported CIENA index when
+that module is present. Attach a compiler result JSON with `--compile-report`
+to record modules excluded because compilation or dependency resolution
+failed. Validation covers every generated default over three random seeds.
+
 ## Related Docs
 
 - [Walk & Parse Guide](walker_guide.md)

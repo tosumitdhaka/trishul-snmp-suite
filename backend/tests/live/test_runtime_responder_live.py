@@ -170,6 +170,10 @@ def test_live_simulator_empty_defaults_custom_updates_and_restart(
             assert started["status"] == "started"
             assert (await read("ZERO-LENGTH-MIB::bridgeAddress.0"))["hex"] == ""
             assert (await read("ZERO-LENGTH-MIB::statusBits.0"))["hex"] == ""
+            high_index = await read("ZERO-LENGTH-MIB::highIndex.1")
+            assert high_index["type"] == "gauge32"
+            assert 32769 <= high_index["value"] <= 2147483647
+            assert (await read("ZERO-LENGTH-MIB::textIndex.1"))["type"] == "octet-string"
 
             payload = {
                 "SNMPv2-MIB::sysName.0": "custom-agent",
@@ -183,6 +187,7 @@ def test_live_simulator_empty_defaults_custom_updates_and_restart(
             assert saved["status"] == "saved"
             assert (await read("SNMPv2-MIB::sysName.0"))["value"] == "custom-agent"
             assert (await read("ZERO-LENGTH-MIB::bridgeAddress.0"))["hex"] == "001122334455"
+            assert (await read("ZERO-LENGTH-MIB::highIndex.1"))["value"] >= 32769
 
             # Restore an empty encoded override and verify it survives restart.
             payload["ZERO-LENGTH-MIB::bridgeAddress.0"]["value"] = ""

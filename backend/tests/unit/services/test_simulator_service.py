@@ -100,6 +100,39 @@ def test_bundle_objects_are_empty_without_an_active_bundle(isolated_db):
     assert _bundle_objects(isolated_db["settings"]) == []
 
 
+@pytest.mark.parametrize(
+    "syntax,constraints,enums,expected_type,expected_values",
+    [
+        ("Unsigned32", {"kind": "range", "data": [[32769, 2147483647]]}, None, "gauge32", None),
+        ("Integer32", {"kind": "range", "data": [[1, 100]]}, None, "integer", [1, 2]),
+        ("Unsigned32", {"kind": "range", "data": [[1, 100]]}, None, "gauge32", [1, 2]),
+        ("Integer32", {"kind": "range", "data": [[-10, -1]]}, None, "integer", None),
+        ("INTEGER", {"kind": "enum", "data": [["first", 7], ["second", 9]]}, {"first": 7, "second": 9}, "integer", [7, 7]),
+        ("DisplayString", {"kind": "size", "data": [[1, 8]]}, None, "octet-string", None),
+        ("BITS", {"kind": "bits", "data": [["enabled", 0]]}, {"enabled": 0}, "octet-string", ["", ""]),
+    ],
+)
+def test_index_named_columns_respect_syntax_and_constraints(
+    isolated_db, monkeypatch, syntax, constraints, enums, expected_type, expected_values
+):
+    from app.services.mib_metadata import constraint_violation
+    from app.services.simulator_service import _bundle_objects
+
+    node = SimpleNamespace(
+        module="INDEX-MIB", nodetype="column", oid=(1, 3, 6, 1, 4, 1, 53865, 1),
+        syntax=syntax, constraints=constraints, enums=enums, max_access="read-only", status="current",
+    )
+    bundle = SimpleNamespace(modules={"INDEX-MIB": SimpleNamespace(objects={"vifIndex": node})})
+    monkeypatch.setattr("app.services.bundle_state.get_bundle", lambda: bundle)
+    objects = _bundle_objects(isolated_db["settings"])
+    assert len(objects) == 2
+    assert [obj["value"]["type"] for obj in objects] == [expected_type] * 2
+    for obj in objects:
+        assert constraint_violation(obj["value"]["value"], constraints) is None
+    if expected_values is not None:
+        assert [obj["value"]["value"] for obj in objects] == expected_values
+
+
 def test_default_value_for_syntax_uses_node_enum_metadata_and_type_rules():
     from types import SimpleNamespace
 
@@ -365,6 +398,35 @@ def test_default_value_for_syntax_resolves_type_level_constraints():
             bundle=_Bundle(),
         )
         assert 5 <= result["value"] <= 8
+
+
+@pytest.mark.parametrize(
+    "syntax,base_type,expected_type",
+    [("PortIndex", "Unsigned32", "gauge32"),
+     ("WideCounter", "Counter64", "counter64"),
+     ("TextIndex", "OCTET STRING", "octet-string"),
+     ("Address", "IpAddress", "ip-address"),
+     ("Pointer", "OBJECT IDENTIFIER", "object-identifier"),
+     ("Flags", "BITS", "octet-string"),
+     ("Integer64", "Opaque", "opaque")],
+)
+def test_default_values_follow_imported_textual_convention_chains(
+    syntax, base_type, expected_type
+):
+    from app.services.simulator_service import _default_value_for_syntax
+
+    class Bundle:
+        def resolve_type(self, module, name):
+            if (module, name) == ("VENDOR-MIB", syntax):
+                return SimpleNamespace(module="VENDOR-TC", base_type="InnerType", constraints=None)
+            if (module, name) == ("VENDOR-TC", "InnerType"):
+                return SimpleNamespace(module="VENDOR-TC", base_type=base_type, constraints=None)
+            return None
+
+    node = SimpleNamespace(module="VENDOR-MIB", syntax=syntax, enums=None, constraints=None)
+    assert _default_value_for_syntax(
+        syntax, "namedIndex", index=1, node=node, bundle=Bundle()
+    )["type"] == expected_type
 
 
 def test_default_value_for_syntax_bits_nodes_default_to_octet_string():

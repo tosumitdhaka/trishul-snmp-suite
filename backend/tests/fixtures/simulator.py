@@ -13,8 +13,8 @@ def zero_length_simulator_bundle(isolated_db):
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "ZERO-LENGTH-MIB.mib").write_text('''ZERO-LENGTH-MIB DEFINITIONS ::= BEGIN
 IMPORTS
-    OBJECT-TYPE, enterprises FROM SNMPv2-SMI
-    PhysAddress, MacAddress FROM SNMPv2-TC;
+    OBJECT-TYPE, enterprises, Unsigned32 FROM SNMPv2-SMI
+    PhysAddress, MacAddress, DisplayString FROM SNMPv2-TC;
 
 zeroLengthRoot OBJECT IDENTIFIER ::= { enterprises 53864 }
 
@@ -38,6 +38,40 @@ statusBits OBJECT-TYPE
     STATUS current
     DESCRIPTION "Bits default to an empty octet string."
     ::= { zeroLengthRoot 3 }
+
+indexTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IndexEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Index defaults must obey syntax and range."
+    ::= { zeroLengthRoot 4 }
+
+indexEntry OBJECT-TYPE
+    SYNTAX IndexEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A regression row."
+    INDEX { highIndex }
+    ::= { indexTable 1 }
+
+IndexEntry ::= SEQUENCE {
+    highIndex Unsigned32,
+    textIndex DisplayString
+}
+
+highIndex OBJECT-TYPE
+    SYNTAX Unsigned32 (32769..2147483647)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "The same range as cienaCesMplsPwVifIndex."
+    ::= { indexEntry 1 }
+
+textIndex OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (1..8))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "A string column whose name includes index."
+    ::= { indexEntry 2 }
 END
 ''')
     result = BundleService(settings).compile_bundle(

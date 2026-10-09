@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers the supported `2.2.3` installation paths for Trishul SNMP
+This guide covers the supported `2.2.4` installation paths for Trishul SNMP
 Suite.
 
 ## What Gets Installed
@@ -101,7 +101,7 @@ docker compose logs -f app
 docker compose down
 ```
 
-For `2.2.3` release validation, prefer the installer over Compose.
+For `2.2.4` release validation, prefer the installer over Compose.
 
 ## Logs
 
@@ -149,7 +149,7 @@ If you need the pinned merged runtime from the `1.4.1` line, use the legacy
 installer:
 
 This section is intentional compatibility guidance. It is not the recommended
-`2.2.3` runtime path.
+`2.2.4` runtime path.
 
 ```bash
 ./install-trishul-snmp-suite-v1.4.1.sh up
@@ -160,7 +160,7 @@ That installer intentionally keeps the old runtime names:
 - container: `trishul-snmp`
 - volume: `trishul-snmp-data`
 
-Its default ports are shifted so it can run alongside the `2.2.3` installer on
+Its default ports are shifted so it can run alongside the `2.2.4` installer on
 the same host:
 
 - app UI: `http://localhost:8081`
@@ -229,7 +229,7 @@ If you are coming from the old split or early merged runtime, read
 [Migration Guide](migration_to_trishul_snmp_suite.md)
 before relying on old state.
 
-The installer can preserve or copy old Docker volumes forward, but the `2.2.3`
+The installer can preserve or copy old Docker volumes forward, but the `2.2.4`
 runtime keeps the SQLite-plus-bundles model introduced in `2.0.0` and does not
 automatically convert every old file-based workflow into current SQLite state
 and compiled bundle artifacts.
