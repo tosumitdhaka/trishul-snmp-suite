@@ -1,8 +1,8 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '../../lib/auth/AuthProvider';
 import { Download, FileUp, RefreshCw, Search, Trash2, GitCompareArrows, RotateCcw } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
-import { useAuth } from '../../lib/auth/AuthProvider';
 import { Banner, Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, type Notice, useOperatorApi } from '../shared/operator-ui';
 
 interface MibSource {
@@ -30,8 +30,9 @@ function asList(value: unknown): string[] {
   return typeof value === 'string' ? value.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean) : [];
 }
 export function MibsPage() {
-  const { auth, expire } = useAuth();
+  const { expire } = useAuth();
   const { token, pending, notice, setNotice, invoke } = useOperatorApi();
+  // A stale session is cleared by apiRequest on authenticated 401 responses.
   const [query, setQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [files, setFiles] = useState<File[]>([]);
