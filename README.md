@@ -126,6 +126,8 @@ It also accepts the same `--platform` and `--image` overrides.
 - `MIB Manager`: loaded MIB status, upload, reload, dependency fetch, and trap catalog
 - `Settings`: auth rotation, app settings, stats reset or export, and product metadata
 
+Use **Ctrl+K** (or **⌘K** on macOS) to search and jump to any workspace. The search also matches operator terms such as “OIDs”, “notifications”, and “sources”.
+
 ## Runtime Model
 
 The current `2.2.4` path is built around:

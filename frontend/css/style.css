@@ -2686,3 +2686,236 @@ table {
     background-color: var(--app-sticky-bg);
     border-top: 1px solid var(--app-border);
 }
+
+
+/* Sidebar section headings can exceed the viewport on compact devices. */
+#sidebar-wrapper > nav {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+
+/* ==================== Workspace Discovery ==================== */
+
+.app-sidebar-group-label {
+    padding: 1.1rem 1.25rem 0.35rem;
+    color: #aebed5;
+    font-size: 0.65rem;
+    font-weight: 750;
+    letter-spacing: 0.11em;
+    line-height: 1.2;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+@media (min-width: 769px) {
+    body.sb-sidenav-toggled #sidebar-wrapper .app-sidebar-group-label {
+        display: none;
+    }
+}
+
+.app-command-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-shrink: 0;
+    color: var(--app-text-muted);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border-strong);
+    border-radius: 0.75rem;
+    padding: 0.4rem 0.65rem;
+    font-weight: 500;
+}
+
+.app-command-trigger:hover,
+.app-command-trigger:focus-visible {
+    color: var(--app-text);
+    background: var(--app-hover-bg);
+    border-color: var(--app-primary);
+}
+
+.app-command-trigger kbd,
+.app-command-footer kbd {
+    font-size: 0.68rem;
+    font-family: inherit;
+    font-weight: 600;
+    color: var(--app-text-muted);
+    background: var(--app-surface-muted);
+    border: 1px solid var(--app-border);
+    border-radius: 0.35rem;
+    padding: 0.12rem 0.35rem;
+}
+
+.app-command-dialog {
+    width: min(620px, calc(100vw - 1.5rem));
+    max-height: min(80vh, 650px);
+    padding: 0;
+    border: 1px solid var(--app-border-strong);
+    border-radius: 1rem;
+    color: var(--app-text);
+    background: var(--app-surface-elevated);
+    box-shadow: 0 24px 80px rgba(2, 8, 23, 0.3);
+    overflow: hidden;
+}
+
+.app-command-dialog::backdrop {
+    background: var(--app-overlay-bg);
+    backdrop-filter: blur(3px);
+}
+
+.app-command-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-bottom: 1px solid var(--app-border);
+    color: var(--app-text-muted);
+}
+
+.app-command-header input {
+    border: 0;
+    outline: 0;
+    min-width: 0;
+    flex: 1;
+    font: inherit;
+    font-size: 1rem;
+    color: var(--app-text);
+    background: transparent;
+}
+
+.app-command-header input::placeholder {
+    color: var(--app-placeholder);
+}
+
+.app-command-close {
+    font-size: 0.7rem;
+    font-weight: 650;
+    color: var(--app-text-muted);
+    background: var(--app-surface-muted);
+    border: 1px solid var(--app-border);
+    border-radius: 0.35rem;
+    padding: 0.25rem 0.45rem;
+}
+
+.app-command-close:hover,
+.app-command-close:focus-visible {
+    color: var(--app-text);
+    border-color: var(--app-primary);
+}
+
+.app-command-section-label {
+    margin: 0;
+    padding: 0.8rem 1rem 0.3rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--app-text-muted);
+}
+
+.app-command-results {
+    padding: 0.3rem 0.65rem 0.75rem;
+    max-height: min(55vh, 480px);
+    overflow-y: auto;
+}
+
+.app-command-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.8rem;
+    width: 100%;
+    min-width: 0;
+    text-align: left;
+    color: var(--app-text);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.7rem;
+    cursor: pointer;
+}
+
+.app-command-option:hover,
+.app-command-option[aria-selected="true"],
+.app-command-option:focus-visible {
+    border-color: var(--app-primary-border);
+    background: var(--app-primary-soft);
+    outline: none;
+}
+
+.app-command-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 2.4rem;
+    width: 2.4rem;
+    height: 2.4rem;
+    color: var(--app-primary);
+    background: var(--app-primary-soft);
+    border-radius: 0.65rem;
+}
+
+.app-command-copy {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+}
+
+.app-command-name {
+    font-weight: 650;
+}
+
+.app-command-description {
+    color: var(--app-text-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.app-command-end {
+    flex: 0 0 auto;
+    color: var(--app-text-muted);
+    font-size: 0.85rem;
+}
+
+.app-command-end.is-current {
+    color: var(--app-primary);
+    font-weight: 650;
+    font-size: 0.7rem;
+}
+
+.app-command-empty {
+    padding: 1.25rem;
+    text-align: center;
+    color: var(--app-text-muted);
+}
+
+.app-command-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--app-border);
+    color: var(--app-text-muted);
+    font-size: 0.72rem;
+}
+
+.tool-card:is(a, a:hover, a:focus-visible) {
+    color: var(--app-text);
+    text-decoration: none;
+}
+
+@media (max-width: 991.98px) {
+    .app-command-trigger .app-command-label,
+    .app-command-trigger kbd {
+        display: none;
+    }
+}
+
+@media (max-width: 576px) {
+    .app-command-dialog { width: calc(100vw - 1rem); }
+    .app-command-header { padding: 0.8rem; }
+    .app-command-description { white-space: normal; }
+}

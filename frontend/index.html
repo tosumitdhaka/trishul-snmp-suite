@@ -92,9 +92,11 @@
         </div>
 
         <nav class="list-group list-group-flush flex-grow-1" aria-label="Primary">
+            <span class="app-sidebar-group-label" aria-hidden="true">Overview</span>
             <a class="list-group-item list-group-item-action" href="#dashboard">
                 <i class="fas fa-tachometer-alt"></i> <span class="ms-2">Dashboard</span>
             </a>
+            <span class="app-sidebar-group-label" aria-hidden="true">SNMP operations</span>
             <a class="list-group-item list-group-item-action" href="#simulator">
                 <i class="fas fa-server"></i> <span class="ms-2">Simulator</span>
             </a>
@@ -104,12 +106,14 @@
             <a class="list-group-item list-group-item-action" href="#traps">
                 <i class="fas fa-bell"></i> <span class="ms-2">Traps</span>
             </a>
+            <span class="app-sidebar-group-label" aria-hidden="true">MIB workspace</span>
             <a class="list-group-item list-group-item-action" href="#browser">
                 <i class="fas fa-sitemap"></i> <span class="ms-2">MIB Browser</span>
             </a>
             <a class="list-group-item list-group-item-action" href="#mibs">
                 <i class="fas fa-database"></i> <span class="ms-2">MIB Manager</span>
             </a>
+            <span class="app-sidebar-group-label" aria-hidden="true">Account</span>
             <a class="list-group-item list-group-item-action" href="#settings">
                 <i class="fas fa-cog"></i> <span class="ms-2">Settings</span>
             </a>
@@ -133,6 +137,14 @@
                 </div>
             </div>
 
+
+            <button type="button" class="btn btn-app-secondary btn-sm app-command-trigger" id="command-palette-trigger"
+                    aria-label="Search and navigate workspaces" aria-haspopup="dialog" aria-controls="command-palette"
+                    aria-keyshortcuts="Control+K Meta+K" title="Jump to a workspace (Ctrl+K)">
+                <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                <span class="app-command-label">Jump to...</span>
+                <kbd aria-hidden="true">Ctrl K</kbd>
+            </button>
             <div class="app-navbar-actions ms-auto d-flex align-items-center gap-3">
                 <span class="badge app-status-badge is-pending status-badge" id="backend-status">Connecting...</span>
                 <span id="ws-status-dot" class="ws-dot ws-dot-connecting" title="WS: Connecting...">
@@ -174,11 +186,33 @@
     </div>
 </div>
 
+<!-- Native modal keeps keyboard focus inside the command palette. -->
+<dialog id="command-palette" class="app-command-dialog" aria-labelledby="command-title">
+    <h2 id="command-title" class="visually-hidden">Jump to a workspace</h2>
+    <div class="app-command-header">
+        <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+        <label for="command-search" class="visually-hidden">Find a workspace</label>
+        <input type="search" id="command-search" role="combobox" aria-autocomplete="list"
+               aria-controls="command-results" aria-expanded="true"
+               autocomplete="off" placeholder="Search tools, OIDs, traps, settings...">
+        <button type="button" class="app-command-close" data-command-close aria-label="Close workspace search">Esc</button>
+    </div>
+    <p class="app-command-section-label">Workspaces</p>
+    <div id="command-results" class="app-command-results" role="listbox" aria-label="Workspaces"></div>
+    <div class="app-command-footer" aria-hidden="true">
+        <span><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
+        <span><kbd>↵</kbd> Open</span>
+        <span><kbd>Esc</kbd> Close</span>
+    </div>
+    <p id="command-live" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
+</dialog>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <!-- utils.js MUST be first — provides TrishulUtils used by all modules -->
 <script src="js/modules/utils.js"></script>
 <script src="js/modules/ws-client.js"></script>
 <script src="js/app.js"></script>
+<script src="js/modules/command-palette.js"></script>
 <script src="js/modules/dashboard.js"></script>
 <script src="js/modules/simulator.js"></script>
 <script src="js/modules/walker.js"></script>
