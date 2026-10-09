@@ -11,7 +11,7 @@ on:
       - ".github/workflows/modern-ui-foundation.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   modern-ui:
@@ -19,18 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: true
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install dependencies
-        run: |
-          cd frontend-next
-          if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
+          cache: npm
+          cache-dependency-path: frontend-next/package-lock.json
+      - name: Install locked dependencies
+        run: npm --prefix frontend-next ci --no-audit --no-fund
       - name: TypeScript
         run: npm --prefix frontend-next run typecheck
       - name: ESLint
@@ -39,13 +35,3 @@ jobs:
         run: npm --prefix frontend-next test
       - name: Production build
         run: npm --prefix frontend-next run build
-      - name: Commit generated dependency lockfile to implementation branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/modern-ui-foundation'
-        run: |
-          if ! git ls-files --error-unmatch frontend-next/package-lock.json >/dev/null 2>&1; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add frontend-next/package-lock.json
-            git commit -m "build(ui): lock modern frontend dependencies"
-            git push origin HEAD:feat/modern-ui-foundation
-          fi
