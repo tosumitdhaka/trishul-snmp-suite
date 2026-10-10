@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, Square, RefreshCw, Save, Trash2, Download, Pause, Search } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
-import { Banner, Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
 
 interface SimulatorStatus { running?: boolean; port?: number; community?: string; uptime_seconds?: number; requests?: number; last_activity?: string | null }
 interface LogEntry { timestamp?: string; level?: string; message?: string; msg?: string; [key: string]: unknown }
@@ -12,7 +12,7 @@ const statusKey = ['simulator', 'status'];
 const logsKey = ['simulator', 'logs'];
 
 export function SimulatorPage() {
-  const { token, pending, notice, setNotice, invoke } = useOperatorApi();
+  const { token, pending, setNotice, invoke } = useOperatorApi();
   const cache = useQueryClient();
   const live = useRealtime() === 'live';
   const status = useQuery({ queryKey: statusKey, queryFn: ({ signal }) => apiRequest<SimulatorStatus>('/api/simulator/status', token, { signal }), enabled: !!token, refetchInterval: live ? 20_000 : 5_000 });
@@ -67,7 +67,6 @@ export function SimulatorPage() {
   return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Simulator</p><h1 className="mt-1 text-2xl font-semibold">SNMP responder</h1>
       <p className="mt-1 text-sm text-[var(--muted)]">Manage the UDP responder, custom values and recent activity.</p></header>
-    <Banner notice={notice} />
     <div className="workspace-grid workspace-grid--two">
       <Card title="Runtime" description="Start, stop and restart the existing responder."
         trailing={<span role="status" className={status.data?.running ? 'text-sm font-semibold text-[var(--success)]' : 'text-sm text-[var(--muted)]'}>{status.isError ? 'Unavailable' : status.isPending ? 'Checking…' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
