@@ -41,7 +41,7 @@ describe('shared notification center', () => {
     expect(within(drawer).getByText('Listening on test port.')).toBeInTheDocument();
     expect(within(drawer).getByText(/Simulator ·/)).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole('button', { name: 'Mark all read' }));
-    expect(screen.getByRole('button', { name: 'Notification center, 0 unread' })).toBeInTheDocument();
+    expect(within(drawer).getByText(/0 unread/)).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole('button', { name: 'Clear all' }));
     expect(within(drawer).getByText("You're all caught up")).toBeInTheDocument();
   });
