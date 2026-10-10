@@ -87,7 +87,7 @@ export function WalkerPage() {
     const tsv = [keys.join('\t'), ...filtered.map(row => keys.map(key => displayValue(row[key]).replace(/\t/g, ' ').replace(/\r?\n/g, ' ')).join('\t'))].join('\n');
     saveLocalFile(tsv, 'trishul-walk.tsv', 'text/tab-separated-values');
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Walk &amp; Parse</p><h1 className="mt-1 text-2xl font-semibold">SNMP walk explorer</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Execute a walk against a reachable SNMP target, then inspect or export its values.</p></header>
     <Banner notice={notice} />
@@ -114,7 +114,7 @@ export function WalkerPage() {
         {loading && <p role="status" className="text-sm text-[var(--muted)]">Walk in progress; no intermediate progress is reported by the backend.</p>}
       </form>
     </Card>
-    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_19rem]">
+    <div className="workspace-grid workspace-grid--split">
       <Card title="Walk results" description={result ? result.count + ' OIDs · ' + result.mode : 'No walk executed'}>
         {result ? <>
           <div className="flex flex-wrap gap-2">

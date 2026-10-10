@@ -26,7 +26,7 @@ function SummaryCard({
     state === 'stopped' ? 'text-[var(--muted)]' :
     state === 'warning' ? 'text-[var(--warning)]' : 'text-[var(--accent)]';
   return (
-    <div className="panel flex min-h-38 flex-col justify-between p-5">
+    <div className="panel metric-card flex min-h-38 flex-col justify-between p-5">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-[var(--muted)]">{label}</p>
         <div className="rounded-xl bg-[var(--accent-soft)] p-2.5 text-[var(--accent)]">

@@ -83,3 +83,10 @@ This preview provides all seven navigable pages. **Operational actions are live 
 | Settings | Credentials, preferences, statistics, about | Password rotation and re-login, export/reset, mobile focus/dialog tests |
 
 See `docs/ui-modernization/all-workspaces-review.md` for known limitations and checklist. **No production route cutover is authorized.**
+
+
+## Shared notification center and layout foundation
+
+The integrated preview now has one header notification button (bell) and accessible right-side drawer for operator action outcomes. New notifications increment a bounded unread count, remain available when navigating between React workspaces, and support per-item dismissal, read acknowledgment, mark-all-read and clear-all. No toast/banner is inserted above the workspace content. They are **in-memory only for the signed-in preview session**; browser reloads and sign-out clear the list, and no SNMP trap payloads or credentials are persisted. Received SNMP traps are still handled in the Traps workspace.
+
+All workspace panels share common header, padding, control height, responsive grid and card-surface tokens. Side-by-side cards use an equal-column layout where they represent peer tasks; inventory/detail layouts use a consistent 7:5 split. Tall tables/editors scroll within their panels instead of forcing arbitrarily large fixed cards. Essential field validation and initial-data errors stay in context because they should not be hidden in the notification drawer. The design specification and review gates are in `docs/ui-modernization/notification-center-layout-review.md`.

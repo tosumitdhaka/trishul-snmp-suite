@@ -64,11 +64,11 @@ export function SimulatorPage() {
     const saved = await invoke('/api/simulator/data', jsonPost(parsed), [['simulator', 'data'], statusKey]);
     if (saved) { setDirty(false); await cache.invalidateQueries({ queryKey: ['simulator', 'data'] }); }
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Simulator</p><h1 className="mt-1 text-2xl font-semibold">SNMP responder</h1>
       <p className="mt-1 text-sm text-[var(--muted)]">Manage the UDP responder, custom values and recent activity.</p></header>
     <Banner notice={notice} />
-    <div className="grid items-start gap-5 lg:grid-cols-2">
+    <div className="workspace-grid workspace-grid--two">
       <Card title="Runtime" description="Start, stop and restart the existing responder."
         trailing={<span role="status" className={status.data?.running ? 'text-sm font-semibold text-[var(--success)]' : 'text-sm text-[var(--muted)]'}>{status.isError ? 'Unavailable' : status.isPending ? 'Checking…' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
         <StatusText busy={status.isPending} error={status.error} />

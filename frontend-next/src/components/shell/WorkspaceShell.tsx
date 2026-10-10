@@ -212,7 +212,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             </span>
           </button>
         </header>
-        <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-[1680px] px-4 py-6 sm:px-7 sm:py-8">
+        <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-7 sm:py-8">
           <div id="workspace-content">{children}</div>
         </main>
       </div>

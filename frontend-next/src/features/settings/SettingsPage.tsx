@@ -6,30 +6,19 @@ import { Link } from 'react-router';
 import { apiRequest } from '../../lib/api/client';
 import type { AppMeta } from '../../lib/api/types';
 import { useAuth } from '../../lib/auth/AuthProvider';
+import { useNotifications } from '../../lib/notifications/NotificationProvider';
 import {
   exportableStats, passwordStrength, preferencesDirty, toPreferencesDraft, validatePreferences,
   type AppPreferences, type AuthUpdateResult, type MibBundleInfo, type PreferencesDraft,
 } from './settings-model';
 
 type Confirmation = 'credentials' | 'reset' | null;
-type Notice = { kind: 'success' | 'error'; text: string } | null;
-
-function NoticeBox({ notice }: { notice: Notice }) {
-  if (!notice) return null;
-  return <p role={notice.kind === 'error' ? 'alert' : 'status'} className={
-    'rounded-lg border p-3 text-sm ' +
-    (notice.kind === 'error'
-      ? 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]'
-      : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--success)]')
-  }>{notice.text}</p>;
-}
-
 function Section({ id, title, description, icon, action, children }: {
   id: string; title: string; description: string; icon: ReactNode; action?: ReactNode; children: ReactNode;
 }) {
   return (
-    <section aria-labelledby={id} className="panel min-w-0 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4 sm:px-6">
+    <section aria-labelledby={id} className="panel flex h-full min-w-0 flex-col overflow-hidden">
+      <div className="panel-heading">
         <div className="flex min-w-0 items-start gap-3">
           <span className="mt-0.5 rounded-lg bg-[var(--accent-soft)] p-2 text-[var(--accent)]">{icon}</span>
           <div>
@@ -39,7 +28,7 @@ function Section({ id, title, description, icon, action, children }: {
         </div>
         {action}
       </div>
-      <div className="space-y-5 p-5 sm:p-6">{children}</div>
+      <div className="panel-body space-y-5">{children}</div>
     </section>
   );
 }
@@ -91,15 +80,13 @@ export function SettingsPage() {
   const token = auth.state === 'authenticated' ? auth.token : null;
   const username = auth.state === 'authenticated' ? auth.username : '';
   const cache = useQueryClient();
+  const { notify } = useNotifications();
 
   const [base, setBase] = useState<AppPreferences | null>(null);
   const [draft, setDraft] = useState<PreferencesDraft | null>(null);
-  const [preferencesNotice, setPreferencesNotice] = useState<Notice>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [credentialsNotice, setCredentialsNotice] = useState<Notice>(null);
-  const [statsNotice, setStatsNotice] = useState<Notice>(null);
   const [exporting, setExporting] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
 
@@ -140,9 +127,9 @@ export function SettingsPage() {
       setBase(saved);
       setDraft(toPreferencesDraft(saved));
       cache.setQueryData(['settings', 'app'], saved);
-      setPreferencesNotice({ kind: 'success', text: 'Application settings saved.' });
+      notify({ tone: 'success', title: 'Preferences saved', message: 'Application settings saved.' });
     },
-    onError: (error: Error) => setPreferencesNotice({ kind: 'error', text: error.message }),
+    onError: (error: Error) => notify({ tone: 'error', title: 'Could not save preferences', message: error.message }),
   });
   const updateCredentials = useMutation({
     mutationFn: () => apiRequest<AuthUpdateResult>('/api/settings/auth', token, {
@@ -159,19 +146,19 @@ export function SettingsPage() {
     },
     onError: (error: Error) => {
       setConfirmation(null);
-      setCredentialsNotice({ kind: 'error', text: error.message });
+      notify({ tone: 'error', title: 'Password change failed', message: error.message });
     },
   });
   const resetStats = useMutation({
     mutationFn: () => apiRequest<{ status: string }>('/api/stats/', token, { method: 'DELETE' }),
     onSuccess: () => {
-      setStatsNotice({ kind: 'success', text: 'Activity counters reset.' });
+      notify({ tone: 'success', title: 'Statistics reset', message: 'Activity counters reset.' });
       setConfirmation(null);
       void cache.invalidateQueries({ queryKey: ['stats'] });
     },
     onError: (error: Error) => {
       setConfirmation(null);
-      setStatsNotice({ kind: 'error', text: error.message });
+      notify({ tone: 'error', title: 'Could not reset statistics', message: error.message });
     },
   });
 
@@ -185,19 +172,19 @@ export function SettingsPage() {
 
   function changeDraft(patch: Partial<PreferencesDraft>) {
     setDraft((old) => old ? { ...old, ...patch } : null);
-    setPreferencesNotice(null);
+
   }
   function submitPreferences(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPreferencesNotice(null);
+
     if (!base || !draft || settings.isError || !validation || !validation.valid || !dirty) return;
     saveSettings.mutate(validation);
   }
   function submitCredentials(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setCredentialsNotice(null);
+
     if (credentialsError || updateCredentials.isPending) {
-      setCredentialsNotice({ kind: 'error', text: credentialsError || 'Update already in progress.' });
+      notify({ tone: 'error', title: 'Check password fields', message: credentialsError || 'Update already in progress.' });
       return;
     }
     setConfirmation('credentials');
@@ -205,7 +192,7 @@ export function SettingsPage() {
   async function exportStats() {
     if (!token || exporting) return;
     setExporting(true);
-    setStatsNotice(null);
+
     try {
       // Fetch a fresh snapshot rather than exporting potentially stale query-cache data.
       const current = await apiRequest<Record<string, unknown>>('/api/stats/', token);
@@ -220,15 +207,15 @@ export function SettingsPage() {
       } finally {
         URL.revokeObjectURL(url);
       }
-      setStatsNotice({ kind: 'success', text: 'Activity statistics exported.' });
+      notify({ tone: 'success', title: 'Statistics exported', message: 'Activity statistics exported.' });
     } catch (reason) {
-      setStatsNotice({ kind: 'error', text: reason instanceof Error ? reason.message : 'Export failed.' });
+      notify({ tone: 'error', title: 'Statistics export failed', message: reason instanceof Error ? reason.message : 'Export failed.' });
     } finally {
       setExporting(false);
     }
   }
 
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
         <p className="eyebrow">Account and system configuration</p>
@@ -238,12 +225,12 @@ export function SettingsPage() {
       <a className="btn-secondary" href="/#settings">Legacy Settings <ArrowUpRight size={16} aria-hidden="true" /></a>
     </div>
 
-    <div className="grid items-start gap-5 lg:grid-cols-2">
+    <div className="workspace-grid workspace-grid--two">
       <Section id="settings-preferences" icon={<Settings2 size={20} aria-hidden="true" />} title="Application settings"
         description="Startup changes apply after a backend restart. Other options apply on save."
         action={base?.restart_required ? <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--warning)]">Restart required</span> : null}>
         {settings.isPending && !base && <p role="status" className="text-sm text-[var(--muted)]">Loading saved preferences…</p>}
-        {settings.isError && <NoticeBox notice={{ kind: 'error', text: 'Unable to load or refresh current settings. Saving is disabled to prevent overwriting real values.' }} />}
+        {settings.isError && <p role="alert" className="text-sm text-[var(--danger)]">Unable to load or refresh current settings. Saving is disabled to prevent overwriting real values.</p>}
         {settings.isError && <button type="button" className="btn-secondary" onClick={() => { void settings.refetch(); }}>
           <RefreshCw size={16} aria-hidden="true" /> Retry loading
         </button>}
@@ -286,13 +273,13 @@ export function SettingsPage() {
                 </ul>}
             </div>
           </div>
-          <NoticeBox notice={preferencesNotice} />
+          
           <div className="flex flex-wrap items-center gap-3">
             <button className="btn-primary" type="submit" disabled={!saveReady}>
               <Save size={16} aria-hidden="true" /> {saveSettings.isPending ? 'Saving…' : 'Save settings'}
             </button>
             <button className="btn-secondary" type="button" disabled={!dirty || saveSettings.isPending}
-              onClick={() => { if (base) { setDraft(toPreferencesDraft(base)); setPreferencesNotice(null); } }}>Discard edits</button>
+              onClick={() => { if (base) { setDraft(toPreferencesDraft(base)); } }}>Discard edits</button>
             {dirty && <span className="text-xs text-[var(--muted)]">Unsaved changes</span>}
           </div>
         </form>}
@@ -309,12 +296,12 @@ export function SettingsPage() {
           <div>
             <label htmlFor="settings-current-password" className="field-label">Current password</label>
             <input id="settings-current-password" className="field-input" type="password" autoComplete="current-password"
-              required value={currentPassword} onChange={(e) => { setCurrentPassword(e.target.value); setCredentialsNotice(null); }} />
+              required value={currentPassword} onChange={(e) => { setCurrentPassword(e.target.value); }} />
           </div>
           <div>
             <label htmlFor="settings-new-password" className="field-label">New password</label>
             <input id="settings-new-password" className="field-input" type="password" autoComplete="new-password"
-              required minLength={6} value={newPassword} onChange={(e) => { setNewPassword(e.target.value); setCredentialsNotice(null); }}
+              required minLength={6} value={newPassword} onChange={(e) => { setNewPassword(e.target.value); }}
               aria-describedby="settings-password-hint" />
             <p id="settings-password-hint" className="mt-1 text-xs text-[var(--muted)]">
               At least six characters. Mix uppercase, lowercase, numbers and symbols.
@@ -324,13 +311,13 @@ export function SettingsPage() {
           <div>
             <label htmlFor="settings-confirm-password" className="field-label">Confirm new password</label>
             <input id="settings-confirm-password" className="field-input" type="password" autoComplete="new-password"
-              required value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); setCredentialsNotice(null); }}
+              required value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); }}
               aria-invalid={!!confirmPassword && confirmPassword !== newPassword || undefined}
               aria-describedby="settings-confirm-password-error" />
             {confirmPassword && confirmPassword !== newPassword &&
               <p id="settings-confirm-password-error" role="alert" className="mt-1 text-xs text-[var(--danger)]">Passwords do not match.</p>}
           </div>
-          <NoticeBox notice={credentialsNotice} />
+          
           <p className="rounded-lg bg-[var(--surface-muted)] p-3 text-xs leading-relaxed text-[var(--muted)]">
             Updating credentials immediately invalidates all signed-in sessions, including this one.
           </p>
@@ -347,11 +334,11 @@ export function SettingsPage() {
             <Download size={16} aria-hidden="true" /> {exporting ? 'Exporting…' : 'Export stats'}
           </button>
           <button type="button" className="btn-secondary border-[var(--danger)] text-[var(--danger)]"
-            onClick={() => { setStatsNotice(null); setConfirmation('reset'); }} disabled={exporting || resetStats.isPending}>
+            onClick={() => { setConfirmation('reset'); }} disabled={exporting || resetStats.isPending}>
             <Trash2 size={16} aria-hidden="true" /> Reset stats
           </button>
         </div>
-        <NoticeBox notice={statsNotice} />
+        
       </Section>
 
       <Section id="settings-about" icon={<Info size={20} aria-hidden="true" />} title="About"

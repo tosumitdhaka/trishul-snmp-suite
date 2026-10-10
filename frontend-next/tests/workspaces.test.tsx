@@ -9,6 +9,7 @@ import { WalkerPage } from '../src/features/walker/WalkerPage';
 import { TrapsPage } from '../src/features/traps/TrapsPage';
 import { BrowserPage } from '../src/features/browser/BrowserPage';
 import { MibsPage } from '../src/features/mibs/MibsPage';
+import { NotificationProvider } from '../src/lib/notifications/NotificationProvider';
 
 vi.mock('../src/lib/auth/AuthProvider', () => ({
   useAuth: () => ({ auth: { state: 'authenticated', token: 'test-token', username: 'operator' }, expire: vi.fn() }),
@@ -46,7 +47,7 @@ function mockApi() {
 }
 function setup(component: React.ReactNode) {
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
-  const rendered = render(<QueryClientProvider client={cache}><MemoryRouter>{component}</MemoryRouter></QueryClientProvider>);
+  const rendered = render(<QueryClientProvider client={cache}><MemoryRouter><NotificationProvider>{component}</NotificationProvider></MemoryRouter></QueryClientProvider>);
   return { ...rendered, cache };
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); sessionStorage.clear(); });

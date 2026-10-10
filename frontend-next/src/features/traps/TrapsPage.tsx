@@ -134,11 +134,11 @@ export function TrapsPage() {
     const csv = [cols.join(','), ...entries.map(row => cols.map(key => cell(row[key])).join(','))].join('\r\n');
     saveLocalFile(csv, 'trishul-received-traps.csv', 'text/csv');
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Notifications</p><h1 className="mt-1 text-2xl font-semibold">Traps &amp; informs</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Send notifications, control the receiver and inspect server-backed received events.</p></header>
     <Banner notice={notice} />
-    <div className="grid items-start gap-5 xl:grid-cols-2">
+    <div className="workspace-grid workspace-grid--two">
       <Card title="Notification sender" description="Send a trap or acknowledged inform to a reachable destination.">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Target host"><input className="field-input" value={sendHost} onChange={e => setSendHost(e.target.value)} /></Field>

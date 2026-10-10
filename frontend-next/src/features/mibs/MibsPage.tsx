@@ -157,17 +157,17 @@ export function MibsPage() {
     } catch (error) { setDownloadNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Download failed.' }); }
     finally { setDownloading(false); }
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">MIB Workbench / Manager</p><h1 className="mt-1 text-2xl font-semibold">MIB source &amp; bundle manager</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Review active modules, validate sources, manage bundles and export catalogs.</p></header>
     <Banner notice={notice} /><Banner notice={downloadNotice} />
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {([['Active modules',status.data?.loaded],['Failed sources',status.data?.failed],['Active bundle',status.data?.active_bundle_label],['Producer',status.data?.producer_version]] as [string,unknown][]).map(([label,value]) =>
-        <div className="panel p-5" key={label}><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 break-words text-xl font-semibold">{displayValue(value)}</p></div>)}
+        <div className="panel metric-card p-5" key={label}><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 break-words text-xl font-semibold">{displayValue(value)}</p></div>)}
     </div>
     {status.data?.recompile_recommended && <p role="status" className="rounded-xl bg-[var(--accent-soft)] p-4 text-sm text-[var(--warning)]">
       The active bundle was produced by an older compiler. Review the source and compile history before reloading.</p>}
-    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(21rem,2fr)]">
+    <div className="workspace-grid workspace-grid--split">
       <Card title="Catalog & source inventory" description="Source status includes active, pending, failed and shadowed entries.">
         <div className="flex flex-wrap items-center gap-2">
           {(['sources','modules','traps'] as const).map(tab => <button key={tab} className={activeTab===tab?'btn-primary':'btn-secondary'} onClick={()=>setActiveTab(tab)}>{tab}</button>)}
@@ -201,7 +201,7 @@ export function MibsPage() {
           <button className="btn-secondary text-[var(--danger)]" disabled={!deletable.length||pending} onClick={()=>setConfirm('delete')}><Trash2 size={16}/> Delete selected ({deletable.length})</button>
         </div>
       </Card>
-      <div className="space-y-5">
+      <div className="workspace-stack">
         <Card title="Validate and upload" description="Validate without persisting; upload with explicit compile mode.">
           <Field label="Source files"><input id="mib-files" className="field-input h-auto" type="file" multiple
             accept=".mib,.txt,.my"
