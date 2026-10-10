@@ -53,6 +53,35 @@ export function StatusText({ busy, error, empty }: { busy: boolean; error?: Erro
   if (empty) return <p className="text-sm text-[var(--muted)]">No records are available.</p>;
   return null;
 }
+/** The center should identify the operation, not display identical generic toasts. */
+export function operatorActionLabel(path: string, method = 'POST'): string {
+  const pathname = path.split('?')[0];
+  const labels: Record<string, string> = {
+    '/api/simulator/start': 'Simulator start',
+    '/api/simulator/stop': 'Simulator stop',
+    '/api/simulator/restart': 'Simulator restart',
+    '/api/simulator/data': 'Simulator data save',
+    '/api/simulator/logs': 'Simulator log clear',
+    '/api/traps/start': 'Trap receiver start',
+    '/api/traps/stop': 'Trap receiver stop',
+    '/api/traps/send': 'Trap send',
+    '/api/traps/send-inform': 'Inform send',
+    '/api/traps/decode': 'Offline trap decode',
+    '/api/traps/resolve-mibs': 'Trap MIB resolution change',
+    '/api/mibs/validate-batch': 'MIB validation',
+    '/api/mibs/upload': 'MIB upload',
+    '/api/mibs/reload': 'MIB reload',
+    '/api/mibs/fetch-dependencies': 'MIB dependency fetch',
+    '/api/mibs/delete-batch': 'MIB source deletion',
+  };
+  if (labels[pathname]) return labels[pathname];
+  if (pathname.startsWith('/api/traps/replay/')) return 'Trap replay';
+  if (pathname.startsWith('/api/bundles/') && pathname.endsWith('/activate')) return 'Bundle activation';
+  if (pathname === '/api/traps/' && method === 'DELETE') return 'Trap history clear';
+  if (/^\/api\/traps\/\d+$/.test(pathname) && method === 'DELETE') return 'Trap event deletion';
+  return 'Operation';
+}
+
 export function useOperatorApi() {
   const { auth } = useAuth();
   const token = auth.state === 'authenticated' ? auth.token : null;
@@ -69,14 +98,15 @@ export function useOperatorApi() {
   };
   async function invoke<T>(path: string, init: RequestInit = {}, keys: readonly (readonly string[])[] = []): Promise<T | null> {
     if (!token || pending) return null;
-    setPending(true); setNotice(null);
+    setPending(true);
     try {
       const data = await apiRequest<T>(path, token, init);
       for (const key of keys) await cache.invalidateQueries({ queryKey: [...key] });
-      setNotice({ tone: 'success', text: 'Operation completed.' });
+      notify({ tone: 'success', title: operatorActionLabel(path, init.method) + ' completed' });
       return data;
     } catch (cause) {
-      setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'Request failed.' });
+      notify({ tone: 'error', title: operatorActionLabel(path, init.method) + ' failed',
+        message: cause instanceof Error ? cause.message : 'Request failed.' });
       return null;
     } finally { setPending(false); }
   }
