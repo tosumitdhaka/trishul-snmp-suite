@@ -13,6 +13,7 @@ import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { useTheme } from '../../lib/theme/ThemeProvider';
 import { WorkspaceSearch } from './WorkspaceSearch';
 import { NotificationCenter } from './NotificationCenter';
+import { ToastViewport } from './ToastViewport';
 
 export const SIDEBAR_STORAGE_KEY = 'trishul_next_sidebar_collapsed';
 
@@ -216,6 +217,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </header>
         <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-7 sm:py-8">
           <div id="workspace-content">{children}</div>
+          <ToastViewport />
         </main>
       </div>
     </div>

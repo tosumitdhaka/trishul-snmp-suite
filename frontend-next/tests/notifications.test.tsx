@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Link, Route, Routes } from 'react-router';
 import { NotificationProvider, NOTIFICATION_LIMIT, useNotifications } from '../src/lib/notifications/NotificationProvider';
 import { NotificationCenter } from '../src/components/shell/NotificationCenter';
+import { ToastViewport, TOAST_DURATION_MS } from '../src/components/shell/ToastViewport';
 
 function Actions() {
   const { notify } = useNotifications();
@@ -20,6 +21,7 @@ function setup() {
   render(<MemoryRouter initialEntries={['/simulator']}>
     <NotificationProvider>
       <NotificationCenter />
+      <ToastViewport />
       <Actions />
       <Routes>
         <Route path="/simulator" element={<p>Simulator page</p>} />
@@ -65,5 +67,21 @@ describe('shared notification center', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Notification center, 40 unread' }));
     const drawer = screen.getByRole('dialog', { name: 'Notification center' });
     expect(within(drawer).getAllByRole('listitem')).toHaveLength(NOTIFICATION_LIMIT);
+  });
+});
+
+describe('short-lived action toasts', () => {
+  it('disappears after 2.7 seconds but remains in the notification center', () => {
+    vi.useFakeTimers();
+    try {
+      setup();
+      fireEvent.click(screen.getByRole('button', { name: 'Notify success' }));
+      expect(screen.getByText('Listening on test port.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Notification center, 1 unread' })).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(TOAST_DURATION_MS + 50); });
+      expect(screen.queryByText('Listening on test port.')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Notification center, 1 unread' }));
+      expect(within(screen.getByRole('dialog', { name: 'Notification center' })).getByText('Simulator started')).toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
   });
 });
