@@ -142,7 +142,7 @@ describe('remaining five React workspaces', () => {
     const edit = screen.getByRole('region', { name: 'Custom SNMP data' });
     expect(runtime).toHaveClass('panel-compact');
     expect(edit).toHaveClass('panel-compact');
-    expect(within(edit).getByRole('textbox', { name: 'Override JSON' })).toHaveClass('simulator-data-editor');
+    expect(within(edit).getByRole('textbox', { name: /Override JSON/ })).toHaveClass('simulator-data-editor');
     fireEvent.click(within(runtime).getByRole('link', { name: 'Walk simulator' }));
     expect(await screen.findByRole('heading', { name: 'SNMP walk explorer' })).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: 'UDP port' })).toHaveValue(1061);
@@ -181,7 +181,7 @@ describe('remaining five React workspaces', () => {
     const browse = await screen.findByRole('link', { name: 'Browse module' });
     fireEvent.click(browse);
     await waitFor(() => expect(calls.some(c => c.path.includes('/api/mibs/browse/tree/module?module=IF-MIB'))).toBe(true));
-    expect(screen.getByRole('combobox', { name: 'Module' })).toHaveValue('IF-MIB');
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Module' })).toHaveValue('IF-MIB'));
   });
   it('MIB Manager lists active sources and bundles, preventing immediate destructive actions', async () => {
     mockApi(); setup(<MibsPage />);
