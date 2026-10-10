@@ -9,6 +9,7 @@ import {
   WorkspaceShell,
 } from '../src/components/shell/WorkspaceShell';
 import { LoginView } from '../src/app/LoginView';
+import { NotificationProvider } from '../src/lib/notifications/NotificationProvider';
 import trishulLogo from '../src/assets/trishul-icon.svg';
 
 vi.mock('../src/lib/auth/AuthProvider', () => ({
@@ -30,7 +31,7 @@ vi.mock('../src/components/shell/WorkspaceSearch', () => ({
 function renderShell() {
   return render(
     <MemoryRouter initialEntries={['/simulator']}>
-      <WorkspaceShell><p>Workspace content</p></WorkspaceShell>
+      <NotificationProvider><WorkspaceShell><p>Workspace content</p></WorkspaceShell></NotificationProvider>
     </MemoryRouter>,
   );
 }

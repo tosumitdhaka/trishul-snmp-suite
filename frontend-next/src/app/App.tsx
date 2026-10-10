@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { ThemeProvider } from '../lib/theme/ThemeProvider';
 import { AuthProvider, useAuth } from '../lib/auth/AuthProvider';
 import { RealtimeProvider } from '../lib/realtime/RealtimeProvider';
+import { NotificationProvider } from '../lib/notifications/NotificationProvider';
 import { WorkspaceShell } from '../components/shell/WorkspaceShell';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
@@ -25,6 +26,7 @@ function AuthenticatedApp() {
   if (auth.state === 'anonymous') return <LoginView />;
   return (
     <RealtimeProvider>
+      <NotificationProvider>
       <WorkspaceShell>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
@@ -37,6 +39,7 @@ function AuthenticatedApp() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </WorkspaceShell>
+      </NotificationProvider>
     </RealtimeProvider>
   );
 }

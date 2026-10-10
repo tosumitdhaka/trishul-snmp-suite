@@ -4,25 +4,19 @@ import { AlertTriangle, Download, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
+import { useNotifications } from '../../lib/notifications/NotificationProvider';
 
 export type Notice = { tone: 'success' | 'error'; text: string } | null;
-export function Banner({ notice }: { notice: Notice }) {
-  return notice && <p role={notice.tone === 'error' ? 'alert' : 'status'}
-    className={'rounded-xl border p-3 text-sm ' + (notice.tone === 'error'
-      ? 'border-[var(--danger)] text-[var(--danger)]' : 'border-[var(--border)] text-[var(--success)]')}>
-    {notice.text}
-  </p>;
-}
 export function Card({ title, description, children, trailing }: {
   title: string; description?: string; children: ReactNode; trailing?: ReactNode;
 }) {
-  return <section aria-label={title} className="panel min-w-0 overflow-hidden">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-      <div><h2 className="text-lg font-semibold">{title}</h2>
+  return <section aria-label={title} className="panel flex h-full min-w-0 flex-col overflow-hidden">
+    <div className="panel-heading">
+      <div className="min-w-0"><h2 className="text-base font-semibold leading-snug">{title}</h2>
         {description && <p className="mt-1 text-xs text-[var(--muted)]">{description}</p>}</div>
       {trailing}
     </div>
-    <div className="space-y-4 p-5">{children}</div>
+    <div className="panel-body space-y-4">{children}</div>
   </section>;
 }
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
@@ -59,26 +53,64 @@ export function StatusText({ busy, error, empty }: { busy: boolean; error?: Erro
   if (empty) return <p className="text-sm text-[var(--muted)]">No records are available.</p>;
   return null;
 }
+/** The center should identify the operation, not display identical generic toasts. */
+export function operatorActionLabel(path: string, method = 'POST'): string {
+  const pathname = path.split('?')[0];
+  const labels: Record<string, string> = {
+    '/api/simulator/start': 'Simulator start',
+    '/api/simulator/stop': 'Simulator stop',
+    '/api/simulator/restart': 'Simulator restart',
+    '/api/simulator/data': 'Simulator data save',
+    '/api/simulator/logs': 'Simulator log clear',
+    '/api/traps/start': 'Trap receiver start',
+    '/api/traps/stop': 'Trap receiver stop',
+    '/api/traps/send': 'Trap send',
+    '/api/traps/send-inform': 'Inform send',
+    '/api/traps/decode': 'Offline trap decode',
+    '/api/traps/resolve-mibs': 'Trap MIB resolution change',
+    '/api/mibs/validate-batch': 'MIB validation',
+    '/api/mibs/upload': 'MIB upload',
+    '/api/mibs/reload': 'MIB reload',
+    '/api/mibs/fetch-dependencies': 'MIB dependency fetch',
+    '/api/mibs/delete-batch': 'MIB source deletion',
+  };
+  if (labels[pathname]) return labels[pathname];
+  if (pathname.startsWith('/api/traps/replay/')) return 'Trap replay';
+  if (pathname.startsWith('/api/bundles/') && pathname.endsWith('/activate')) return 'Bundle activation';
+  if (pathname === '/api/traps/' && method === 'DELETE') return 'Trap history clear';
+  if (/^\/api\/traps\/\d+$/.test(pathname) && method === 'DELETE') return 'Trap event deletion';
+  return 'Operation';
+}
+
 export function useOperatorApi() {
   const { auth } = useAuth();
   const token = auth.state === 'authenticated' ? auth.token : null;
   const cache = useQueryClient();
   const [pending, setPending] = useState(false);
-  const [notice, setNotice] = useState<Notice>(null);
+  const { notify } = useNotifications();
+  const setNotice = (next: Notice) => {
+    if (!next) return;
+    notify({
+      tone: next.tone,
+      title: next.tone === 'error' ? 'Action failed' : 'Action completed',
+      message: next.text,
+    });
+  };
   async function invoke<T>(path: string, init: RequestInit = {}, keys: readonly (readonly string[])[] = []): Promise<T | null> {
     if (!token || pending) return null;
-    setPending(true); setNotice(null);
+    setPending(true);
     try {
       const data = await apiRequest<T>(path, token, init);
       for (const key of keys) await cache.invalidateQueries({ queryKey: [...key] });
-      setNotice({ tone: 'success', text: 'Operation completed.' });
+      notify({ tone: 'success', title: operatorActionLabel(path, init.method) + ' completed' });
       return data;
     } catch (cause) {
-      setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'Request failed.' });
+      notify({ tone: 'error', title: operatorActionLabel(path, init.method) + ' failed',
+        message: cause instanceof Error ? cause.message : 'Request failed.' });
       return null;
     } finally { setPending(false); }
   }
-  return { token, pending, notice, setNotice, invoke };
+  return { token, pending, setNotice, invoke };
 }
 export function jsonPost(body: unknown): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };

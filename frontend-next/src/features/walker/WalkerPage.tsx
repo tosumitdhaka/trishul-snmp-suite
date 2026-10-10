@@ -3,7 +3,8 @@ import { ArrowRight, Download, Play, Search, Square, Trash2 } from 'lucide-react
 import { Link } from 'react-router';
 import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
-import { Banner, Card, Field, JsonView, SaveDataButton, displayValue, positivePort, saveLocalFile, type Notice } from '../shared/operator-ui';
+import { useNotifications } from '../../lib/notifications/NotificationProvider';
+import { Card, Field, JsonView, SaveDataButton, displayValue, positivePort, saveLocalFile, type Notice } from '../shared/operator-ui';
 
 interface WalkResponse { mode: string; count: number; data: unknown; rawLines?: string[]; json_format?: string }
 interface WalkRecord { target: string; oid: string; port: number; count: number; at: string; result: WalkResponse }
@@ -31,7 +32,11 @@ export function WalkerPage() {
   const [layout, setLayout] = useState('flat');
   const [loading, setLoading] = useState(false);
   const controller = useRef<AbortController | null>(null);
-  const [notice, setNotice] = useState<Notice>(null);
+  const { notify } = useNotifications();
+  function setNotice(next: Notice) {
+    if (!next) return;
+    notify({ tone: next.tone, title: next.tone === 'error' ? 'Walk action failed' : 'Walk action completed', message: next.text });
+  }
   const [result, setResult] = useState<WalkResponse | null>(null);
   const [history, setHistory] = useState(readHistory);
   const [search, setSearch] = useState('');
@@ -87,10 +92,9 @@ export function WalkerPage() {
     const tsv = [keys.join('\t'), ...filtered.map(row => keys.map(key => displayValue(row[key]).replace(/\t/g, ' ').replace(/\r?\n/g, ' ')).join('\t'))].join('\n');
     saveLocalFile(tsv, 'trishul-walk.tsv', 'text/tab-separated-values');
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Walk &amp; Parse</p><h1 className="mt-1 text-2xl font-semibold">SNMP walk explorer</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Execute a walk against a reachable SNMP target, then inspect or export its values.</p></header>
-    <Banner notice={notice} />
     <Card title="Walk configuration" description="Requests are sent through the existing FastAPI /api/walk/execute endpoint.">
       <form onSubmit={(e) => { void run(e); }} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -114,7 +118,7 @@ export function WalkerPage() {
         {loading && <p role="status" className="text-sm text-[var(--muted)]">Walk in progress; no intermediate progress is reported by the backend.</p>}
       </form>
     </Card>
-    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_19rem]">
+    <div className="workspace-grid workspace-grid--split">
       <Card title="Walk results" description={result ? result.count + ' OIDs · ' + result.mode : 'No walk executed'}>
         {result ? <>
           <div className="flex flex-wrap gap-2">

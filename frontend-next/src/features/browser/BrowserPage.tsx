@@ -89,10 +89,10 @@ export function BrowserPage() {
     try { await navigator.clipboard.writeText(node.oid); setCopied(true); setTimeout(() => setCopied(false), 1500); }
     catch { setCopied(false); }
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">MIB Workbench / Browser</p><h1 className="mt-1 text-2xl font-semibold">MIB explorer</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Ranked server-side search and lazily expanded OID hierarchy. No full catalog download.</p></header>
-    <div className="grid items-start gap-5 xl:grid-cols-[minmax(20rem,2fr)_minmax(19rem,1fr)]">
+    <div className="workspace-grid workspace-grid--split">
       <Card title="Catalog search & tree" description="Search symbols, OIDs and descriptions; select a module to explore its hierarchy.">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="sm:col-span-2"><span className="field-label">Search</span><span className="flex items-center gap-2"><Search size={16} />

@@ -4,7 +4,7 @@ import { Bell, Download, Plus, Radio, RefreshCw, Search, Send, Trash2, X } from 
 import { Link } from 'react-router';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
-import { Banner, Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
 
 type TrapOption = { name: string; full_name: string; oid: string; module?: string; objects?: { name: string; oid: string; input_type?: string }[] };
 type Varbind = { oid: string; type: string; value: string };
@@ -14,7 +14,7 @@ type TrapStatus = { running?: boolean; port?: number; community?: string; resolv
 const varTypes = ['String','Integer','Integer32','Counter32','Counter64','Gauge32','TimeTicks','ObjectIdentifier','IpAddress','OctetString'];
 const historyKey = ['traps', 'history'];
 export function TrapsPage() {
-  const { token, pending, notice, setNotice, invoke } = useOperatorApi();
+  const { token, pending, setNotice, invoke } = useOperatorApi();
   const ws = useRealtime();
   const [receiverPort, setReceiverPort] = useState('1162');
   const [receiverCommunity, setReceiverCommunity] = useState('public');
@@ -134,11 +134,10 @@ export function TrapsPage() {
     const csv = [cols.join(','), ...entries.map(row => cols.map(key => cell(row[key])).join(','))].join('\r\n');
     saveLocalFile(csv, 'trishul-received-traps.csv', 'text/csv');
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Notifications</p><h1 className="mt-1 text-2xl font-semibold">Traps &amp; informs</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Send notifications, control the receiver and inspect server-backed received events.</p></header>
-    <Banner notice={notice} />
-    <div className="grid items-start gap-5 xl:grid-cols-2">
+    <div className="workspace-grid workspace-grid--two">
       <Card title="Notification sender" description="Send a trap or acknowledged inform to a reachable destination.">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Target host"><input className="field-input" value={sendHost} onChange={e => setSendHost(e.target.value)} /></Field>

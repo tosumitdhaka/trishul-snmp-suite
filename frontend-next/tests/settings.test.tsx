@@ -5,6 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { SettingsPage } from '../src/features/settings/SettingsPage';
+import { NotificationProvider } from '../src/lib/notifications/NotificationProvider';
+import { NotificationCenter } from '../src/components/shell/NotificationCenter';
 
 const authMocks = vi.hoisted(() => ({ expire: vi.fn() }));
 vi.mock('../src/lib/auth/AuthProvider', () => ({
@@ -50,7 +52,7 @@ function mockApi(initialFail = false) {
 
 function renderSettings() {
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
-  const view = render(<QueryClientProvider client={cache}><MemoryRouter><SettingsPage /></MemoryRouter></QueryClientProvider>);
+  const view = render(<QueryClientProvider client={cache}><MemoryRouter><NotificationProvider><NotificationCenter /><SettingsPage /></NotificationProvider></MemoryRouter></QueryClientProvider>);
   return { ...view, cache };
 }
 
@@ -145,7 +147,7 @@ describe('Stage 3 Settings preview', () => {
     fireEvent.click(within(section).getByRole('button', { name: 'Reset stats' }));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Reset every activity counter?' })).getByRole('button', { name: 'Reset counters' }));
     await waitFor(() => expect(calls.find((item) => item.method === 'DELETE')).toMatchObject({ path: '/api/stats/', token: 'test-token' }));
-    await waitFor(() => expect(within(section).getByText('Activity counters reset.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Activity counters reset.'));
   });
 
   it('exports a fresh stats snapshot using the same protected endpoint as the legacy UI', async () => {
@@ -157,7 +159,7 @@ describe('Stage 3 Settings preview', () => {
     renderSettings();
     const section = screen.getByRole('region', { name: 'Statistics' });
     fireEvent.click(within(section).getByRole('button', { name: 'Export stats' }));
-    await waitFor(() => expect(within(section).getByText('Activity statistics exported.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Activity statistics exported.'));
     expect(calls.find((item) => item.path === '/api/stats/' && item.method === 'GET')?.token).toBe('test-token');
     expect(createUrl).toHaveBeenCalledOnce();
     expect(revokeUrl).toHaveBeenCalledWith('blob:mock-download');

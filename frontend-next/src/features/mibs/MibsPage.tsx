@@ -1,9 +1,10 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../lib/auth/AuthProvider';
+import { useNotifications } from '../../lib/notifications/NotificationProvider';
 import { Download, FileUp, RefreshCw, Search, Trash2, GitCompareArrows, RotateCcw } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
-import { Banner, Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, type Notice, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, useOperatorApi } from '../shared/operator-ui';
 
 interface MibSource {
   name: string; file?: string; relative_path?: string; status?: string; source_kind?: string;
@@ -31,7 +32,7 @@ function asList(value: unknown): string[] {
 }
 export function MibsPage() {
   const { expire } = useAuth();
-  const { token, pending, notice, setNotice, invoke } = useOperatorApi();
+  const { token, pending, setNotice, invoke } = useOperatorApi();
   // A stale session is cleared by apiRequest on authenticated 401 responses.
   const [query, setQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
@@ -46,7 +47,7 @@ export function MibsPage() {
   const [dependencies, setDependencies] = useState('');
   const [reloadAfterFetch, setReloadAfterFetch] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  const [downloadNotice, setDownloadNotice] = useState<Notice>(null);
+  const { notify } = useNotifications();
   const [exportFormat, setExportFormat] = useState('json');
   const [exportType, setExportType] = useState('catalog');
   const [diffAgainst, setDiffAgainst] = useState<number | null>(null);
@@ -136,7 +137,7 @@ export function MibsPage() {
   }
   async function download(path: '/api/mibs/download'|'/api/mibs/export', body: unknown, fallback: string) {
     if (!token || downloading) return;
-    setDownloading(true); setDownloadNotice(null);
+    setDownloading(true);
     try {
       const response = await fetch(path, { method: 'POST', credentials: 'same-origin',
         headers: { 'X-Auth-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -153,21 +154,20 @@ export function MibsPage() {
         document.body.appendChild(anchor);
         try { anchor.click(); } finally { anchor.remove(); }
       } finally { URL.revokeObjectURL(url); }
-      setDownloadNotice({ tone: 'success', text: 'File exported.' });
-    } catch (error) { setDownloadNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Download failed.' }); }
+      notify({tone:'success',title:'Export completed',message:'File exported.'});
+    } catch (error) { notify({tone:'error',title:'Export failed',message:error instanceof Error ? error.message : 'Download failed.'}); }
     finally { setDownloading(false); }
   }
-  return <div className="space-y-6">
+  return <div className="workspace-page">
     <header><p className="eyebrow">MIB Workbench / Manager</p><h1 className="mt-1 text-2xl font-semibold">MIB source &amp; bundle manager</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Review active modules, validate sources, manage bundles and export catalogs.</p></header>
-    <Banner notice={notice} /><Banner notice={downloadNotice} />
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {([['Active modules',status.data?.loaded],['Failed sources',status.data?.failed],['Active bundle',status.data?.active_bundle_label],['Producer',status.data?.producer_version]] as [string,unknown][]).map(([label,value]) =>
-        <div className="panel p-5" key={label}><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 break-words text-xl font-semibold">{displayValue(value)}</p></div>)}
+        <div className="panel metric-card p-5" key={label}><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 break-words text-xl font-semibold">{displayValue(value)}</p></div>)}
     </div>
     {status.data?.recompile_recommended && <p role="status" className="rounded-xl bg-[var(--accent-soft)] p-4 text-sm text-[var(--warning)]">
       The active bundle was produced by an older compiler. Review the source and compile history before reloading.</p>}
-    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(21rem,2fr)]">
+    <div className="workspace-grid workspace-grid--split">
       <Card title="Catalog & source inventory" description="Source status includes active, pending, failed and shadowed entries.">
         <div className="flex flex-wrap items-center gap-2">
           {(['sources','modules','traps'] as const).map(tab => <button key={tab} className={activeTab===tab?'btn-primary':'btn-secondary'} onClick={()=>setActiveTab(tab)}>{tab}</button>)}
@@ -201,7 +201,7 @@ export function MibsPage() {
           <button className="btn-secondary text-[var(--danger)]" disabled={!deletable.length||pending} onClick={()=>setConfirm('delete')}><Trash2 size={16}/> Delete selected ({deletable.length})</button>
         </div>
       </Card>
-      <div className="space-y-5">
+      <div className="workspace-stack">
         <Card title="Validate and upload" description="Validate without persisting; upload with explicit compile mode.">
           <Field label="Source files"><input id="mib-files" className="field-input h-auto" type="file" multiple
             accept=".mib,.txt,.my"
