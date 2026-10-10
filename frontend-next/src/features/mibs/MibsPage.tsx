@@ -1,5 +1,8 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
+import { ArrowRight, BookOpen, Send } from 'lucide-react';
+import { sendToBrowser, sendToTraps } from '../../lib/navigation/handoff';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
 import { Download, FileUp, RefreshCw, Search, Trash2, GitCompareArrows, RotateCcw } from 'lucide-react';
@@ -22,7 +25,7 @@ interface BundleSummary {
   module_count?: number; producer_version?: string;
 }
 interface BundlesResponse { bundles: BundleSummary[]; active_bundle_id: number | null; previous_active_bundle_id?: number | null }
-interface TrapCatalog { traps: { name: string; full_name: string; oid: string; module?: string }[] }
+interface TrapCatalog { traps: { name: string; full_name: string; oid: string; module?: string; objects?: {name: string; oid: string; input_type?: string}[] }[] }
 function safeFilename(value: string | null, fallback: string): string {
   const found = value?.match(/filename="?([^";]+)"?/i)?.[1];
   return found && /^[A-Za-z0-9_.-]+$/.test(found) ? found : fallback;
@@ -161,6 +164,10 @@ export function MibsPage() {
   return <div className="workspace-page">
     <header><p className="eyebrow">MIB Workbench / Manager</p><h1 className="mt-1 text-2xl font-semibold">MIB source &amp; bundle manager</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Review active modules, validate sources, manage bundles and export catalogs.</p></header>
+    <div className="flex flex-wrap gap-2">
+      <Link className="btn-secondary" to="/browser"><BookOpen size={16}/> Browse active MIBs <ArrowRight size={15}/></Link>
+      <Link className="btn-secondary" to="/traps"><Send size={16}/> Notification sender</Link>
+    </div>
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {([['Active modules',status.data?.loaded],['Failed sources',status.data?.failed],['Active bundle',status.data?.active_bundle_label],['Producer',status.data?.producer_version]] as [string,unknown][]).map(([label,value]) =>
         <div className="panel metric-card p-5" key={label}><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 break-words text-xl font-semibold">{displayValue(value)}</p></div>)}
@@ -180,9 +187,17 @@ export function MibsPage() {
         <StatusText busy={status.isPending} error={status.error} empty={!status.isPending && !shown.length && activeTab !== 'traps'} />
         {activeTab === 'traps' ? <><StatusText busy={traps.isPending} error={traps.error} empty={!traps.isPending && !traps.data?.traps.length}/>
           <div className="max-h-[35rem] overflow-auto"><table className="min-w-full text-left text-xs">
-            <thead><tr><th className="p-2">Notification</th><th className="p-2">OID</th></tr></thead><tbody>
+            <thead><tr><th className="p-2">Notification</th><th className="p-2">OID</th><th className="p-2">Use</th></tr></thead><tbody>
               {traps.data?.traps.filter(x=>!query||JSON.stringify(x).toLowerCase().includes(query.toLowerCase())).map(t=><tr key={t.oid} className="border-t border-[var(--border)]">
-                <td className="p-2">{t.full_name}</td><td className="break-all p-2 font-mono">{t.oid}</td></tr>)}
+                <td className="p-2">{t.full_name}</td><td className="break-all p-2 font-mono">{t.oid}</td>
+                <td className="p-2"><div className="flex flex-wrap gap-2">
+                  <Link to="/traps" className="btn-secondary" onClick={() => sendToTraps(t)}>
+                    <Send size={15}/> Send
+                  </Link>
+                  <Link to="/browser" className="btn-secondary" onClick={() => sendToBrowser({
+                    query: t.full_name || t.oid, type: 'NotificationType',
+                  })}><BookOpen size={15}/> Browse</Link>
+                </div></td></tr>)}
             </tbody></table></div></> :
           <div className="max-h-[35rem] overflow-auto"><table className="min-w-full text-left text-xs">
             <thead className="sticky top-0 bg-[var(--surface-muted)]"><tr><th className="p-2">Select</th><th className="p-2">Module / file</th><th className="p-2">Status</th><th className="p-2">Objects</th><th className="p-2">Traps</th></tr></thead>
@@ -192,7 +207,11 @@ export function MibsPage() {
               <td className="max-w-64 break-words p-2"><span className="font-semibold">{item.name}</span>
                 <span className="block break-all font-mono text-[var(--muted)]">{path}</span>
                 {item.source_group && <span className="block text-[var(--muted)]">{item.source_group}</span>}
-                {item.error && <span className="block text-[var(--danger)]">{item.error}</span>}</td>
+                {item.error && <span className="block text-[var(--danger)]">{item.error}</span>}
+                {activeTab === 'modules' && <Link className="mt-1 inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                  to="/browser" onClick={() => sendToBrowser({ module: item.name })}>
+                  <BookOpen size={13}/> Browse module
+                </Link>}</td>
               <td className="p-2">{item.status||'active'}</td><td className="p-2">{item.objects??'—'}</td><td className="p-2">{item.traps??'—'}</td>
             </tr>})}</tbody></table></div>}
         <div className="flex flex-wrap gap-2">

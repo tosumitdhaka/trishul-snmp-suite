@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router';
+import { ArrowRight, BookOpen } from 'lucide-react';
+import { sendToBrowser, sendToWalker } from '../../lib/navigation/handoff';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Save, Trash2, Download, Pause, Search } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
@@ -68,27 +71,33 @@ export function SimulatorPage() {
     <header><p className="eyebrow">Operations / Simulator</p><h1 className="mt-1 text-2xl font-semibold">SNMP responder</h1>
       <p className="mt-1 text-sm text-[var(--muted)]">Manage the UDP responder, custom values and recent activity.</p></header>
     <div className="workspace-grid workspace-grid--two">
-      <Card title="Runtime" description="Control the SNMP simulator. Start or stop with one action; restart remains separate."
+      <Card title="Runtime" compact description="Run the SNMP responder and inspect its activity."
         trailing={<span role="status" className={'service-status ' + (status.data?.running ? 'service-status-simulator' : 'service-status-off')}>{status.isError ? 'Unavailable' : status.isPending ? 'Checking…' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
         <StatusText busy={status.isPending} error={status.error} />
         <div className="grid gap-3 sm:grid-cols-2"><Field label="UDP port"><input className="field-input" type="number" min={1} max={65535} value={port} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setPort(e.target.value)} /></Field>
           <Field label="Community" hint="Not displayed in exported logs."><input className="field-input" type="password" autoComplete="off" value={community} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setCommunity(e.target.value)} /></Field></div>
-        <div className="grid grid-cols-2 gap-3 rounded-xl bg-[var(--surface-muted)] p-4 text-sm">
+        <div className="grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-muted)] p-3 text-xs">
           <div>Requests served<strong className="block text-xl">{status.data?.requests ?? '—'}</strong></div>
           <div>Uptime<strong className="block text-xl">{status.data?.uptime_seconds == null ? '—' : status.data.uptime_seconds + 's'}</strong></div>
-          <div className="col-span-2">Last activity <strong className="block break-words">{displayValue(status.data?.last_activity)}</strong></div></div>
+          <div className="col-span-2">Last activity <strong className="block truncate text-sm" title={displayValue(status.data?.last_activity)}>{displayValue(status.data?.last_activity)}</strong></div></div>
         <div className="flex flex-wrap gap-2">
           <ServiceToggle noun="simulator" running={!!status.data?.running} busy={pending}
             disabled={status.isError || status.isPending || !status.data}
             onToggle={() => void run(status.data?.running ? 'stop' : 'start')} />
           <button className="btn-secondary" disabled={pending || !status.data?.running || status.isError} onClick={() => void run('restart')}><RefreshCw size={16} /> Restart</button>
           <button className="btn-secondary" onClick={() => void status.refetch()}><RefreshCw size={16} /> Refresh</button>
+          <Link className="btn-secondary" to="/walker" onClick={() => sendToWalker({ target: '127.0.0.1', port: status.data?.port || positivePort(port) || 1061 })}>
+            Walk simulator <ArrowRight size={15} />
+          </Link>
+          <Link className="btn-secondary" to="/browser" onClick={() => sendToBrowser({ query: '1.3.6.1.2.1' })}>
+            <BookOpen size={15} /> Browse OIDs
+          </Link>
         </div>
       </Card>
-      <Card title="Custom SNMP data" description="Server-backed JSON OID overrides. Changes require a save.">
+      <Card title="Custom SNMP data" compact description="Edit server-backed OID overrides in JSON.">
         <StatusText busy={data.isPending} error={data.error} />
-        <Field label="Override JSON" hint="Must be a JSON object. The backend validates supported types and OIDs.">
-          <textarea className="field-input h-72 font-mono text-xs" spellCheck={false} value={editor} disabled={data.isPending || data.isError || pending}
+        <Field label="Override JSON" hint="JSON object; validated by backend. Drag to expand the editor.">
+          <textarea rows={5} className="field-input simulator-data-editor font-mono text-xs" spellCheck={false} value={editor} disabled={data.isPending || data.isError || pending}
             onChange={(e) => { setEditor(e.target.value); setDirty(true); }} /></Field>
         {dirty && <p role="status" className="text-xs text-[var(--warning)]">Unsaved custom-data edits</p>}
         <div className="flex flex-wrap gap-2">

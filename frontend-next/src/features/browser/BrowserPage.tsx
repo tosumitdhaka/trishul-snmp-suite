@@ -5,6 +5,7 @@ import {
   RefreshCw, Search, X, ArrowRight, AlertTriangle,
 } from 'lucide-react';
 import { Link } from 'react-router';
+import { sendToWalker, sendToTraps, takeBrowserHandoff } from '../../lib/navigation/handoff';
 import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
@@ -18,7 +19,7 @@ interface ModulesResponse { modules: { name: string; objects?: number; notificat
 interface TreeResponse { modules: BrowserModule[]; count: number }
 interface ChildrenResponse { root?: BrowserNode; children: BrowserNode[]; total_descendants: number }
 interface SearchResponse { results: BrowserNode[]; count: number }
-interface DetailResponse { node: BrowserNode | null; breadcrumb: BrowserNode[]; trap_objects: unknown[] }
+interface DetailResponse { node: BrowserNode | null; breadcrumb: BrowserNode[]; trap_objects: {name: string; oid: string; input_type?: string}[] }
 interface BundleSummary { active_bundle_id?: number | null; recompile_recommended?: boolean; missing_capabilities?: string[]; producer_version?: string }
 
 type SelectFn = (node: BrowserNode) => void;
@@ -103,16 +104,34 @@ export function BrowserPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    try {
-      const handoff = sessionStorage.getItem('browserSearchOid');
-      const handoffType = sessionStorage.getItem('browserFilterType');
-      if (handoff) {
-        setMode('module'); setFilter(handoff); setQuery(handoff);
-        if (handoffType && BROWSER_TYPES.some(item => item.value === handoffType)) setTypeFilter(handoffType);
-        sessionStorage.removeItem('browserSearchOid');
-        sessionStorage.removeItem('browserFilterType');
+    const handoff = takeBrowserHandoff();
+    if (handoff) {
+      setSelected(null); setExpanded(new Set()); setCollapsed(new Set()); setAutoDepth(0);
+      if (handoff.mode === 'oid' && handoff.rootOid) {
+        setMode('oid'); setRootOid(handoff.rootOid); setRootInput(handoff.rootOid);
+      } else {
+        setMode('module'); setFilter(handoff.query || ''); setQuery(handoff.query || '');
+        setModuleName(handoff.module || '');
+        setTypeFilter(handoff.type && BROWSER_TYPES.some(item => item.value === handoff.type) ? handoff.type : '');
+        if (handoff.module) setExpanded(new Set(['module:' + handoff.module]));
       }
-    } catch { /* Storage restrictions must not block the browser. */ }
+      return;
+    }
+    try {
+      const legacy = sessionStorage.getItem('browserSearchOid');
+      const type = sessionStorage.getItem('browserFilterType');
+      sessionStorage.removeItem('browserSearchOid');
+      sessionStorage.removeItem('browserFilterType');
+      if (legacy) {
+        setSelected(null);
+        if (/^\d+(?:\.\d+)*$/.test(legacy)) {
+          setMode('oid'); setRootOid(legacy); setRootInput(legacy);
+        } else {
+          setMode('module'); setFilter(legacy); setQuery(legacy);
+          if (type && BROWSER_TYPES.some(item => item.value === type)) setTypeFilter(type);
+        }
+      }
+    } catch { /* Cross-workspace context is optional. */ }
   }, []);
   useEffect(() => {
     const timer = setTimeout(() => setQuery(filter.trim().length >= 2 ? filter.trim() : ''), 300);
@@ -231,17 +250,11 @@ export function BrowserPage() {
     try { await navigator.clipboard.writeText(value); notify({ tone: 'success', title: title + ' copied' }); }
     catch { notify({ tone: 'error', title: 'Copy failed', message: 'Clipboard access is unavailable.' }); }
   }
-  function handoff(key: 'walkerOid' | 'trapOid') {
+  function handoff(key: 'walker' | 'traps') {
     if (!displayed?.oid) return;
-    try {
-      sessionStorage.setItem(key, displayed.oid);
-      if (key === 'trapOid' && displayed.type === 'NotificationType') {
-        sessionStorage.setItem('selectedTrap', JSON.stringify({
-          name: displayed.name, full_name: displayed.full_name, oid: displayed.oid,
-          objects: detail.data?.trap_objects ?? [],
-        }));
-      }
-    } catch { /* Handoff is optional, navigation remains possible. */ }
+    if (key === 'walker') sendToWalker({ oid: displayed.full_name || displayed.oid });
+    else sendToTraps({ oid: displayed.oid, name: displayed.name, full_name: displayed.full_name,
+      objects: displayed.type === 'NotificationType' ? detail.data?.trap_objects : undefined });
   }
   const exportRows = useMemo(() => {
     if (isSearching) return search.data?.results || [];
@@ -415,8 +428,8 @@ export function BrowserPage() {
               <button className="btn-secondary p-2" aria-label="Copy OID" onClick={()=>void copyValue(displayed?.oid||'','OID')}><ClipboardCopy size={16}/></button></div>
             <div className="flex flex-wrap items-center gap-2">
               <button className="btn-secondary" onClick={()=>void copyValue(displayed?.full_name||'','Symbolic name')} disabled={!displayed?.full_name}><ClipboardCopy size={16}/> Copy name</button>
-              <Link to="/walker" className="btn-secondary" onClick={()=>handoff('walkerOid')}>Use in Walker <ArrowRight size={15}/></Link>
-              <Link to="/traps" className="btn-secondary" onClick={()=>handoff('trapOid')}>Use in Traps <ArrowRight size={15}/></Link>
+              <Link to="/walker" className="btn-secondary" onClick={()=>handoff('walker')}>Use in Walker <ArrowRight size={15}/></Link>
+              <Link to="/traps" className="btn-secondary" onClick={()=>handoff('traps')}>Use in Traps <ArrowRight size={15}/></Link>
             </div>
           </div>
           <dl className="space-y-2 text-xs">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ArrowRight, Download, Play, Search, Square, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
+import { sendToBrowser, takeWalkerHandoff } from '../../lib/navigation/handoff';
 import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
@@ -44,8 +45,14 @@ export function WalkerPage() {
   const [sort, setSort] = useState<{ field: string; reverse: boolean } | null>(null);
   useEffect(() => {
     try {
+      const handoff = takeWalkerHandoff();
+      if (handoff?.oid) setOid(handoff.oid);
+      if (handoff?.target) setTarget(handoff.target);
+      if (handoff?.port) setPort(String(handoff.port));
+      // Accept legacy same-tab navigation hints during migration.
       const selected = sessionStorage.getItem('walkerOid');
-      if (selected) { setOid(selected); sessionStorage.removeItem('walkerOid'); }
+      if (selected && !handoff?.oid) setOid(selected);
+      sessionStorage.removeItem('walkerOid');
     } catch { /* Cross-workspace handoff is optional. */ }
     return () => controller.current?.abort();
   }, []);
@@ -113,7 +120,9 @@ export function WalkerPage() {
         <div className="flex flex-wrap gap-2">
           <button type="submit" className="btn-primary" disabled={loading}><Play size={16} /> {loading ? 'Walking…' : 'Execute walk'}</button>
           {loading && <button type="button" className="btn-secondary" onClick={() => controller.current?.abort()}><Square size={16} /> Cancel</button>}
-          <Link className="btn-secondary" to="/browser">Browse MIBs <ArrowRight size={16} /></Link>
+          <Link className="btn-secondary" to="/browser" onClick={() => sendToBrowser({ query: oid })}>
+            Browse this OID <ArrowRight size={16} />
+          </Link>
         </div>
         {loading && <p role="status" className="text-sm text-[var(--muted)]">Walk in progress; no intermediate progress is reported by the backend.</p>}
       </form>
@@ -132,7 +141,12 @@ export function WalkerPage() {
               <thead className="sticky top-0 bg-[var(--surface-muted)]"><tr>{columns.map(key => <th key={key} className="p-3">
                 <button className="font-semibold" onClick={() => setSort(old => ({ field: key, reverse: old?.field === key ? !old.reverse : false }))}>{key} ↕</button></th>)}</tr></thead>
               <tbody>{filtered.map((row,i) => <tr className="border-t border-[var(--border)]" key={i}>
-                {columns.map(key => <td key={key} className="max-w-96 break-all p-3 font-mono">{displayValue(row[key])}</td>)}</tr>)}</tbody>
+                {columns.map(key => <td key={key} className="max-w-96 break-all p-3 font-mono">
+                  {key.toLowerCase() === 'oid' && typeof row[key] === 'string' && row[key] ?
+                    <Link to="/browser" className="link" title={'Browse ' + row[key]}
+                      onClick={() => sendToBrowser({ query: row[key] as string })}>{row[key] as string}</Link>
+                    : displayValue(row[key])}
+                </td>)}</tr>)}</tbody>
             </table></div> : <p className="text-sm text-[var(--muted)]">No result rows match the filter, or the returned result cannot be tabulated. Use the Parsed/Raw view.</p>}
         </> : <p className="text-sm text-[var(--muted)]">Execute a walk or open an earlier result from history.</p>}
       </Card>
