@@ -12,6 +12,7 @@ import { useAuth } from '../../lib/auth/AuthProvider';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { useTheme } from '../../lib/theme/ThemeProvider';
 import { WorkspaceSearch } from './WorkspaceSearch';
+import { NotificationCenter } from './NotificationCenter';
 
 export const SIDEBAR_STORAGE_KEY = 'trishul_next_sidebar_collapsed';
 
@@ -148,8 +149,8 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </div>
         <div className={'border-t border-[var(--border)] py-4 text-center text-xs text-[var(--muted)] ' +
           (collapsed ? 'px-1' : 'px-4')}>
-          {collapsed ? <span aria-label="Modern UI · Stage 2 preview" title="Modern UI · Stage 2 preview">v2</span>
-            : 'Modern UI · Stage 2 preview'}
+          {collapsed ? <span aria-label="Modern UI · Integration preview" title="Modern UI · Stage 2 preview">v2</span>
+            : 'Modern UI · Integration preview'}
         </div>
       </aside>
 
@@ -194,6 +195,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             <p className="mt-0.5 hidden truncate text-xs text-[var(--muted)] sm:block">{active.description}</p>
           </div>
           <WorkspaceSearch />
+          <NotificationCenter />
           <span className="hidden items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-semibold sm:inline-flex"
             role="status" aria-live="polite">
             {connected ? <Wifi size={15} className="text-[var(--success)]" aria-hidden="true" />
