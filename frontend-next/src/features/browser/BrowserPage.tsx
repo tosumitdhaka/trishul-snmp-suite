@@ -29,7 +29,8 @@ type NodeViewProps = {
   bundleId: number | null;
   selectedKey: string | null;
   expanded: Set<string>;
-  toggle: (key: string) => void;
+  collapsed: Set<string>;
+  toggle: (key: string, currentlyOpen: boolean) => void;
   onSelect: SelectFn;
   level: number;
   autoDepth: number;
@@ -37,10 +38,10 @@ type NodeViewProps = {
   oidMode?: boolean;
 };
 
-function TreeNode({ node, module, token, bundleId, selectedKey, expanded, toggle, onSelect, level, autoDepth, typeFilter, oidMode = false }: NodeViewProps) {
+function TreeNode({ node, module, token, bundleId, selectedKey, expanded, collapsed, toggle, onSelect, level, autoDepth, typeFilter, oidMode = false }: NodeViewProps) {
   const moduleName = oidMode ? '' : node.module || module;
   const key = browserNodeKey(node.oid, moduleName);
-  const opened = expanded.has(key) || (autoDepth > level && !!node.has_children);
+  const opened = !collapsed.has(key) && (expanded.has(key) || (autoDepth > level && !!node.has_children));
   const children = useQuery({
     queryKey: ['browser', 'children', bundleId, node.oid, moduleName, typeFilter],
     enabled: !!token && opened && !!node.has_children,
@@ -56,7 +57,7 @@ function TreeNode({ node, module, token, bundleId, selectedKey, expanded, toggle
       style={{ paddingLeft: Math.min(level * 15 + 4, 112) }}>
       {node.has_children
         ? <button type="button" className="browser-tree-toggle" aria-label={(opened ? 'Collapse ' : 'Expand ') + (node.name || node.oid)}
-            aria-expanded={opened} onClick={() => toggle(key)}>
+            aria-expanded={opened} onClick={() => toggle(key, opened)}>
             {opened ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </button>
         : <span className="browser-tree-spacer" aria-hidden="true" />}
@@ -74,7 +75,7 @@ function TreeNode({ node, module, token, bundleId, selectedKey, expanded, toggle
       {children.data?.children && <ul role="group">
         {children.data.children.map((child, i) => <TreeNode key={browserNodeKey(child.oid, child.module || moduleName) + i}
           node={child} module={moduleName} token={token} bundleId={bundleId}
-          selectedKey={selectedKey} expanded={expanded} toggle={toggle} onSelect={onSelect}
+          selectedKey={selectedKey} expanded={expanded} collapsed={collapsed} toggle={toggle} onSelect={onSelect}
           level={level + 1} autoDepth={autoDepth} typeFilter={typeFilter} oidMode={oidMode}/>)}
       </ul>}
     </div>}
@@ -96,6 +97,7 @@ export function BrowserPage() {
   const [rootInput, setRootInput] = useState(initial.rootOid);
   const [selected, setSelected] = useState<BrowserNode | null>(initial.selected);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(initial.expanded.slice(0, 120)));
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [autoDepth, setAutoDepth] = useState(0);
   const [depth, setDepth] = useState('3');
   const [refreshing, setRefreshing] = useState(false);
@@ -182,21 +184,28 @@ export function BrowserPage() {
   const countLabel = mode === 'oid' ? 'Objects under OID root' : isSearching ? 'Search results' : 'Objects in view';
 
   function switchMode(next: BrowserMode) {
-    setMode(next); setAutoDepth(0); setExpanded(new Set());
+    setMode(next); setAutoDepth(0); setExpanded(new Set()); setCollapsed(new Set());
   }
   function applyOidRoot() {
     if (!/^\d+(?:\.\d+)*$/.test(rootInput.trim())) {
       notify({ tone: 'error', title: 'Invalid numeric OID', message: 'Use numeric arcs separated by periods.' }); return;
     }
-    setRootOid(rootInput.trim()); setExpanded(new Set()); setSelected(null); setAutoDepth(0);
+    setRootOid(rootInput.trim()); setExpanded(new Set()); setCollapsed(new Set()); setSelected(null); setAutoDepth(0);
   }
   function clearFilters() {
-    setFilter(''); setQuery(''); setModuleName(''); setTypeFilter(''); setAutoDepth(0); setExpanded(new Set());
+    setFilter(''); setQuery(''); setModuleName(''); setTypeFilter(''); setAutoDepth(0); setExpanded(new Set()); setCollapsed(new Set());
   }
-  function toggle(key: string) {
+  function toggle(key: string, currentlyOpen: boolean) {
     setExpanded(old => {
       const next = new Set(old);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (currentlyOpen) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setCollapsed(old => {
+      const next = new Set(old);
+      if (currentlyOpen) next.add(key);
+      else next.delete(key);
       return next;
     });
   }
@@ -204,6 +213,10 @@ export function BrowserPage() {
     if (mode === 'module' && !moduleName) {
       notify({ tone: 'info', title: 'Choose a module', message: 'Select a module before expanding several levels; this avoids loading every MIB at once.' });
       return;
+    }
+    setCollapsed(new Set());
+    if (mode === 'module') {
+      setExpanded(old => new Set([...old, ...(moduleTree.data?.modules || []).map(mod => 'module:' + mod.name)]));
     }
     setAutoDepth(Number(depth));
   }
@@ -253,51 +266,77 @@ export function BrowserPage() {
       <p className="mt-2 text-sm text-[var(--muted)]">Explore loaded modules or the numeric OID hierarchy, search objects and inspect their definitions.</p></header>
     <div className="workspace-grid workspace-grid--split">
       <div className="workspace-stack">
-        <Card title="Browse" description="Select a view, filter the active MIB catalog, or search symbols.">
-          <div role="group" aria-label="Browse mode" className="flex flex-wrap gap-2">
-            <button className={mode === 'module' ? 'btn-primary':'btn-secondary'} onClick={() => switchMode('module')} aria-pressed={mode === 'module'}><BookOpen size={16}/> By module</button>
-            <button className={mode === 'oid' ? 'btn-primary':'btn-secondary'} onClick={() => switchMode('oid')} aria-pressed={mode === 'oid'}><FolderTree size={16}/> By OID</button>
-          </div>
-          {mode === 'module' ? <>
-            <label className="block text-sm font-medium">Search names, OIDs or descriptions
-              <span className="mt-1 flex items-center gap-2"><Search size={17} className="shrink-0 text-[var(--muted)]"/>
-                <input className="field-input" value={filter} onChange={e=>setFilter(e.target.value)} placeholder="ifDescr, IF-MIB::linkDown, 1.3.6.1" />
-                {filter && <button className="btn-secondary shrink-0 p-2" aria-label="Clear search" onClick={()=>{setFilter('');setQuery('');}}><X size={16}/></button>}
-              </span>
-            </label>
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-              <label className="block text-sm font-medium">Module<select className="field-input mt-1" aria-label="Module" value={moduleName}
-                onChange={e=>{setModuleName(e.target.value);setExpanded(new Set());setAutoDepth(0);}}>
-                <option value="">All modules</option>{modules.data?.modules.map(item=><option key={item.name} value={item.name}>{item.name} ({item.objects ?? 0})</option>)}
-              </select></label>
-              <label className="block text-sm font-medium">Object type<select className="field-input mt-1" aria-label="Object type" value={typeFilter}
-                onChange={e=>{setTypeFilter(e.target.value);setExpanded(new Set());setAutoDepth(0);}}>
-                {BROWSER_TYPES.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
-              </select></label>
-              <button className="btn-secondary self-end" onClick={clearFilters}>Clear filters</button>
+        <Card title="Browse" compact>
+          <div className="browser-browse-toolbar flex flex-wrap items-center gap-3">
+            <div role="group" aria-label="Browse mode" className="inline-flex shrink-0 gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
+              <button type="button" className={mode === 'module' ? 'btn-primary' : 'btn-secondary'} onClick={() => switchMode('module')}
+                aria-pressed={mode === 'module'}><BookOpen size={16}/> By module</button>
+              <button type="button" className={mode === 'oid' ? 'btn-primary' : 'btn-secondary'} onClick={() => switchMode('oid')}
+                aria-pressed={mode === 'oid'}><FolderTree size={16}/> By OID</button>
             </div>
-            <StatusText busy={modules.isPending} error={modules.error}/>
-          </> : <label className="block text-sm font-medium">Numeric OID root
-            <span className="mt-1 flex gap-2"><input aria-label="Numeric OID root" className="field-input font-mono text-sm" value={rootInput}
-              onChange={e=>setRootInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();applyOidRoot();}}}
-              placeholder="1.3.6.1" />
+            {mode === 'module' ? <div className="flex min-w-48 flex-1 items-center gap-2">
+              <Search size={16} className="shrink-0 text-[var(--muted)]" aria-hidden="true"/>
+              <input aria-label="Search MIB symbols, OIDs and descriptions" className="field-input min-w-0 flex-1"
+                value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search ifDescr, OID or description" />
+              {filter && <button type="button" className="btn-secondary shrink-0 p-2" aria-label="Clear search"
+                onClick={() => { setFilter(''); setQuery(''); }}><X size={16}/></button>}
+            </div> : <div className="flex min-w-44 flex-1 flex-wrap items-center gap-2">
+              <input aria-label="Numeric OID root" className="field-input min-w-40 flex-1 font-mono text-sm"
+                value={rootInput} onChange={e => setRootInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyOidRoot(); } }}
+                placeholder="1.3.6.1"/>
               <button type="button" className="btn-primary" onClick={applyOidRoot}>Browse</button>
-              <button type="button" className="btn-secondary" onClick={()=>{setRootInput(BROWSER_ROOT_OID);setRootOid(BROWSER_ROOT_OID);setExpanded(new Set());}}>Reset</button></span>
-            <span className="mt-1 block text-xs font-normal text-[var(--muted)]">Explore from this subtree. The standard root is 1.3.6.1.</span>
-          </label>}
+              <button type="button" className="btn-secondary"
+                onClick={() => { setRootInput(BROWSER_ROOT_OID); setRootOid(BROWSER_ROOT_OID); setExpanded(new Set()); setCollapsed(new Set()); }}>Reset</button>
+            </div>}
+          </div>
+          {mode === 'module' && <div className="browser-filter-row grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <label className="min-w-0 text-xs font-medium text-[var(--muted)]">Module
+              <select className="field-input mt-1 text-sm" aria-label="Module" value={moduleName}
+                onChange={e => { setModuleName(e.target.value); setExpanded(new Set(e.target.value ? ['module:'+e.target.value] : [])); setCollapsed(new Set()); setAutoDepth(0); }}>
+                <option value="">All modules</option>
+                {modules.data?.modules.map(item => <option key={item.name} value={item.name}>{item.name} ({item.objects ?? 0})</option>)}
+              </select>
+            </label>
+            <label className="min-w-0 text-xs font-medium text-[var(--muted)]">Object type
+              <select className="field-input mt-1 text-sm" aria-label="Object type" value={typeFilter}
+                onChange={e => { setTypeFilter(e.target.value); setExpanded(new Set(moduleName ? ['module:'+moduleName] : [])); setCollapsed(new Set()); setAutoDepth(0); }}>
+                {BROWSER_TYPES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <button type="button" className="btn-secondary" onClick={clearFilters}>Clear filters</button>
+          </div>}
+          {mode === 'module' && <StatusText busy={modules.isPending} error={modules.error}/>}
         </Card>
         <Card title={mode === 'module' ? 'MIB tree by module' : 'Numeric OID hierarchy'}
           description={count == null ? 'Loading active tree…' : count + ' ' + countLabel.toLowerCase()}>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary" onClick={()=>void refresh()} disabled={refreshing}><RefreshCw size={16}/> Refresh</button>
-            {!isSearching && <>
-              <label className="text-xs font-medium">Depth<select className="field-input ml-2 inline-block w-17" aria-label="Expansion depth" value={depth}
-                onChange={e=>setDepth(e.target.value)}>{[1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
-              <button className="btn-secondary" onClick={expandDepth}><ListTree size={16}/> Expand</button>
-              <button className="btn-secondary" onClick={()=>{setExpanded(new Set());setAutoDepth(0);}}>Collapse</button>
-            </>}
-            <button className="btn-secondary" onClick={()=>exportCurrent('json')} disabled={!exportRows.length}><Download size={16}/> JSON</button>
-            <button className="btn-secondary" onClick={()=>exportCurrent('csv')} disabled={!exportRows.length}><Download size={16}/> CSV</button>
+          <div className="browser-tree-toolbar flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Tree expansion controls">
+              {!isSearching && <>
+                <label className="flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">Expand to
+                  <select className="field-input w-28 text-sm" aria-label="Expansion depth" value={depth}
+                    onChange={e => setDepth(e.target.value)}>
+                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} {n===1?'level':'levels'}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="btn-secondary" onClick={expandDepth}><ListTree size={16}/> Expand</button>
+                <button type="button" className="btn-secondary"
+                  onClick={() => { setExpanded(new Set()); setCollapsed(new Set()); setAutoDepth(0); }}>Collapse all</button>
+              </>}
+            </div>
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Refresh and export">
+              <button type="button" className="btn-secondary" onClick={() => void refresh()} disabled={refreshing}>
+                <RefreshCw size={16}/> Refresh
+              </button>
+              <div className="inline-flex flex-wrap gap-1">
+                <button type="button" className="btn-secondary" onClick={() => exportCurrent('json')} disabled={!exportRows.length}>
+                  <Download size={16}/> JSON
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => exportCurrent('csv')} disabled={!exportRows.length}>
+                  <Download size={16}/> CSV
+                </button>
+              </div>
+            </div>
           </div>
           <div className="browser-tree-viewport overflow-auto rounded-lg border border-[var(--border)]" role="tree" aria-label={isSearching?'MIB search results':mode==='module'?'MIB module tree':'Numeric OID tree'}>
             {isSearching ? <>
@@ -315,19 +354,19 @@ export function BrowserPage() {
               <ul role="group">
                 {moduleTree.data?.modules.map(mod => {
                   const key='module:'+mod.name;
-                  const opened=expanded.has(key) || !!moduleName || !!typeFilter;
+                  const opened=!collapsed.has(key) && (expanded.has(key) || (autoDepth > 0 && !!moduleName));
                   return <li role="treeitem" key={mod.name} aria-expanded={opened}>
                     <div className="browser-tree-row browser-module-row">
                       <button className="browser-tree-toggle" aria-label={(opened?'Collapse ':'Expand ')+mod.name} aria-expanded={opened}
-                        onClick={()=>toggle(key)}>{opened?<ChevronDown size={17}/>:<ChevronRight size={17}/>}</button>
-                      <button className="min-w-0 flex-1 py-2 text-left text-sm font-semibold" onClick={()=>toggle(key)}>
+                        onClick={()=>toggle(key, opened)}>{opened?<ChevronDown size={17}/>:<ChevronRight size={17}/>}</button>
+                      <button className="min-w-0 flex-1 py-2 text-left text-sm font-semibold" onClick={()=>toggle(key, opened)}>
                         <BookOpen size={15} className="mr-2 inline text-[var(--accent)]"/> {mod.name}</button>
                       <span className="text-xs text-[var(--muted)]">{mod.object_count} objects</span>
                     </div>
                     {opened && <ul role="group" className="pl-2">
                       {mod.children.map((node,i) => <TreeNode key={browserNodeKey(node.oid,node.module||mod.name)+i} node={node}
                         module={mod.name} token={token} bundleId={bundleId} typeFilter={typeFilter}
-                        selectedKey={selectedKey} expanded={expanded} toggle={toggle} onSelect={setSelected}
+                        selectedKey={selectedKey} expanded={expanded} collapsed={collapsed} toggle={toggle} onSelect={setSelected}
                         level={1} autoDepth={autoDepth}/>)}
                     </ul>}
                   </li>;
@@ -344,7 +383,7 @@ export function BrowserPage() {
                 </div>
                 <ul role="group" className="pl-2">{oidTree.data.children.map((node,i)=><TreeNode
                   key={browserNodeKey(node.oid,node.module||'')+i} node={node} module="" token={token} bundleId={bundleId} typeFilter=""
-                  selectedKey={selectedKey} expanded={expanded} toggle={toggle} onSelect={setSelected}
+                  selectedKey={selectedKey} expanded={expanded} collapsed={collapsed} toggle={toggle} onSelect={setSelected}
                   level={1} autoDepth={autoDepth} oidMode/>)}</ul>
               </li></ul>}
             </>}

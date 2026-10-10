@@ -1,16 +1,16 @@
 import { useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AlertTriangle, Download, X } from 'lucide-react';
+import { AlertTriangle, Download, Play, Square, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
 
 export type Notice = { tone: 'success' | 'error'; text: string } | null;
-export function Card({ title, description, children, trailing }: {
-  title: string; description?: string; children: ReactNode; trailing?: ReactNode;
+export function Card({ title, description, children, trailing, compact = false }: {
+  title: string; description?: string; children: ReactNode; trailing?: ReactNode; compact?: boolean;
 }) {
-  return <section aria-label={title} className="panel flex h-full min-w-0 flex-col overflow-hidden">
+  return <section aria-label={title} className={"panel flex min-w-0 flex-col overflow-hidden " + (compact ? "panel-compact h-auto shrink-0" : "h-full")}>
     <div className="panel-heading">
       <div className="min-w-0"><h2 className="text-base font-semibold leading-snug">{title}</h2>
         {description && <p className="mt-1 text-xs text-[var(--muted)]">{description}</p>}</div>
@@ -19,6 +19,23 @@ export function Card({ title, description, children, trailing }: {
     <div className="panel-body space-y-4">{children}</div>
   </section>;
 }
+/** Single source-of-truth control for start/stop; green starts and red stops. */
+export function ServiceToggle({ running, disabled, busy, noun, onToggle }: {
+  running: boolean;
+  disabled: boolean;
+  busy: boolean;
+  noun: string;
+  onToggle: () => void;
+}) {
+  const action = running ? 'Stop' : 'Start';
+  return <button type="button" aria-label={action + ' ' + noun}
+    className={running ? 'btn-service-stop' : 'btn-service-start'}
+    disabled={disabled || busy} onClick={onToggle}>
+    {running ? <Square size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+    {busy ? 'Working…' : action + ' ' + noun}
+  </button>;
+}
+
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return <label className="block space-y-1 text-sm font-semibold"><span>{label}</span>
     {children}{hint && <span className="block text-xs font-normal text-[var(--muted)]">{hint}</span>}

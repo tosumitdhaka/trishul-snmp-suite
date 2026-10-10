@@ -90,3 +90,14 @@ See `docs/ui-modernization/all-workspaces-review.md` for known limitations and c
 The integrated preview now has one header notification button (bell) and accessible right-side drawer for operator action outcomes. New notifications increment a bounded unread count, remain available when navigating between React workspaces, and support per-item dismissal, read acknowledgment, mark-all-read and clear-all. No toast/banner is inserted above the workspace content. They are **in-memory only for the signed-in preview session**; browser reloads and sign-out clear the list, and no SNMP trap payloads or credentials are persisted. Received SNMP traps are still handled in the Traps workspace.
 
 All workspace panels share common header, padding, control height, responsive grid and card-surface tokens. Side-by-side cards use an equal-column layout where they represent peer tasks; inventory/detail layouts use a consistent 7:5 split. Tall tables/editors scroll within their panels instead of forcing arbitrarily large fixed cards. Essential field validation and initial-data errors stay in context because they should not be hidden in the notification drawer. The design specification and review gates are in `docs/ui-modernization/notification-center-layout-review.md`.
+
+
+## Shared control and MIB Browser refinements
+
+The simulator and trap receiver use **one state-aware Start/Stop button each**. The operation is based on the current server status, with green for Start, red for Stop, disabled until status is loaded and while the operation is pending. Running-status pills distinguish the **Simulator (indigo)** from the **Receiver (teal)**; Restart remains a separate simulator action.
+
+The top-right account icon opens a keyboard-accessible menu with **Settings** and **Log out**, replacing the direct logout button. It supports Escape, arrow-key movement, menu selection and click-away dismissal.
+
+The MIB Browser Browse panel is deliberately compact: view mode and search/OID root are adjacent; Module and Object type are a slim secondary row. Tree expansion controls, including an explicit “Expand to N levels” label, are grouped **left**, and Refresh/JSON/CSV actions grouped **right**. The tree is taller and can manually collapse nodes after depth expansion. The browser still uses server-side lazy loading and does not download the whole catalog on page load.
+
+Validation: the automated frontend CI includes state-toggle, account dropdown and MIB controls tests. Manual desktop/mobile light/dark and live MIB catalog review are still required; no legacy/production cutover is authorized.

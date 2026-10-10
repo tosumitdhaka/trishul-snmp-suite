@@ -12,10 +12,11 @@ import { LoginView } from '../src/app/LoginView';
 import { NotificationProvider } from '../src/lib/notifications/NotificationProvider';
 import trishulLogo from '../src/assets/trishul-icon.svg';
 
+const logoutMock = vi.hoisted(() => vi.fn());
 vi.mock('../src/lib/auth/AuthProvider', () => ({
   useAuth: () => ({
     auth: { state: 'authenticated', token: 'test-token', username: 'operator' },
-    login: vi.fn(), logout: vi.fn(),
+    login: vi.fn(), logout: logoutMock,
   }),
 }));
 vi.mock('../src/lib/realtime/RealtimeProvider', () => ({
@@ -37,6 +38,7 @@ function renderShell() {
 }
 beforeEach(() => {
   window.localStorage.clear();
+  logoutMock.mockReset();
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1280 });
 });
 afterEach(() => {
@@ -100,6 +102,24 @@ describe('Trishul desktop sidebar', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBe(navigation);
     expect(document.querySelectorAll('header button[aria-controls]')).toHaveLength(1);
+  });
+
+  it('replaces direct logout with a keyboard-accessible account menu', () => {
+    renderShell();
+    expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: 'User menu' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('menu', { name: 'Account actions' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(within(menu).getByText('operator')).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: 'Account actions' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Account actions' })).getByRole('menuitem', { name: 'Log out' }));
+    expect(logoutMock).toHaveBeenCalledOnce();
   });
 
   it('keeps full-label mobile navigation when desktop rail is collapsed', () => {

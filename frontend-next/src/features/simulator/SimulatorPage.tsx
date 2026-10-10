@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Play, Square, RefreshCw, Save, Trash2, Download, Pause, Search } from 'lucide-react';
+import { RefreshCw, Save, Trash2, Download, Pause, Search } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
-import { Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
 
 interface SimulatorStatus { running?: boolean; port?: number; community?: string; uptime_seconds?: number; requests?: number; last_activity?: string | null }
 interface LogEntry { timestamp?: string; level?: string; message?: string; msg?: string; [key: string]: unknown }
@@ -68,8 +68,8 @@ export function SimulatorPage() {
     <header><p className="eyebrow">Operations / Simulator</p><h1 className="mt-1 text-2xl font-semibold">SNMP responder</h1>
       <p className="mt-1 text-sm text-[var(--muted)]">Manage the UDP responder, custom values and recent activity.</p></header>
     <div className="workspace-grid workspace-grid--two">
-      <Card title="Runtime" description="Start, stop and restart the existing responder."
-        trailing={<span role="status" className={status.data?.running ? 'text-sm font-semibold text-[var(--success)]' : 'text-sm text-[var(--muted)]'}>{status.isError ? 'Unavailable' : status.isPending ? 'Checking…' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
+      <Card title="Runtime" description="Control the SNMP simulator. Start or stop with one action; restart remains separate."
+        trailing={<span role="status" className={'service-status ' + (status.data?.running ? 'service-status-simulator' : 'service-status-off')}>{status.isError ? 'Unavailable' : status.isPending ? 'Checking…' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
         <StatusText busy={status.isPending} error={status.error} />
         <div className="grid gap-3 sm:grid-cols-2"><Field label="UDP port"><input className="field-input" type="number" min={1} max={65535} value={port} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setPort(e.target.value)} /></Field>
           <Field label="Community" hint="Not displayed in exported logs."><input className="field-input" type="password" autoComplete="off" value={community} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setCommunity(e.target.value)} /></Field></div>
@@ -78,8 +78,9 @@ export function SimulatorPage() {
           <div>Uptime<strong className="block text-xl">{status.data?.uptime_seconds == null ? '—' : status.data.uptime_seconds + 's'}</strong></div>
           <div className="col-span-2">Last activity <strong className="block break-words">{displayValue(status.data?.last_activity)}</strong></div></div>
         <div className="flex flex-wrap gap-2">
-          <button className="btn-primary" disabled={pending || !!status.data?.running || status.isError || status.isPending} onClick={() => void run('start')}><Play size={16} /> Start</button>
-          <button className="btn-secondary" disabled={pending || !status.data?.running || status.isError} onClick={() => void run('stop')}><Square size={16} /> Stop</button>
+          <ServiceToggle noun="simulator" running={!!status.data?.running} busy={pending}
+            disabled={status.isError || status.isPending || !status.data}
+            onToggle={() => void run(status.data?.running ? 'stop' : 'start')} />
           <button className="btn-secondary" disabled={pending || !status.data?.running || status.isError} onClick={() => void run('restart')}><RefreshCw size={16} /> Restart</button>
           <button className="btn-secondary" onClick={() => void status.refetch()}><RefreshCw size={16} /> Refresh</button>
         </div>
