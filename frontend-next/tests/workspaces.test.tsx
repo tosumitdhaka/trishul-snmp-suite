@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { SimulatorPage } from '../src/features/simulator/SimulatorPage';
 import { WalkerPage } from '../src/features/walker/WalkerPage';
 import { TrapsPage } from '../src/features/traps/TrapsPage';
@@ -22,13 +22,16 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
   if (path.startsWith('/api/simulator/logs')) return { items: [{ level: 'INFO', msg: 'started' }] };
   if (path === '/api/traps/status') return { running: receiverRunning, port: 1162, community: 'public', resolve_mibs: true };
   if (path.startsWith('/api/traps/?')) return { data: [{ id: 42, trap_type: 'linkDown', source: 'localhost', varbinds: [] }], total: 1, count: 1 };
-  if (path === '/api/mibs/traps') return { traps: [{ oid: '1.3.6.1.6.3.1.1.5.3', name: 'linkDown', full_name: 'SNMPv2-MIB::linkDown' }] };
+  if (path === '/api/mibs/traps') return { traps: [{
+    oid: '1.3.6.1.6.3.1.1.5.3', name: 'linkDown', full_name: 'IF-MIB::linkDown',
+    objects: [{ name: 'ifIndex', oid: '1.3.6.1.2.1.2.2.1.1', input_type: 'Integer' }],
+  }] };
   if (path.startsWith('/api/mibs/objects?')) return { objects: [] };
   if (path === '/api/mibs/browse/modules') return { modules: [{ name: 'IF-MIB' }] };
   if (path.startsWith('/api/mibs/browse/search?')) return { count: 1, results: [{ oid: '1.3.6.1.2.1.2.2', name: 'ifTable', module: 'IF-MIB' }] };
   if (path.startsWith('/api/mibs/browse/tree/module')) return { count: 2, modules: [{ name: 'IF-MIB', module: 'IF-MIB', oid: '1.3.6.1.2.1.2.2', object_count: 2, children: [{ oid: '1.3.6.1.2.1.2.2', name: 'ifTable', module: 'IF-MIB', has_children: true }] }] };
   if (path.startsWith('/api/mibs/browse/tree/oid?')) return { root: {oid:'1.3.6.1',name:'internet'}, children: [{oid:'1.3.6.1.2', name:'mgmt',has_children:false}], total_descendants: 1 };
-  if (path.startsWith('/api/mibs/browse/node/')) return { node: { oid: '1.3.6.1.2.1.2.2', name: 'ifTable', module: 'IF-MIB' }, breadcrumb: [] };
+  if (path.startsWith('/api/mibs/browse/node/')) return { node: { oid: '1.3.6.1.2.1.2.2', name: 'ifTable', full_name: 'IF-MIB::ifTable', module: 'IF-MIB' }, breadcrumb: [] };
   if (path === '/api/mibs/status') return { loaded: 1, failed: 0, mibs: [{ name: 'IF-MIB', status: 'active', objects: 2 }], source_inventory: [
     { name: 'IF-MIB', relative_path: 'uploads/IF-MIB', source_group: 'uploaded', status: 'active', deletable: true },
   ], source_groups: [{ name: 'uploaded', file_count: 1 }], active_bundle_label: 'bundle-1' };
@@ -129,6 +132,56 @@ describe('remaining five React workspaces', () => {
     const downloads = screen.getByRole('group', { name: 'Refresh and export' });
     expect(within(downloads).getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
     expect(within(downloads).getByRole('button', { name: 'JSON' })).toBeInTheDocument();
+  });
+  it('moves simulator port into Walker while keeping the editor compact', async () => {
+    mockApi(); setup(<Routes>
+      <Route path="/" element={<SimulatorPage />} />
+      <Route path="/walker" element={<WalkerPage />} />
+    </Routes>);
+    const runtime = screen.getByRole('region', { name: 'Runtime' });
+    const edit = screen.getByRole('region', { name: 'Custom SNMP data' });
+    expect(runtime).toHaveClass('panel-compact');
+    expect(edit).toHaveClass('panel-compact');
+    expect(within(edit).getByRole('textbox', { name: 'Override JSON' })).toHaveClass('simulator-data-editor');
+    fireEvent.click(within(runtime).getByRole('link', { name: 'Walk simulator' }));
+    expect(await screen.findByRole('heading', { name: 'SNMP walk explorer' })).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: 'UDP port' })).toHaveValue(1061);
+  });
+  it('opens the Walker current numeric OID in the By OID tree, not text search', async () => {
+    mockApi(); setup(<Routes>
+      <Route path="/" element={<WalkerPage />} />
+      <Route path="/browser" element={<BrowserPage />} />
+    </Routes>);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Root OID' }), { target: { value: '1.3.6.1.2.1.2.2' } });
+    fireEvent.click(screen.getByRole('link', { name: 'Browse this OID' }));
+    const mode = await screen.findByRole('button', { name: 'By OID' });
+    expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(calls.some(c => c.path.includes('/api/mibs/browse/tree/oid?root_oid=1.3.6.1.2.1.2.2'))).toBe(true));
+    expect(calls.some(c => c.path.startsWith('/api/mibs/browse/search?query=1.3.6.1'))).toBe(false);
+  });
+  it('opens a catalog notification from MIB Manager with declared varbinds in Trap Sender', async () => {
+    mockApi(); setup(<Routes>
+      <Route path="/" element={<MibsPage />} />
+      <Route path="/traps" element={<TrapsPage />} />
+    </Routes>);
+    fireEvent.click(screen.getByRole('button', { name: 'traps' }));
+    expect(await screen.findByText('IF-MIB::linkDown')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Send' }));
+    const sender = screen.getByRole('region', { name: 'Notification sender' });
+    expect(within(sender).getByRole('textbox', { name: 'Notification OID' })).toHaveValue('1.3.6.1.6.3.1.1.5.3');
+    expect(within(sender).getByRole('textbox', { name: 'Varbind 1 OID' })).toHaveValue('1.3.6.1.2.1.2.2.1.1');
+    expect(within(sender).getByRole('combobox', { name: 'Varbind 1 type' })).toHaveValue('Integer');
+  });
+  it('allows MIB Manager module inventory to open its selected module in Browser', async () => {
+    mockApi(); setup(<Routes>
+      <Route path="/" element={<MibsPage />} />
+      <Route path="/browser" element={<BrowserPage />} />
+    </Routes>);
+    fireEvent.click(screen.getByRole('button', { name: 'modules' }));
+    const browse = await screen.findByRole('link', { name: 'Browse module' });
+    fireEvent.click(browse);
+    await waitFor(() => expect(calls.some(c => c.path.includes('/api/mibs/browse/tree/module?module=IF-MIB'))).toBe(true));
+    expect(screen.getByRole('combobox', { name: 'Module' })).toHaveValue('IF-MIB');
   });
   it('MIB Manager lists active sources and bundles, preventing immediate destructive actions', async () => {
     mockApi(); setup(<MibsPage />);

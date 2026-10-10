@@ -101,3 +101,27 @@ The top-right account icon opens a keyboard-accessible menu with **Settings** an
 The MIB Browser Browse panel is deliberately compact: view mode and search/OID root are adjacent; Module and Object type are a slim secondary row. Tree expansion controls, including an explicit “Expand to N levels” label, are grouped **left**, and Refresh/JSON/CSV actions grouped **right**. The tree is taller and can manually collapse nodes after depth expansion. The browser still uses server-side lazy loading and does not download the whole catalog on page load.
 
 Validation: the automated frontend CI includes state-toggle, account dropdown and MIB controls tests. Manual desktop/mobile light/dark and live MIB catalog review are still required; no legacy/production cutover is authorized.
+
+
+## Compact Simulator and cross-workspace navigation
+
+The Simulator Runtime and Custom SNMP Data panels now use compact card headers and paddings. The JSON editor starts at about 140px high instead of 288px and remains vertically resizable. Runtime metrics are condensed so the activity log is visible sooner; values and server operations remain unchanged.
+
+The navigation contract mirrors the legacy SPA's intent while routing through React pages. A new typed handoff helper transports only nonsecret form-prefill context through bounded, one-time same-tab sessionStorage entries; destinations consume and remove them. Numeric OIDs open the **By OID tree** directly, because the backend's ranked text search matches symbols/descriptions rather than numeric paths. Symbolic names use **By module** ranked search.
+
+| From | To | Context and action |
+| --- | --- | --- |
+| Simulator | Walker | Walk simulator passes loopback host and actual status UDP port, never a community |
+| Simulator | MIB Browser | Browse OIDs opens numeric 1.3.6.1.2.1 hierarchy |
+| Walker configuration/results | MIB Browser | Browse this OID or linked OID results send the current OID |
+| MIB Browser node details | Walker | Symbolic full name when available, numeric OID otherwise |
+| MIB Browser notification details | Trap Sender | Numeric notification OID and declared member OID/type metadata |
+| Trap Sender + received history | MIB Browser | Notification OID/name, notification filter for symbolic query |
+| MIB Manager trap catalog | Trap Sender | Send with selected catalog definition and declared varbinds |
+| MIB Manager module list | MIB Browser | Browse module preselects the module |
+| MIB Manager trap catalog | MIB Browser | Browse with the notification filter |
+| MIB Manager heading | Browser/Traps | Shortcuts to active MIB browsing and the notification sender |
+
+These links prefill and navigate, **not** execute SNMP operations; users must explicitly start the walk/send action. Backend continues to validate target and OID. One-time form transfer does not store credentials, communities, auth tokens or received trap payloads.
+
+**Manual review:** exercise these links in both directions, validate symbolic and numeric OIDs, confirm the correct MIB module and varbinds, check 390px/1024px/1440px compact card sizing, and test with a real compiled bundle and running simulator. Component tests are mocked; real device traffic and visual parity remain release gates. No backend or legacy modification.

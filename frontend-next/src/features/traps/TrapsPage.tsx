@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, Download, Plus, RefreshCw, Search, Send, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router';
+import { sendToBrowser, takeTrapHandoff } from '../../lib/navigation/handoff';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { Card, ConfirmDialog, Field, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
@@ -36,6 +37,7 @@ export function TrapsPage() {
   const [encoding, setEncoding] = useState<'hex'|'base64'>('hex');
   const [decoded, setDecoded] = useState<unknown>(null);
   const [operationResult, setOperationResult] = useState<unknown>(null);
+  const [pendingDefinition, setPendingDefinition] = useState<string | null>(null);
   const status = useQuery({
     queryKey: ['traps', 'status'], enabled: !!token,
     queryFn: ({ signal }) => apiRequest<TrapStatus>('/api/traps/status', token, { signal }),
@@ -65,17 +67,42 @@ export function TrapsPage() {
     }
   }, [status.data]);
   useEffect(() => {
+    const handoff = takeTrapHandoff();
+    if (handoff) {
+      setTrapOid(handoff.oid);
+      if (handoff.objects?.length) {
+        setVarbinds(handoff.objects.map(object => ({ oid: object.oid,
+          type: object.input_type || 'String', value: '' })));
+      } else setPendingDefinition(handoff.oid);
+      return;
+    }
+    // Older UI navigation keys remain readable during the incremental migration.
     try {
-      const fromBrowser = sessionStorage.getItem('trapOid');
-      if (fromBrowser) { setTrapOid(fromBrowser); sessionStorage.removeItem('trapOid'); }
-      const chosen = sessionStorage.getItem('selectedTrap');
-      if (chosen) {
-        const trap = JSON.parse(chosen) as TrapOption;
-        if (trap.oid) setTrapOid(trap.oid);
-        sessionStorage.removeItem('selectedTrap');
-      }
-    } catch { /* handoff is optional */ }
+      const definition = sessionStorage.getItem('selectedTrap');
+      const oid = sessionStorage.getItem('trapOid');
+      sessionStorage.removeItem('selectedTrap');
+      sessionStorage.removeItem('trapOid');
+      if (definition) {
+        const trap = JSON.parse(definition) as TrapOption;
+        if (trap?.oid) {
+          setTrapOid(trap.oid);
+          if (trap.objects?.length) setVarbinds(trap.objects.map(object => ({
+            oid: object.oid, type: object.input_type || 'String', value: '',
+          })));
+          else setPendingDefinition(trap.oid);
+        }
+      } else if (oid) { setTrapOid(oid); setPendingDefinition(oid); }
+    } catch { /* Navigation must work even if storage is disabled. */ }
   }, []);
+  useEffect(() => {
+    if (!pendingDefinition || !options.data?.traps) return;
+    const match = options.data.traps.find(trap => trap.oid === pendingDefinition ||
+      trap.full_name === pendingDefinition);
+    if (match?.objects?.length) setVarbinds(match.objects.map(object => ({
+      oid: object.oid, type: object.input_type || 'String', value: '',
+    })));
+    setPendingDefinition(null);
+  }, [options.data, pendingDefinition]);
   const filtered = useMemo(() => (paused && pausedRows ? pausedRows :
     Array.isArray(history.data?.data) ? history.data.data : []).filter(row =>
     JSON.stringify({ ...row, community: undefined }).toLowerCase().includes(search.toLowerCase())), [history.data, search, paused, pausedRows]);
@@ -85,7 +112,7 @@ export function TrapsPage() {
     setPaused(!paused);
   }
   function selectTrap(option: TrapOption) {
-    setTrapOid(option.oid);
+    setTrapOid(option.oid); setPendingDefinition(null);
     setVarbinds((option.objects || []).filter(x => x.oid).map(x => ({ oid: x.oid, type: x.input_type || 'String', value: '' })));
   }
   function changeVarbind(index: number, patch: Partial<Varbind>) {
@@ -150,7 +177,14 @@ export function TrapsPage() {
             <option value="">Choose predefined notification…</option>
             {options.data?.traps.map(o => <option key={o.full_name + o.oid} value={o.oid}>{o.full_name}</option>)}</select></Field>
         </div>
-        <StatusText busy={options.isPending} error={options.error} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <StatusText busy={options.isPending} error={options.error} />
+          <Link className="btn-secondary" to="/browser" onClick={() => sendToBrowser({
+            query: trapOid || 'linkDown', type: 'NotificationType',
+          })}>
+            <Bell size={16}/> Browse notification in MIBs
+          </Link>
+        </div>
         <div className="space-y-3">
           <div className="flex flex-wrap justify-between gap-2"><h3 className="font-semibold">Varbinds ({varbinds.length})</h3>
             <button className="btn-secondary" onClick={() => setVarbinds(old => [...old, { oid: '', type: 'String', value: '' }])}><Plus size={15} /> Add</button></div>
@@ -225,7 +259,9 @@ export function TrapsPage() {
         <JsonView data={{...selected,community: selected.community ? '********' : undefined}} />
         <div className="flex flex-wrap gap-2"><button className="btn-secondary" disabled={!selected.id} onClick={()=>setConfirm('replay')}><Send size={16}/> Replay to sender target</button>
           <button className="btn-secondary text-[var(--danger)]" disabled={!selected.id} onClick={()=>setConfirm('delete')}><Trash2 size={16}/> Delete event</button>
-          <Link className="btn-secondary" to="/browser" onClick={()=>{try{sessionStorage.setItem('browserSearchOid', String(selected.trap_type||''));}catch{/*optional*/}}}><Bell size={16}/> Inspect MIB</Link></div></div>}
+          <Link className="btn-secondary" to="/browser" onClick={() => sendToBrowser({
+            query: String(selected.trap_type || ''), type: 'NotificationType',
+          })}><Bell size={16}/> Inspect MIB</Link></div></div>}
     </Card>
     <ConfirmDialog danger open={confirm!==null} busy={pending} onCancel={()=>setConfirm(null)} onConfirm={()=>void confirmOperation()}
       title={confirm==='clear'?'Delete all received traps?':confirm==='delete'?'Delete this received trap?':'Replay the stored trap?'}

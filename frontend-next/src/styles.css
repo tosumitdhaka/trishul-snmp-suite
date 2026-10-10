@@ -235,3 +235,11 @@ select.field-input { padding-right: 2rem; }
   padding: .6rem .7rem; font-size: .875rem; color: var(--text); text-decoration: none;
 }
 .user-menu-item:hover, .user-menu-item:focus-visible { background: var(--surface-muted); }
+
+/* Compact simulator cards: editable data remains resizable but no longer dominates the page. */
+.simulator-data-editor {
+  height: 8.75rem;
+  min-height: 8rem;
+  max-height: 28rem;
+  resize: vertical;
+}
