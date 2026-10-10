@@ -1,18 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  Bell, Database, LayoutDashboard, LogOut, Menu, Moon, Network,
+  Bell, Database, LayoutDashboard, Menu, Moon, Network,
   Route as RouteIcon,
   Server, Settings, Sun, Wifi, WifiOff, X,
 } from 'lucide-react';
 import { Link, NavLink, useLocation } from 'react-router';
 import trishulLogo from '../../assets/trishul-icon.svg';
 import { workspaces, type Workspace } from '../../lib/navigation/workspaces';
-import { useAuth } from '../../lib/auth/AuthProvider';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { useTheme } from '../../lib/theme/ThemeProvider';
 import { WorkspaceSearch } from './WorkspaceSearch';
 import { NotificationCenter } from './NotificationCenter';
+import { UserMenu } from './UserMenu';
 import { ToastViewport } from './ToastViewport';
 
 export const SIDEBAR_STORAGE_KEY = 'trishul_next_sidebar_collapsed';
@@ -98,7 +98,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(getSavedSidebarCollapsed);
   const [isDesktop, setIsDesktop] = useState(getIsDesktopViewport);
-  const { auth, logout } = useAuth();
   const ws = useRealtime();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
@@ -208,12 +207,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
             {theme === 'light' ? <Moon size={18} aria-hidden="true" /> : <Sun size={18} aria-hidden="true" />}
           </button>
-          <button className="btn-secondary p-2 sm:px-3" type="button" onClick={() => void logout()} title="Log out">
-            <LogOut size={17} aria-hidden="true" />
-            <span className="hidden text-sm sm:inline">
-              {auth.state === 'authenticated' ? auth.username : 'Log out'}
-            </span>
-          </button>
+          <UserMenu />
         </header>
         <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-7 sm:py-8">
           <div id="workspace-content">{children}</div>

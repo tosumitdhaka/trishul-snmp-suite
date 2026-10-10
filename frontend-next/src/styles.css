@@ -185,3 +185,53 @@ select.field-input { padding-right: 2rem; }
 .browser-tree-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 1.8rem; height: 1.8rem; border-radius: .4rem; }
 .browser-tree-toggle:hover { background: var(--accent-soft); }
 .browser-tree-spacer { flex: 0 0 1.8rem; }
+
+/* State-aware operations: start and stop are one control, with reliable colors. */
+.btn-service-start, .btn-service-stop {
+  display: inline-flex; align-items: center; justify-content: center; gap: .55rem;
+  min-height: 2.65rem; padding: .625rem .95rem;
+  border: 1px solid transparent; border-radius: .65rem;
+  font-size: .875rem; font-weight: 700; color: #fff;
+}
+.btn-service-start { background: #147a3f; }
+.btn-service-start:hover:not(:disabled) { background: #106333; }
+.btn-service-stop { background: #b42318; }
+.btn-service-stop:hover:not(:disabled) { background: #8f1d15; }
+:root[data-theme="dark"] .btn-service-start { background: #4ade80; color: #0b2014; }
+:root[data-theme="dark"] .btn-service-stop { background: #fda4af; color: #3a0d14; }
+.btn-service-start:disabled, .btn-service-stop:disabled { opacity: .56; cursor: not-allowed; }
+.service-status {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border-radius: 999px; padding: .25rem .65rem; border: 1px solid var(--border);
+  font-size: .75rem; font-weight: 700; white-space: nowrap;
+}
+.service-status::before { content: ""; height: .4rem; width: .4rem; border-radius: 50%; background: currentColor; }
+.service-status-simulator { color: #4f46e5; background: #eef2ff; border-color: #c7d2fe; }
+.service-status-receiver { color: #0f766e; background: #ccfbf1; border-color: #99f6e4; }
+.service-status-off { color: var(--muted); background: var(--surface-muted); }
+:root[data-theme="dark"] .service-status-simulator { color: #c4b5fd; background: #2b2453; border-color: #55458d; }
+:root[data-theme="dark"] .service-status-receiver { color: #5eead4; background: #123a38; border-color: #245952; }
+
+/* Compact MIB browse controls: the tree is the primary content, not the filters. */
+.panel-compact .panel-heading { min-height: 0; padding: .7rem 1rem; }
+.panel-compact .panel-body { padding: .8rem 1rem; }
+.panel-compact .panel-heading h2 { font-size: .9rem; }
+.browser-browse-toolbar { min-width: 0; }
+.browser-filter-row .field-input { height: 2.6rem; }
+.browser-tree-toolbar { border-bottom: 1px solid var(--border); padding-bottom: .75rem; }
+.browser-tree-toolbar .field-input { height: 2.6rem; }
+.browser-tree-viewport { min-height: 22rem; max-height: min(68vh, 46rem); }
+.browser-tree-row-selected { box-shadow: inset 3px 0 0 var(--accent); }
+@media (max-width: 639px) {
+  .browser-tree-viewport { max-height: 55vh; }
+  .browser-tree-toolbar > div { width: 100%; }
+}
+
+/* Account actions dropdown */
+.user-menu-trigger { width: auto; padding-inline: .65rem; }
+.user-menu-item {
+  display: flex; align-items: center; gap: .7rem;
+  min-height: 2.55rem; width: 100%; border-radius: .55rem;
+  padding: .6rem .7rem; font-size: .875rem; color: var(--text); text-decoration: none;
+}
+.user-menu-item:hover, .user-menu-item:focus-visible { background: var(--surface-muted); }

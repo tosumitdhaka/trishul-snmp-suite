@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Download, Plus, Radio, RefreshCw, Search, Send, Trash2, X } from 'lucide-react';
+import { Bell, Download, Plus, RefreshCw, Search, Send, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
-import { Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
 
 type TrapOption = { name: string; full_name: string; oid: string; module?: string; objects?: { name: string; oid: string; input_type?: string }[] };
 type Varbind = { oid: string; type: string; value: string };
@@ -173,7 +173,7 @@ export function TrapsPage() {
         {operationResult != null && <details><summary className="cursor-pointer text-sm">Last transmission / replay response</summary><JsonView data={operationResult} /></details>}
       </Card>
       <Card title="Trap receiver" description="Receiver and source community settings are applied to the running backend."
-        trailing={<span role="status" className="text-sm">{status.isPending ? 'Checking…' : status.isError ? 'Unavailable' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
+        trailing={<span role="status" className={'service-status ' + (status.data?.running ? 'service-status-receiver' : 'service-status-off')}>{status.isPending ? 'Checking…' : status.isError ? 'Unavailable' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
         <StatusText busy={status.isPending} error={status.error} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Listener UDP port"><input className="field-input" type="number" min={1} max={65535} value={receiverPort}
@@ -184,8 +184,9 @@ export function TrapsPage() {
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={resolveMibs} onChange={e=>setResolveMibs(e.target.checked)} /> Resolve MIB names in received events</label>
         <p className="text-xs text-[var(--muted)]">Uptime: {status.data?.uptime_seconds == null ? '—' : status.data.uptime_seconds + 's'} · Live feed: {ws}</p>
         <div className="flex flex-wrap gap-2">
-          <button className="btn-primary" disabled={pending || status.isError || status.isPending || !!status.data?.running} onClick={() => void listener('start')}><Radio size={16}/> Start receiver</button>
-          <button className="btn-secondary" disabled={pending || status.isError || !status.data?.running} onClick={() => void listener('stop')}>Stop receiver</button>
+          <ServiceToggle noun="receiver" running={!!status.data?.running} busy={pending}
+            disabled={status.isError || status.isPending || !status.data}
+            onToggle={() => void listener(status.data?.running ? 'stop' : 'start')} />
           <button className="btn-secondary" disabled={pending || status.isPending || status.isError}
             onClick={() => void invoke('/api/traps/resolve-mibs', jsonPost({resolve_mibs:resolveMibs}), [['traps','status']])}>Apply MIB resolution</button>
           <button className="btn-secondary" onClick={() => void status.refetch()}><RefreshCw size={16}/> Refresh</button>
