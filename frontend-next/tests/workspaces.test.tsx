@@ -89,6 +89,7 @@ describe('remaining five React workspaces', () => {
     const receiver = screen.getByRole('region', { name: 'Trap receiver' });
     const start = await within(receiver).findByRole('button', { name: 'Start receiver' });
     expect(start).toHaveClass('btn-service-start');
+    await waitFor(() => expect(start).toBeEnabled());
     fireEvent.click(start);
     await waitFor(() => expect(calls.some(c => c.path === '/api/traps/start' && c.method === 'POST')).toBe(true));
   });
