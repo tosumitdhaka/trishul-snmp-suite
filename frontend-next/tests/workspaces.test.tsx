@@ -26,8 +26,8 @@ function fixture(path: string, method: string): unknown {
   if (path.startsWith('/api/mibs/objects?')) return { objects: [] };
   if (path === '/api/mibs/browse/modules') return { modules: [{ name: 'IF-MIB' }] };
   if (path.startsWith('/api/mibs/browse/search?')) return { count: 1, results: [{ oid: '1.3.6.1.2.1.2.2', name: 'ifTable', module: 'IF-MIB' }] };
-  if (path.startsWith('/api/mibs/browse/tree?')) return { count: 2, modules: [{ name: 'IF-MIB', children: [{ oid: '1.3.6.1.2.1.2.2', name: 'ifTable', module: 'IF-MIB', has_children: true }] }] };
-  if (path.startsWith('/api/mibs/browse/tree/oid?')) return { children: [], total_descendants: 0 };
+  if (path.startsWith('/api/mibs/browse/tree/module')) return { count: 2, modules: [{ name: 'IF-MIB', module: 'IF-MIB', oid: '1.3.6.1.2.1.2.2', object_count: 2, children: [{ oid: '1.3.6.1.2.1.2.2', name: 'ifTable', module: 'IF-MIB', has_children: true }] }] };
+  if (path.startsWith('/api/mibs/browse/tree/oid?')) return { root: {oid:'1.3.6.1',name:'internet'}, children: [{oid:'1.3.6.1.2', name:'mgmt',has_children:false}], total_descendants: 1 };
   if (path.startsWith('/api/mibs/browse/node/')) return { node: { oid: '1.3.6.1.2.1.2.2', name: 'ifTable', module: 'IF-MIB' }, breadcrumb: [] };
   if (path === '/api/mibs/status') return { loaded: 1, failed: 0, mibs: [{ name: 'IF-MIB', status: 'active', objects: 2 }], source_inventory: [
     { name: 'IF-MIB', relative_path: 'uploads/IF-MIB', source_group: 'uploaded', status: 'active', deletable: true },
@@ -82,13 +82,16 @@ describe('remaining five React workspaces', () => {
     expect(calls.some(c => c.method === 'DELETE')).toBe(false);
     expect(calls.some(c => c.path === '/api/traps/?limit=50&offset=0')).toBe(true);
   });
-  it('MIB Browser uses capped ranked search and lazy module-tree requests', async () => {
+  it('MIB Browser shows module roots by default, expands and switches to numeric OID view', async () => {
     mockApi(); setup(<BrowserPage />);
-    expect(await screen.findByRole('option', { name: 'IF-MIB' })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Module' }), { target: { value: 'IF-MIB' } });
-    expect(await screen.findByText('ifTable')).toBeInTheDocument();
-    expect(calls.some(c => c.path.startsWith('/api/mibs/browse/tree?module=IF-MIB'))).toBe(true);
-    expect(calls.some(c => c.path.startsWith('/api/mibs/browse/search?'))).toBe(false);
+    const tree = screen.getByRole('tree', { name: 'MIB module tree' });
+    expect(await within(tree).findByRole('button', { name: 'Expand IF-MIB' })).toBeInTheDocument();
+    expect(calls.some(c => c.path === '/api/mibs/browse/tree/module')).toBe(true);
+    fireEvent.click(within(tree).getByRole('button', { name: 'Expand IF-MIB' }));
+    expect(await within(tree).findByRole('button', { name: 'Expand ifTable' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'By OID' }));
+    expect(await screen.findByRole('tree', { name: 'Numeric OID tree' })).toBeInTheDocument();
+    expect(calls.some(c => c.path.startsWith('/api/mibs/browse/tree/oid?root_oid=1.3.6.1'))).toBe(true);
   });
   it('MIB Manager lists active sources and bundles, preventing immediate destructive actions', async () => {
     mockApi(); setup(<MibsPage />);

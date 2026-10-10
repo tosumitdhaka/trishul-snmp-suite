@@ -156,3 +156,32 @@ select.field-input { padding-right: 2rem; }
   .panel-heading { min-height: 0; }
   .notification-drawer { border-left: none; }
 }
+
+/* Layered, non-modal action toasts: no page reflow; Bell retains history. */
+.toast-item {
+  min-width: 0; padding: .9rem 1rem; border-radius: .75rem;
+  border-top: 1px solid var(--border); border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 10px 24px rgb(15 23 42 / .18);
+  animation: toast-enter .18s ease-out;
+}
+.toast-tone-success { border-left-color: var(--success); }
+.toast-tone-error { border-left-color: var(--danger); }
+.toast-tone-warning { border-left-color: var(--warning); }
+.toast-tone-info { border-left-color: var(--accent); }
+@keyframes toast-enter { from { transform: translateY(-7px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* MIB browser: tree and inspector share an operational workbench rhythm. */
+.browser-tree-viewport { min-height: 19rem; max-height: min(59vh, 38rem); }
+.browser-tree-row {
+  display: flex; align-items: center; min-height: 2.6rem;
+  gap: .35rem; padding: .25rem .75rem;
+  border-bottom: 1px solid var(--border);
+}
+.browser-tree-row:hover { background: var(--surface-muted); }
+.browser-tree-row-selected { background: var(--accent-soft); color: var(--accent); }
+.browser-module-row { background: var(--surface-muted); }
+.browser-tree-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 1.8rem; height: 1.8rem; border-radius: .4rem; }
+.browser-tree-toggle:hover { background: var(--accent-soft); }
+.browser-tree-spacer { flex: 0 0 1.8rem; }
