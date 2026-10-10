@@ -159,7 +159,7 @@ describe('Stage 3 Settings preview', () => {
     renderSettings();
     const section = screen.getByRole('region', { name: 'Statistics' });
     fireEvent.click(within(section).getByRole('button', { name: 'Export stats' }));
-    await waitFor(() => expect(within(section).getByText('Activity statistics exported.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Activity statistics exported.'));
     expect(calls.find((item) => item.path === '/api/stats/' && item.method === 'GET')?.token).toBe('test-token');
     expect(createUrl).toHaveBeenCalledOnce();
     expect(revokeUrl).toHaveBeenCalledWith('blob:mock-download');
