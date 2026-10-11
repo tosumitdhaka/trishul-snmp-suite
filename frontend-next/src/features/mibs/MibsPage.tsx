@@ -98,7 +98,7 @@ export function MibsPage() {
   const visible=shown.slice(page*pageSize,(page+1)*pageSize);
   const visibleNotifications=filteredNotifications.slice(page*pageSize,(page+1)*pageSize);
   const visibleSelectable=activeTab==='sources' ? visible.map(item=>item.relative_path||item.file||'').filter(Boolean)
-    : activeTab==='modules' ? visible.map(item=>item.name) : visibleNotifications.map(item=>item.oid);
+    : activeTab==='modules' ? visible.map(item=>item.name) : visibleNotifications.map(item=>item.full_name);
   const currentSelection=activeTab==='sources' ? selectedPaths : activeTab==='modules' ? selectedModules : selectedNotifications;
   const totalVisible=activeTab==='traps' ? filteredNotifications.length : shown.length;
   const deletable = selectedPaths.filter(path => status.data?.source_inventory?.some(row => row.deletable && (row.relative_path || row.file) === path));
@@ -293,7 +293,7 @@ export function MibsPage() {
             <thead><tr><th className="p-2">Select</th><th className="p-2">Notification</th><th className="p-2">OID</th><th className="p-2">Use</th></tr></thead><tbody>
               {visibleNotifications.map(t=><tr key={t.oid} className="border-t border-[var(--border)]">
                 <td className="p-2"><input type="checkbox" aria-label={'Select notification '+t.full_name}
-                  checked={selectedNotifications.includes(t.oid)} onChange={e=>updateSelection(t.oid,e.target.checked)}/></td>
+                  checked={selectedNotifications.includes(t.full_name)} onChange={e=>updateSelection(t.full_name,e.target.checked)}/></td>
                 <td className="p-2">{t.full_name}</td><td className="break-all p-2 font-mono">{t.oid}</td>
                 <td className="p-2"><div className="flex flex-wrap gap-2">
                   <Link to="/traps" className="btn-secondary" onClick={() => sendToTraps(t)}>
