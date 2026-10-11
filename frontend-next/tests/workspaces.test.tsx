@@ -349,6 +349,18 @@ describe('remaining five React workspaces', () => {
       format:'json', export_type:'catalog', modules:['IF-MIB'], notifications:['IF-MIB::linkDown'],
     });
   });
+  it('provides text cell labels and a separate sorter for compact Manager inventories',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    expect(within(inventory).getByRole('combobox',{name:'Sort inventory cards'})).toBeInTheDocument();
+    const checkbox=await within(inventory).findByRole('checkbox',{name:'Select IF-MIB'});
+    const labels=Array.from(checkbox.closest('tr')?.querySelectorAll('.manager-mobile-cell-label')||[]);
+    expect(labels.map(node=>node.textContent)).toEqual(['Select','Module / source','Source group','Status','Objects','Traps']);
+    fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
+    const notification=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
+    const notificationLabels=Array.from(notification.closest('tr')?.querySelectorAll('.manager-mobile-cell-label')||[]);
+    expect(notificationLabels.map(node=>node.textContent)).toEqual(['Select','Notification','OID','Module','Objects','Use']);
+  });
   it('restores legacy Manager catalog export formats and independent source group selection', async () => {
     mockApi(); setup(<MibsPage />);
     const exportPanel=screen.getByRole('region',{name:'Catalog export'});
