@@ -479,9 +479,18 @@ export function MibsPage() {
    </div> : null}
  </section>}
 </div>:<div className="space-y-4">
-          <Field label="Source files"><input id="mib-files" className="field-input h-auto" type="file" multiple
+          <div className="manager-dropzone" onDragOver={event=>event.preventDefault()} onDrop={event=>{
+            event.preventDefault();
+            const candidates=Array.from(event.dataTransfer.files);
+            const accepted=candidates.filter(file=>/\.(mib|txt|my)$/i.test(file.name));
+            if(accepted.length){setFiles(accepted);setValidation(null);setCompileTargets([]);}
+            if(accepted.length!==candidates.length)setNotice({tone:'error',text:'Only .mib, .txt and .my source files can be uploaded.'});
+          }}>
+            <p className="text-sm font-semibold">Drop MIB files here</p>
+            <p className="text-xs text-[var(--muted)]">Or use the accessible file selector below (.mib, .txt, .my).</p>
+            <Field label="Source files"><input id="mib-files" className="field-input h-auto" type="file" multiple
             accept=".mib,.txt,.my"
-            onChange={(e: ChangeEvent<HTMLInputElement>)=>{setFiles(Array.from(e.target.files||[]));setValidation(null);setCompileTargets([]);}} /></Field>
+            onChange={(e: ChangeEvent<HTMLInputElement>)=>{setFiles(Array.from(e.target.files||[]));setValidation(null);setCompileTargets([]);}} /></Field></div>
           <Field label="Source group" hint="Optional; uploaded group name stored by the backend."><input className="field-input" value={sourceGroup} onChange={e=>setSourceGroup(e.target.value)} /></Field>
           <Field label="Compile mode"><select className="field-input" value={compileMode} onChange={e=>setCompileMode(e.target.value)}>
             <option value="full">Full compile</option><option value="partial">Partial compile</option></select></Field>
