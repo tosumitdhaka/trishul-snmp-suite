@@ -18,7 +18,7 @@ function contrast(a: string, b: string): number {
 }
 describe('destructive button hover token contrast', () => {
   it('passes WCAG AA normal-text ratio in light and dark palettes', () => {
-    const palettes = [...css.matchAll(/:root(?:\\[data-theme="dark"\\])?\\s*\\{([^}]+)\\}/g)].map(x=>x[1]);
+    const palettes = [css.split(':root {')[1]?.split('}')[0], css.split(':root[data-theme="dark"] {')[1]?.split('}')[0]].filter((part): part is string => !!part);
     expect(palettes).toHaveLength(2);
     for(const palette of palettes) expect(contrast(token(palette, 'danger'),token(palette, 'on-danger-hover'))).toBeGreaterThanOrEqual(4.5);
   });
