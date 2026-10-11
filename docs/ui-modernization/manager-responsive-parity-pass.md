@@ -37,6 +37,13 @@ The upload interaction remains in a modal instead of an always-active legacy pan
 - GitHub Actions commands from `frontend-next/`: `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`; CI browser job records screenshot and error manifests. Consult the **latest** workflow run before asserting green status.
 - A synthetic-browser screenshot is **not** evidence of SNMP UDP traffic, backend mutation semantics, real MIB uploads, actual CSV content, screen-reader accessibility or real session rotation.
 
+## Final pre-live responsiveness follow-up
+
+- Trap received-event history now reflows into **labeled, expandable mobile cards** at phone widths, preserving keyboard-operable details, source, time, notification and pagination. Component tests assert labeled data and expansion. The browser fixture captures expanded event details in light/dark at 390/1024 px.
+- Manager export choices and panel filter geometry now have browser assertions; the screenshot job **fails** on browser exceptions, document horizontal overflow, colliding filter controls or missing legacy export choices. The legacy baseline requires exactly 56 captured pages without browser exceptions (it is no longer an optional CI step).
+- Source status labels display `Missing deps` rather than splitting `missing_deps` across narrow cells. Confirm, Settings and Trap catalog dialogs are constrained by viewport height.
+- Modern coverage is **112 screenshots** (84 responsive defaults, 24 Manager detail/dialog states, 4 expanded Traps), paired with **56 legacy synthetic captures**. The source-level comparison is still **not** network/device parity. See [live acceptance checklist](live-acceptance-checklist.md) for the ten local operation scenarios.
+
 ## Remaining acceptance gates
 
 1. Capture and inspect **paired legacy and modern screenshots** on a disposable **real FastAPI stack**, same installed MIB corpus and account, light/dark with representative empty, loaded, failed and large states.
