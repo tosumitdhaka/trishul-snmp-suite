@@ -324,7 +324,7 @@ export function BrowserPage() {
         <Card title={mode === 'module' ? 'MIB tree by module' : 'Numeric OID hierarchy'}
           description={count == null ? 'Loading active tree…' : count + ' ' + countLabel.toLowerCase()}>
           <div className="browser-tree-toolbar flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2"  aria-label="Tree expansion controls">
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Tree expansion controls">
               {!isSearching && <>
                 <label className="flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">Expand to
                   <select className="field-input w-28 text-sm" aria-label="Expansion depth" value={depth}
