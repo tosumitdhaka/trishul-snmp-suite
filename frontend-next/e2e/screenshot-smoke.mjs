@@ -98,6 +98,25 @@ try {
             await page.screenshot({path:join(artifacts,file),fullPage:true,animations:'disabled'});
             report.routes.push({workspace:'mibs',theme,width,sidebar:'expanded',state,screenshot:file});
           };
+          const managerLayout=await page.evaluate(()=>{
+            const filters=[...document.querySelectorAll('.manager-filter-grid label')];
+            const rectangles=filters.map(node=>node.getBoundingClientRect());
+            const overlaps=[];
+            for(let i=0;i<rectangles.length;i++)for(let j=i+1;j<rectangles.length;j++){
+              const a=rectangles[i],b=rectangles[j];
+              const overlapWidth=Math.min(a.right,b.right)-Math.max(a.left,b.left);
+              const overlapHeight=Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top);
+              if(overlapWidth>3&&overlapHeight>3)overlaps.push([i,j]);
+            }
+            const table=document.querySelector('.manager-inventory-table');
+            const scrollExcess=table?Math.max(0,table.scrollWidth-table.clientWidth):0;
+            const tabs=document.querySelector('.manager-inventory-tabs-row [role="group"]')?.getBoundingClientRect();
+            const refresh=document.querySelector('.manager-inventory-tabs-row button[aria-label="Refresh MIB inventory"]')?.getBoundingClientRect();
+            const controlsOverlap=!!tabs&&!!refresh&&Math.min(tabs.right,refresh.right)-Math.max(tabs.left,refresh.left)>3;
+            return {overlaps,scrollExcess,controlsOverlap};
+          });
+          if(managerLayout.overlaps.length || managerLayout.controlsOverlap || (width===390&&managerLayout.scrollExcess>4))
+            report.errors.push({theme,width,problem:'Manager panel alignment',managerLayout});
           const choices=await page.getByRole('combobox',{name:'Export type'}).locator('option').evaluateAll(nodes=>nodes.map(node=>node.value));
           if(choices.join(',')!=='catalog,summary,modules,objects,notifications')report.errors.push({theme,width,problem:'Catalog export type parity',choices});
           const tableDisplay=await page.locator('.manager-inventory-table table').evaluate(el=>globalThis.getComputedStyle(el).display);
