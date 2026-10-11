@@ -57,6 +57,8 @@ jobs:
         run: npm install --no-save --package-lock=false playwright@1.56.1
       - name: Install headless Chromium
         run: npx playwright install --with-deps chromium
+      - name: Build isolated preview for production-mode browser smoke
+        run: npm run build
       - name: Exercise seven workspaces and capture light/dark responsive screenshots
         run: node e2e/screenshot-smoke.mjs
       - name: Upload synthetic-fixture browser evidence
