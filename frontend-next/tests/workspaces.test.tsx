@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { SimulatorPage } from '../src/features/simulator/SimulatorPage';
@@ -75,6 +75,43 @@ describe('remaining five React workspaces', () => {
     const call = calls.find(c => c.path === '/api/simulator/start');
     expect(new Headers(call?.init.headers).get('X-Auth-Token')).toBe('test-token');
     expect(JSON.parse(String(call?.init.body))).toEqual({ port: 1061, community: 'public' });
+  });
+  it('preserves unsaved Simulator port/community after a live status change, then resets deliberately', async () => {
+    mockApi();
+    const { cache } = setup(<SimulatorPage />);
+    const panel=screen.getByRole('region',{name:'Runtime'});
+    const port=within(panel).getByRole('spinbutton',{name:'UDP port'});
+    const community=within(panel).getByLabelText('Community');
+    await waitFor(()=>expect(port).toBeEnabled());
+    fireEvent.change(port,{target:{value:'2061'}});
+    fireEvent.change(community,{target:{value:'private-draft'}});
+    act(()=>cache.setQueryData(['simulator','status'],{running:false,port:3061,community:'server-change'}));
+    await waitFor(()=>expect(port).toHaveValue(2061));
+    expect(community).toHaveValue('private-draft');
+    fireEvent.click(within(panel).getByRole('button',{name:'Reset to server'}));
+    expect(port).toHaveValue(3061);
+    expect(community).toHaveValue('server-change');
+  });
+  it('preserves unsaved Trap receiver fields through fresh status without masking new server values', async () => {
+    mockApi();
+    const { cache } = setup(<TrapsPage />);
+    const panel=screen.getByRole('region',{name:'Trap receiver'});
+    const port=within(panel).getByRole('spinbutton',{name:'Listener UDP port'});
+    const community=within(panel).getByLabelText('Listener community');
+    await waitFor(()=>expect(port).toBeEnabled());
+    fireEvent.change(port,{target:{value:'2262'}});
+    fireEvent.change(community,{target:{value:'trap-draft'}});
+    act(()=>cache.setQueryData(['traps','status'],{running:false,port:3362,community:'server-value',resolve_mibs:false}));
+    await waitFor(()=>expect(port).toHaveValue(2262));
+    expect(community).toHaveValue('trap-draft');
+    fireEvent.click(within(panel).getByRole('button',{name:'Reset to server'}));
+    expect(port).toHaveValue(3362);
+    expect(community).toHaveValue('server-value');
+  });
+  it('purges prior full Walker payload before any new walk', () => {
+    localStorage.setItem('trishul_next_walk_history',JSON.stringify([{result:{data:'secret-sentinel-not-to-survive'}}]));
+    mockApi();setup(<WalkerPage />);
+    expect(localStorage.getItem('trishul_next_walk_history')).toBeNull();
   });
   it('beautifies JSON locally without saving it until explicitly requested', async () => {
     mockApi(); setup(<SimulatorPage />);
