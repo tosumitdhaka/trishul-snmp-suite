@@ -55,7 +55,7 @@ export function ConfirmDialog({ title, message, open, danger = false, busy = fal
 }) {
   return <Dialog.Root open={open} onOpenChange={(isOpen) => { if (!isOpen && !busy) onCancel(); }}>
     <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/60" />
-      <Dialog.Content className="fixed left-1/2 top-1/2 z-70 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--text)] shadow-2xl">
+      <Dialog.Content className="fixed left-1/2 top-1/2 z-70 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--text)] shadow-2xl">
         <div className="flex items-center justify-between gap-3"><AlertTriangle size={22} className="text-[var(--warning)]" aria-hidden="true" />
           <Dialog.Close className="btn-secondary btn-icon-action" disabled={busy} aria-label="Close confirmation"><X size={16} /></Dialog.Close>
         </div>
