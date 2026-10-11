@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Download, Plus, RefreshCw, Search, Send, Trash2, X } from 'lucide-react';
+import { Bell, ChevronDown, ChevronRight, Download, Plus, RefreshCw, Search, Send, Trash2, X } from 'lucide-react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Link } from 'react-router';
 import { sendToBrowser, takeTrapHandoff } from '../../lib/navigation/handoff';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
-import { Card, ConfirmDialog, Field, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, IconAction, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
 
 type TrapOption = { name: string; full_name: string; oid: string; module?: string; objects?: { name: string; oid: string; input_type?: string }[] };
 type Varbind = { oid: string; type: string; value: string };
@@ -24,6 +26,9 @@ export function TrapsPage() {
   const [sendPort, setSendPort] = useState('1162');
   const [sendCommunity, setSendCommunity] = useState('public');
   const [trapOid, setTrapOid] = useState('');
+  const [suggest, setSuggest] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState('');
   const [varbinds, setVarbinds] = useState<Varbind[]>([]);
   const [selectedMode, setSelectedMode] = useState<'trap'|'inform'>('trap');
   const [search, setSearch] = useState('');
@@ -112,9 +117,21 @@ export function TrapsPage() {
     setPaused(!paused);
   }
   function selectTrap(option: TrapOption) {
-    setTrapOid(option.oid); setPendingDefinition(null);
+    setTrapOid(option.oid); setPendingDefinition(null); setSuggest(false); setCatalogOpen(false);
     setVarbinds((option.objects || []).filter(x => x.oid).map(x => ({ oid: x.oid, type: x.input_type || 'String', value: '' })));
   }
+  const matchingNotifications = useMemo(() => {
+    const needle = trapOid.trim().toLowerCase();
+    if (needle.length < 2 || !options.data?.traps) return [];
+    return options.data.traps.filter(t => [t.name,t.full_name,t.module,t.oid]
+      .some(v=>v?.toLowerCase().includes(needle))).slice(0,12);
+  }, [trapOid,options.data]);
+  const catalogMatches = useMemo(() => {
+    const needle = catalogQuery.trim().toLowerCase();
+    return (options.data?.traps || []).filter(t => !needle || [t.name,t.full_name,t.module,t.oid]
+      .some(v=>v?.toLowerCase().includes(needle))).slice(0,100);
+  }, [catalogQuery,options.data]);
+  const activeDefinition = options.data?.traps.find(t=>t.oid===trapOid || t.full_name===trapOid);
   function changeVarbind(index: number, patch: Partial<Varbind>) {
     setVarbinds(old => old.map((row,i) => i === index ? { ...row, ...patch } : row));
   }
@@ -172,24 +189,42 @@ export function TrapsPage() {
           <Field label="Community"><input className="field-input" type="password" autoComplete="off" value={sendCommunity} onChange={e => setSendCommunity(e.target.value)} /></Field>
           <Field label="Notification type"><select className="field-input" value={selectedMode} onChange={e => setSelectedMode(e.target.value as 'trap'|'inform')}>
             <option value="trap">SNMP Trap</option><option value="inform">SNMP Inform (wait for acknowledgment)</option></select></Field>
-          <Field label="Notification OID"><input className="field-input font-mono text-xs" value={trapOid} onChange={e => setTrapOid(e.target.value)} /></Field>
+          <div className="relative">
+            <Field label="Notification name or OID">
+              <input className="field-input font-mono text-xs" value={trapOid} autoComplete="off"
+                aria-label="Notification OID" aria-expanded={suggest && matchingNotifications.length>0}
+                aria-controls="notification-suggestions"
+                onChange={e=>{setTrapOid(e.target.value);setSuggest(true);}}
+                onFocus={()=>setSuggest(true)}
+                onKeyDown={e=>{if(e.key==='Escape')setSuggest(false);}}
+                placeholder="Type linkDown, IF-MIB::… or OID"/>
+            </Field>
+            {suggest && matchingNotifications.length>0 && <div id="notification-suggestions"
+              className="absolute left-0 right-0 top-full z-30 max-h-56 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
+              {matchingNotifications.map(t=><button key={t.oid} type="button"
+                className="block w-full rounded-md p-2 text-left text-xs hover:bg-[var(--surface-muted)]"
+                onMouseDown={e=>e.preventDefault()} onClick={()=>selectTrap(t)}>
+                <strong className="block">{t.full_name||t.name}</strong>
+                <span className="font-mono text-[var(--muted)]">{t.oid}</span>
+              </button>)}
+            </div>}
+          </div>
           <Field label="Catalog definition"><select className="field-input" value="" onChange={e => { const item=options.data?.traps.find(t=>t.oid === e.target.value); if(item)selectTrap(item); }}>
             <option value="">Choose predefined notification…</option>
             {options.data?.traps.map(o => <option key={o.full_name + o.oid} value={o.oid}>{o.full_name}</option>)}</select></Field>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <StatusText busy={options.isPending} error={options.error} />
-          <Link className="btn-secondary" to="/browser" onClick={() => sendToBrowser({
-            query: trapOid || 'linkDown', type: 'NotificationType',
-          })}>
-            <Bell size={16}/> Browse notification in MIBs
-          </Link>
+          <button type="button" className="btn-secondary" onClick={()=>{setCatalogQuery('');setCatalogOpen(true);}}>
+            <Bell size={16}/> Browse notification catalog
+          </button>
         </div>
         <div className="space-y-3">
           <div className="flex flex-wrap justify-between gap-2"><h3 className="font-semibold">Varbinds ({varbinds.length})</h3>
             <button className="btn-secondary" onClick={() => setVarbinds(old => [...old, { oid: '', type: 'String', value: '' }])}><Plus size={15} /> Add</button></div>
           {varbinds.map((row,i) => <div key={i} className="grid gap-2 rounded-lg bg-[var(--surface-muted)] p-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_auto]">
-            <label className="text-xs">OID<input aria-label={'Varbind ' + (i+1) + ' OID'} className="field-input font-mono text-xs" value={row.oid} onChange={e => changeVarbind(i,{oid:e.target.value})} /></label>
+            <label className="text-xs">{activeDefinition?.objects?.find(x=>x.oid===row.oid)?.name || 'OID'}
+              <input aria-label={'Varbind ' + (i+1) + ' OID'} className="field-input font-mono text-xs" value={row.oid} onChange={e => changeVarbind(i,{oid:e.target.value})} /></label>
             <label className="text-xs">Type<select aria-label={'Varbind '+(i+1)+' type'} className="field-input" value={row.type} onChange={e => changeVarbind(i,{type:e.target.value})}>
               {!varTypes.includes(row.type) && <option value={row.type}>{row.type}</option>}
               {varTypes.map(t=><option key={t}>{t}</option>)}</select></label>
@@ -215,14 +250,18 @@ export function TrapsPage() {
           <Field label="Listener community"><input className="field-input" type="password" autoComplete="off" value={receiverCommunity}
             disabled={!!status.data?.running || pending} onChange={e=>setReceiverCommunity(e.target.value)} /></Field>
         </div>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={resolveMibs} onChange={e=>setResolveMibs(e.target.checked)} /> Resolve MIB names in received events</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={resolveMibs} disabled={pending || status.isPending || status.isError}
+          onChange={e=>{const previous=resolveMibs;const next=e.target.checked;setResolveMibs(next);
+            void invoke('/api/traps/resolve-mibs',jsonPost({resolve_mibs:next}),[['traps','status'],historyKey])
+              .then(result=>{if(!result)setResolveMibs(previous);});}} />
+          Resolve MIB names in received events</label>
+        <p className="text-xs text-[var(--muted)]">Applies immediately without restarting the receiver. Resolved symbolic names are shown when the active MIB bundle recognizes an OID; unknown OIDs remain numeric.</p>
         <p className="text-xs text-[var(--muted)]">Uptime: {status.data?.uptime_seconds == null ? '—' : status.data.uptime_seconds + 's'} · Live feed: {ws}</p>
         <div className="flex flex-wrap gap-2">
           <ServiceToggle noun="receiver" running={!!status.data?.running} busy={pending}
             disabled={status.isError || status.isPending || !status.data}
             onToggle={() => void listener(status.data?.running ? 'stop' : 'start')} />
-          <button className="btn-secondary" disabled={pending || status.isPending || status.isError}
-            onClick={() => void invoke('/api/traps/resolve-mibs', jsonPost({resolve_mibs:resolveMibs}), [['traps','status']])}>Apply MIB resolution</button>
+
           <button className="btn-secondary" onClick={() => void status.refetch()}><RefreshCw size={16}/> Refresh</button>
         </div>
         <div className="border-t border-[var(--border)] pt-4">
@@ -238,31 +277,86 @@ export function TrapsPage() {
       <div className="flex flex-wrap gap-2">
         <label className="min-w-44 flex-1"><span className="sr-only">Filter current page</span><span className="flex items-center gap-2"><Search size={16}/>
           <input className="field-input" placeholder="Filter current page" value={search} onChange={e=>setSearch(e.target.value)}/></span></label>
-        <button className="btn-secondary" onClick={toggleHistoryPause}>{paused?'Resume':'Pause'} live updates</button>
-        <button className="btn-secondary" onClick={() => void history.refetch()}><RefreshCw size={16}/> Refresh</button>
-        <button className="btn-secondary" onClick={downloadCsv} disabled={!filtered.length}><Download size={16}/> Export current page CSV</button>
-        <button className="btn-secondary text-[var(--danger)]" disabled={pending || !history.data?.total} onClick={()=>setConfirm('clear')}><Trash2 size={16}/> Clear all</button>
+        <label className="flex items-center gap-2 px-2 text-xs font-medium"><input type="checkbox" checked={paused} onChange={toggleHistoryPause}/> Pause auto refresh</label>
+        <IconAction label="Refresh received traps" onClick={()=>{void history.refetch();}}><RefreshCw size={16}/></IconAction>
+        <button className="btn-secondary" onClick={downloadCsv} disabled={!filtered.length}><Download size={16}/> CSV</button>
+        <IconAction danger label="Clear received trap history" disabled={pending || !history.data?.total} onClick={()=>setConfirm('clear')}><Trash2 size={16}/></IconAction>
       </div>
       <StatusText busy={history.isPending} error={history.error} empty={!history.isPending && !filtered.length} />
-      <div className="max-h-[30rem] overflow-auto"><table className="min-w-full text-left text-xs"><thead><tr className="border-b border-[var(--border)]">
-        {['Time','Source','Notification','Actions'].map(x=><th className="p-3" key={x}>{x}</th>)}</tr></thead><tbody>
-        {filtered.map((row,i)=><tr key={row.id ?? i} className="border-b border-[var(--border)]">
-          <td className="whitespace-nowrap p-3">{displayValue(row.timestamp || row.time)}</td>
-          <td className="p-3">{displayValue(row.source)}</td><td className="max-w-64 break-all p-3">{displayValue(row.trap_type)}</td>
-          <td className="whitespace-nowrap p-2"><button className="btn-secondary" onClick={()=>setSelected(row)}>Inspect</button></td>
-        </tr>)}</tbody></table></div>
+      <div className="max-h-[30rem] overflow-auto"><table className="min-w-full text-left text-xs">
+        <thead><tr className="border-b border-[var(--border)]">
+          {['Time','Source','Notification','Details'].map(x=><th className="p-3" key={x}>{x}</th>)}
+        </tr></thead><tbody>
+        {filtered.map((row,i)=>{
+          const opened=selected === row || (selected?.id != null && selected.id===row.id);
+          return <React.Fragment key={row.id ?? i}>
+            <tr className={'cursor-pointer border-b border-[var(--border)] hover:bg-[var(--surface-muted)] '+(opened?'bg-[var(--accent-soft)]':'')}
+              onClick={()=>setSelected(opened?null:row)}>
+              <td className="whitespace-nowrap p-3">{displayValue(row.timestamp || row.time)}</td>
+              <td className="p-3">{displayValue(row.source)}</td>
+              <td className="max-w-64 break-all p-3 font-semibold">{displayValue(row.trap_type)}</td>
+              <td className="p-2"><button type="button" className="btn-secondary btn-icon-action"
+                aria-label={(opened?'Collapse':'Expand')+' trap event '+(row.id??i)} aria-expanded={opened}
+                onClick={event=>{event.stopPropagation();setSelected(opened?null:row);}}>
+                {opened?<ChevronDown size={16}/>:<ChevronRight size={16}/>}</button></td>
+            </tr>
+            {opened&&<tr className="border-b border-[var(--border)]"><td colSpan={4} className="p-4">
+              <section aria-label={'Event details '+(row.id??i)} className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-semibold">Event #{row.id??'—'} · {displayValue(row.trap_type)}</h3>
+                  <IconAction label="Close event details" onClick={()=>setSelected(null)}><X size={16}/></IconAction>
+                </div>
+                <p className="text-xs text-[var(--muted)]">MIB-resolved names where available. Numeric OIDs remain accessible below.</p>
+                {Array.isArray(row.varbinds) && row.varbinds.length>0 && <div className="space-y-2">
+                  {(row.varbinds as {name?:string;oid?:string;value?:unknown;enum_label?:string;units?:string}[]).map((vb,index)=>
+                    <div key={index} className="grid gap-1 rounded-md bg-[var(--surface-muted)] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      <div><strong className="block break-all">{vb.name||vb.oid||'Varbind'}</strong>
+                        <code className="block break-all text-[0.7rem] text-[var(--muted)]">{vb.oid||'—'}</code></div>
+                      <div className="break-words">{displayValue(vb.value)}{vb.enum_label?' · '+vb.enum_label:''}{vb.units?' '+vb.units:''}</div>
+                    </div>)}
+                </div>}
+                <details><summary className="cursor-pointer font-medium">Raw event fields</summary>
+                  <JsonView data={{...row,community:row.community?'********':undefined}}/></details>
+                <div className="flex flex-wrap gap-2">
+                  <button className="btn-secondary" disabled={!row.id} onClick={()=>{setSelected(row);setConfirm('replay');}}><Send size={16}/> Replay to sender target</button>
+                  <button className="btn-danger" disabled={!row.id} onClick={()=>{setSelected(row);setConfirm('delete');}}><Trash2 size={16}/> Delete event</button>
+                  <Link className="btn-secondary" to="/browser" onClick={()=>sendToBrowser({
+                    query:String(row.trap_type||''),type:'NotificationType',
+                  })}><Bell size={16}/> Inspect MIB</Link>
+                </div>
+              </section>
+            </td></tr>}
+          </React.Fragment>;
+        })}
+        </tbody></table></div>
       <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted)]"><span>{history.data ? offset+1 + '–' + (offset+filtered.length) + ' of ' + history.data.total : 'No history loaded'}</span>
         <div className="flex gap-2"><button className="btn-secondary" disabled={offset===0} onClick={()=>setOffset(x=>Math.max(0,x-50))}>Previous</button>
           <button className="btn-secondary" disabled={!history.data || offset+50>=history.data.total} onClick={()=>setOffset(x=>x+50)}>Next</button></div></div>
-      {selected && <div className="space-y-3 rounded-xl border border-[var(--border)] p-4"><div className="flex justify-between gap-3">
-        <h3 className="text-sm font-semibold">Selected event #{selected.id ?? '—'}</h3><button className="btn-secondary p-2" aria-label="Close selected event" onClick={()=>setSelected(null)}><X size={16}/></button></div>
-        <JsonView data={{...selected,community: selected.community ? '********' : undefined}} />
-        <div className="flex flex-wrap gap-2"><button className="btn-secondary" disabled={!selected.id} onClick={()=>setConfirm('replay')}><Send size={16}/> Replay to sender target</button>
-          <button className="btn-secondary text-[var(--danger)]" disabled={!selected.id} onClick={()=>setConfirm('delete')}><Trash2 size={16}/> Delete event</button>
-          <Link className="btn-secondary" to="/browser" onClick={() => sendToBrowser({
-            query: String(selected.trap_type || ''), type: 'NotificationType',
-          })}><Bell size={16}/> Inspect MIB</Link></div></div>}
     </Card>
+    <Dialog.Root open={catalogOpen} onOpenChange={setCatalogOpen}>
+      <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/50"/>
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-60 w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 text-[var(--text)] shadow-2xl">
+          <div className="flex items-center justify-between gap-2">
+            <Dialog.Title className="text-lg font-semibold">Notification catalog</Dialog.Title>
+            <Dialog.Close aria-label="Close notification catalog" className="btn-secondary btn-icon-action"><X size={16}/></Dialog.Close>
+          </div>
+          <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">Select a MIB notification to prefill the sender and its declared varbinds.</Dialog.Description>
+          <label className="mt-4 block text-sm font-semibold">Filter notifications
+            <input autoFocus className="field-input mt-1" value={catalogQuery}
+              onChange={e=>setCatalogQuery(e.target.value)} placeholder="Name, module or OID"/>
+          </label>
+          <div className="mt-3 max-h-[min(52vh,27rem)] overflow-y-auto rounded-lg border border-[var(--border)]">
+            <StatusText busy={options.isPending} error={options.error} empty={!options.isPending&&!catalogMatches.length}/>
+            {catalogMatches.map(t=><button key={t.oid} type="button" className="block w-full border-b border-[var(--border)] px-3 py-3 text-left hover:bg-[var(--surface-muted)]"
+              onClick={()=>selectTrap(t)}>
+              <strong className="block text-sm">{t.full_name||t.name}</strong>
+              <span className="break-all font-mono text-xs text-[var(--muted)]">{t.oid} · {t.objects?.length||0} objects</span>
+            </button>)}
+          </div>
+          {options.data?.traps && options.data.traps.length>100&&<p className="mt-2 text-xs text-[var(--muted)]">Showing first 100 matches. Narrow the filter for more.</p>}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
     <ConfirmDialog danger open={confirm!==null} busy={pending} onCancel={()=>setConfirm(null)} onConfirm={()=>void confirmOperation()}
       title={confirm==='clear'?'Delete all received traps?':confirm==='delete'?'Delete this received trap?':'Replay the stored trap?'}
       message={confirm==='clear'?'This permanently clears received trap history. Export first if needed.':

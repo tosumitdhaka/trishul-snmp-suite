@@ -26,10 +26,10 @@ function SummaryCard({
     state === 'stopped' ? 'text-[var(--muted)]' :
     state === 'warning' ? 'text-[var(--warning)]' : 'text-[var(--accent)]';
   return (
-    <div className="panel metric-card flex min-h-38 flex-col justify-between p-5">
+    <div className={'panel dashboard-summary dashboard-summary-' + state + ' metric-card flex min-h-38 flex-col justify-between p-5'}>
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-[var(--muted)]">{label}</p>
-        <div className="rounded-xl bg-[var(--accent-soft)] p-2.5 text-[var(--accent)]">
+        <div className="dashboard-summary-icon rounded-xl p-2.5">
           <Icon size={19} aria-hidden="true" />
         </div>
       </div>
@@ -204,7 +204,7 @@ export function DashboardPage() {
         </div>
         <dl className="grid grid-cols-2 sm:grid-cols-4">
           {getActivityCounts(stats.data, mibs.data).map((item) => (
-            <div key={item.label} className="min-w-0 border-b border-r border-[var(--border)] px-5 py-5 last:border-r-0 sm:px-6">
+            <div key={item.label} className="dashboard-activity-cell min-w-0 border-b border-r border-[var(--border)] px-5 py-5 last:border-r-0 sm:px-6">
               <dt className="text-xs font-medium text-[var(--muted)]">{item.label}</dt>
               <dd className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
                 {item.value === undefined && stats.isPending && item.label !== 'MIB sources'
@@ -227,7 +227,7 @@ export function DashboardPage() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {workspaces.filter((page) => page.path !== '/').map((page) => (
             <Link key={page.path} to={page.path}
-              className="group panel flex min-h-28 items-center justify-between gap-4 p-5 text-[var(--text)] no-underline transition-colors hover:border-[var(--accent)] hover:bg-[var(--surface-muted)]">
+              className="group panel dashboard-workspace-link flex min-h-28 items-center justify-between gap-4 p-5 text-[var(--text)] no-underline transition-colors hover:border-[var(--accent)] hover:bg-[var(--surface-muted)]">
               <span className="min-w-0">
                 <span className="block text-sm font-semibold">{page.label}</span>
                 <span className="mt-1 block text-xs leading-relaxed text-[var(--muted)]">{page.description}</span>

@@ -3,10 +3,10 @@ import { Link } from 'react-router';
 import { ArrowRight, BookOpen } from 'lucide-react';
 import { sendToBrowser, sendToWalker } from '../../lib/navigation/handoff';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, Save, Trash2, Download, Pause, Search } from 'lucide-react';
+import { RefreshCw, Save, Trash2, Download, Search, WandSparkles } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
-import { Card, ConfirmDialog, Field, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, IconAction, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
 
 interface SimulatorStatus { running?: boolean; port?: number; community?: string; uptime_seconds?: number; requests?: number; last_activity?: string | null }
 interface LogEntry { timestamp?: string; level?: string; message?: string; msg?: string; [key: string]: unknown }
@@ -56,6 +56,17 @@ export function SimulatorPage() {
       setNotice({ tone: 'error', text: 'Started with override warnings: ' + response.custom_data_warnings.join('; ') });
     }
   }
+  function formatJson() {
+    try {
+      const value: unknown = JSON.parse(editor);
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Expected a JSON object.');
+      const formatted = JSON.stringify(value, null, 2);
+      if (formatted !== editor) { setEditor(formatted); setDirty(true); }
+      setNotice({tone:'success',text:'JSON formatted locally. Save to apply changes on the server.'});
+    } catch (error) {
+      setNotice({tone:'error',text:error instanceof Error ? error.message : 'Invalid JSON.'});
+    }
+  }
   async function saveData() {
     let parsed: unknown;
     try {
@@ -85,7 +96,7 @@ export function SimulatorPage() {
             disabled={status.isError || status.isPending || !status.data}
             onToggle={() => void run(status.data?.running ? 'stop' : 'start')} />
           <button className="btn-secondary" disabled={pending || !status.data?.running || status.isError} onClick={() => void run('restart')}><RefreshCw size={16} /> Restart</button>
-          <button className="btn-secondary" onClick={() => void status.refetch()}><RefreshCw size={16} /> Refresh</button>
+          <IconAction label="Refresh simulator status" onClick={() => { void status.refetch(); }}><RefreshCw size={16}/></IconAction>
           <Link className="btn-secondary" to="/walker" onClick={() => sendToWalker({ target: '127.0.0.1', port: status.data?.port || positivePort(port) || 1061 })}>
             Walk simulator <ArrowRight size={15} />
           </Link>
@@ -101,9 +112,12 @@ export function SimulatorPage() {
             onChange={(e) => { setEditor(e.target.value); setDirty(true); }} /></Field>
         {dirty && <p role="status" className="text-xs text-[var(--warning)]">Unsaved custom-data edits</p>}
         <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary" type="button" onClick={formatJson} disabled={data.isPending || data.isError || pending}>
+            <WandSparkles size={16}/> Beautify JSON
+          </button>
           <button className="btn-primary" disabled={pending || !dirty || data.isPending || data.isError} onClick={() => void saveData()}><Save size={16} /> Save custom data</button>
           <button className="btn-secondary" disabled={!dirty} onClick={() => { setEditor(JSON.stringify(data.data ?? {}, null, 2)); setDirty(false); }}>Discard</button>
-          {data.data && <button className="btn-secondary" onClick={() => saveLocalFile(JSON.stringify(data.data, null, 2), 'trishul-simulator-data.json')}><Download size={16} /> Export JSON</button>}
+          {data.data && <button className="btn-secondary" onClick={() => saveLocalFile(JSON.stringify(data.data, null, 2), 'trishul-simulator-data.json')}><Download size={16}/> JSON</button>}
         </div>
       </Card>
     </div>
@@ -113,10 +127,15 @@ export function SimulatorPage() {
         <label><span className="sr-only">Log level</span><select className="field-input" value={level} onChange={e => setLevel(e.target.value)}>
           <option value="all">All levels</option>{['info','warning','error','debug'].map(item => <option key={item} value={item}>{item}</option>)}
         </select></label>
-        <button className="btn-secondary" onClick={() => setFollow(v => !v)}><Pause size={16} /> {follow ? 'Pause auto-refresh' : 'Resume auto-refresh'}</button>
-        <button className="btn-secondary" onClick={() => { void logs.refetch(); }}><RefreshCw size={16} /> Refresh</button>
-        <button className="btn-secondary" onClick={() => saveLocalFile(JSON.stringify(listed, null, 2), 'trishul-simulator-logs.json')} disabled={!listed.length}><Download size={16} /> Export</button>
-        <button className="btn-secondary text-[var(--danger)]" onClick={() => setConfirmClear(true)}><Trash2 size={16} /> Clear server logs</button>
+        <label className="flex items-center gap-2 rounded-lg px-2 text-xs font-medium">
+          <input type="checkbox" checked={!follow} onChange={e=>setFollow(!e.target.checked)}/> Pause auto refresh
+        </label>
+        <IconAction label="Refresh simulator logs" onClick={()=>{ void logs.refetch(); }}><RefreshCw size={16}/></IconAction>
+        <IconAction label="Download simulator logs JSON" disabled={!listed.length}
+          onClick={() => saveLocalFile(JSON.stringify(listed, null, 2), 'trishul-simulator-logs.json')}>
+          <Download size={16}/>
+        </IconAction>
+        <IconAction danger label="Clear simulator logs" onClick={()=>setConfirmClear(true)}><Trash2 size={16}/></IconAction>
       </div>
       <StatusText busy={logs.isPending} error={logs.error} empty={!listed.length && !logs.isPending && !logs.isError} />
       <div className="max-h-[24rem] space-y-1 overflow-auto" role="log" aria-label="Simulator activity" aria-live="off">

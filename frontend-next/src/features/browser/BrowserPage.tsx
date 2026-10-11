@@ -287,12 +287,13 @@ export function BrowserPage() {
               <button type="button" className={mode === 'oid' ? 'btn-primary' : 'btn-secondary'} onClick={() => switchMode('oid')}
                 aria-pressed={mode === 'oid'}><FolderTree size={16}/> By OID</button>
             </div>
-            {mode === 'module' ? <div className="flex min-w-48 flex-1 items-center gap-2">
-              <Search size={16} className="shrink-0 text-[var(--muted)]" aria-hidden="true"/>
-              <input aria-label="Search MIB symbols, OIDs and descriptions" className="field-input min-w-0 flex-1"
-                value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search ifDescr, OID or description" />
-              {filter && <button type="button" className="btn-secondary shrink-0 p-2" aria-label="Clear search"
-                onClick={() => { setFilter(''); setQuery(''); }}><X size={16}/></button>}
+            {mode === 'module' ? <div className="relative min-w-48 flex-1">
+              <input aria-label="Search MIB symbols, OIDs and descriptions" className="field-input w-full pr-11"
+                value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Search ifDescr, OID or description" />
+              {filter ? <button type="button" title="Clear search" aria-label="Clear search"
+                className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md hover:bg-[var(--surface-muted)]"
+                onClick={()=>{setFilter('');setQuery('');}}><X size={16}/></button>
+                : <Search size={16} aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"/>}
             </div> : <div className="flex min-w-44 flex-1 flex-wrap items-center gap-2">
               <input aria-label="Numeric OID root" className="field-input min-w-40 flex-1 font-mono text-sm"
                 value={rootInput} onChange={e => setRootInput(e.target.value)}
@@ -428,8 +429,9 @@ export function BrowserPage() {
               <button className="btn-secondary p-2" aria-label="Copy OID" onClick={()=>void copyValue(displayed?.oid||'','OID')}><ClipboardCopy size={16}/></button></div>
             <div className="flex flex-wrap items-center gap-2">
               <button className="btn-secondary" onClick={()=>void copyValue(displayed?.full_name||'','Symbolic name')} disabled={!displayed?.full_name}><ClipboardCopy size={16}/> Copy name</button>
-              <Link to="/walker" className="btn-secondary" onClick={()=>handoff('walker')}>Use in Walker <ArrowRight size={15}/></Link>
-              <Link to="/traps" className="btn-secondary" onClick={()=>handoff('traps')}>Use in Traps <ArrowRight size={15}/></Link>
+              {displayed?.type === 'NotificationType'
+                ? <Link to="/traps" className="btn-secondary" onClick={()=>handoff('traps')}>Use in Traps <ArrowRight size={15}/></Link>
+                : <Link to="/walker" className="btn-secondary" onClick={()=>handoff('walker')}>Use in Walker <ArrowRight size={15}/></Link>}
             </div>
           </div>
           <dl className="space-y-2 text-xs">
@@ -440,7 +442,11 @@ export function BrowserPage() {
                 <dt className="font-semibold text-[var(--muted)]">{label}</dt><dd className="break-words">{displayValue(value)}</dd>
               </div>)}
           </dl>
-          {displayed?.indexes?.length ? <div><h4 className="text-sm font-semibold">Table indexes</h4><p className="mt-1 break-words text-xs">{displayed.indexes.join(', ')}</p></div>:null}
+          {displayed?.indexes?.length ? <div><h4 className="text-sm font-semibold">Table index order</h4>
+            <ol className="mt-2 space-y-1">{displayed.indexes.map((index, position)=><li key={position}
+              className="flex items-center gap-3 rounded-lg bg-[var(--surface-muted)] px-3 py-2 text-xs">
+              <span className="w-5 shrink-0 font-semibold text-[var(--accent)]">{position+1}.</span><code className="break-all">{index}</code></li>)}</ol>
+          </div>:null}
           {displayed?.constraints && <div><h4 className="text-sm font-semibold">Constraints</h4>
             <p className="mt-1 text-xs">{displayed.constraints.kind}: {JSON.stringify(displayed.constraints.data)}</p></div>}
           {displayed?.enums && Object.keys(displayed.enums).length > 0 && <div>
