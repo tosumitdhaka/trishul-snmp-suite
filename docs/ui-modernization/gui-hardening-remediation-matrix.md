@@ -62,7 +62,7 @@
 |---|---|---|
 | Q01 | **Deferred** | Incremental pure helpers extracted; large page decomposition only where directly relevant. |
 | Q02 | **Deferred** | Full generated OpenAPI types and contract drift CI need dedicated backend-schema verification. |
-| Q03 | **Blocked** | No Playwright suite, browser binaries, browser screenshots or screen-reader evidence produced in this environment. |
+| Q03 | **Fixed** (synthetic browser evidence only) | Chromium/Playwright screenshot workflow captures 108 modern states (84 seven-route/theme/width/sidebar plus 24 Manager interaction states) and 56 matched legacy default-state captures. CI artifact confirms 164 PNG files and two manifests; keyboard-only, screen reader, 200% zoom and live backend parity remain unverified. |
 | Q04 | **Fixed** (boundary preserved) | No preview route or production wiring modifications; verify branch diff and legacy route separately. |
 | Q05 | **Blocked** | Real disposable backend, SNMP device, UDP trap/inform and MIB live fixture parity not exercised. |
 
@@ -104,6 +104,10 @@ Record **browser and version**, signed operator/date, backend/SNMP fixture, scre
 - [ ] Exercise live simulator start/stop, walks, trap send/receive/decode, MIB upload/fetch/compile/activate/rollback, settings authentication/rotation.
 - [ ] Contrast check of normal/hover/focus/disabled buttons, drawers and overlays in both themes.
 
-**Screenshots supplied:** none — browser capture not available here.  
+**Synthetic screenshots supplied:** [164-image legacy + React artifact](https://github.com/tosumitdhaka/trishul-snmp-suite/actions/runs/38138486869/artifacts/11702048157) (108 modern, 56 legacy; manifest records 0 Chromium exceptions and 0 document-level overflow cases for modern). Both related workflow jobs passed on 2026-10-11. This does **not** prove zero intra-panel clipping or live workflow parity.  
 **Live backend/SNMP checks performed:** none — real backend/device fixture not available here.  
 **Production readiness:** NOT CLAIMED. Draft preview only.
+
+## Manager-first second-pass follow-up (2026-10-11)
+
+The [detailed implementation ledger](manager-responsive-parity-pass.md) fixes visual issues UI-01/02/03 and part of UI-04/06/07 with testable panel-width layouts. Legacy MIB Manager source parity improved for export content options, search scopes, notification columns/sorting, and file drop. Shared synthetic legacy/modern screenshot fixture and optional legacy capture are now CI exercised. **Full parity still depends on a disposable real-backend comparison, large fixture data, 200% zoom and assistive technology; no production readiness asserted.**
