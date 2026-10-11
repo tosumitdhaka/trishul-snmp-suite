@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AlertTriangle, ArrowUpRight, Download, Info, KeyRound, RefreshCw, RotateCcw, Save, Settings2, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Download, Eye, EyeOff, Info, KeyRound, RefreshCw, RotateCcw, Save, Settings2, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router';
 import { apiRequest } from '../../lib/api/client';
 import type { AppMeta } from '../../lib/api/types';
@@ -53,7 +53,7 @@ function ConfirmAction({ kind, pending, onCancel, onConfirm }: {
         <Dialog.Description id="settings-confirm-description" className="text-sm leading-relaxed text-[var(--muted)]">{message}</Dialog.Description>
         <div className="flex flex-wrap justify-end gap-2 pt-2">
           <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button type="button" className={credential ? 'btn-primary' : 'btn-secondary border-[var(--danger)] text-[var(--danger)]'} disabled={pending} onClick={onConfirm}>
+          <button type="button" className={credential ? 'btn-primary' : 'btn-danger'} disabled={pending} onClick={onConfirm}>
             {pending ? 'Applying…' : credential ? 'Update and sign out' : 'Reset counters'}
           </button>
         </div>
@@ -62,6 +62,26 @@ function ConfirmAction({ kind, pending, onCancel, onConfirm }: {
   </Dialog.Root>;
 }
 
+function PasswordField({ id, label, value, onChange, autoComplete, minLength, invalid, describedBy }: {
+  id: string; label: string; value: string; onChange: (value: string) => void;
+  autoComplete: string; minLength?: number; invalid?: boolean; describedBy?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return <div>
+    <label htmlFor={id} className="field-label">{label}</label>
+    <div className="relative">
+      <input id={id} type={visible ? 'text' : 'password'} value={value}
+        onChange={e=>onChange(e.target.value)} autoComplete={autoComplete}
+        minLength={minLength} required aria-invalid={invalid || undefined}
+        aria-describedby={describedBy} className="field-input pr-11"/>
+      <button type="button" className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md hover:bg-[var(--surface-muted)]"
+        aria-label={(visible ? 'Hide ' : 'Show ') + label.toLowerCase()}
+        aria-pressed={visible} onClick={()=>setVisible(v=>!v)}>
+        {visible ? <EyeOff size={18} aria-hidden="true"/>:<Eye size={18} aria-hidden="true"/>}
+      </button>
+    </div>
+  </div>;
+}
 function PreferenceToggle({ id, label, checked, onChange, hint }: {
   id: string; label: string; checked: boolean; onChange: (value: boolean) => void; hint?: string;
 }) {
@@ -294,26 +314,21 @@ export function SettingsPage() {
             <p className="mt-1 text-xs text-[var(--muted)]">The backend does not allow username changes.</p>
           </div>
           <div>
-            <label htmlFor="settings-current-password" className="field-label">Current password</label>
-            <input id="settings-current-password" className="field-input" type="password" autoComplete="current-password"
-              required value={currentPassword} onChange={(e) => { setCurrentPassword(e.target.value); }} />
+            <PasswordField id="settings-current-password" label="Current password" value={currentPassword}
+              autoComplete="current-password" onChange={setCurrentPassword}/>
           </div>
           <div>
-            <label htmlFor="settings-new-password" className="field-label">New password</label>
-            <input id="settings-new-password" className="field-input" type="password" autoComplete="new-password"
-              required minLength={6} value={newPassword} onChange={(e) => { setNewPassword(e.target.value); }}
-              aria-describedby="settings-password-hint" />
+            <PasswordField id="settings-new-password" label="New password" value={newPassword}
+              autoComplete="new-password" minLength={6} describedBy="settings-password-hint" onChange={setNewPassword}/>
             <p id="settings-password-hint" className="mt-1 text-xs text-[var(--muted)]">
               At least six characters. Mix uppercase, lowercase, numbers and symbols.
               {newPassword && <span className="ml-2 font-semibold text-[var(--text)]">Strength: {passwordStrength(newPassword)}</span>}
             </p>
           </div>
           <div>
-            <label htmlFor="settings-confirm-password" className="field-label">Confirm new password</label>
-            <input id="settings-confirm-password" className="field-input" type="password" autoComplete="new-password"
-              required value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); }}
-              aria-invalid={!!confirmPassword && confirmPassword !== newPassword || undefined}
-              aria-describedby="settings-confirm-password-error" />
+            <PasswordField id="settings-confirm-password" label="Confirm new password" value={confirmPassword}
+              autoComplete="new-password" invalid={!!confirmPassword && confirmPassword !== newPassword}
+              describedBy="settings-confirm-password-error" onChange={setConfirmPassword}/>
             {confirmPassword && confirmPassword !== newPassword &&
               <p id="settings-confirm-password-error" role="alert" className="mt-1 text-xs text-[var(--danger)]">Passwords do not match.</p>}
           </div>
@@ -333,7 +348,7 @@ export function SettingsPage() {
           <button type="button" className="btn-secondary" onClick={() => void exportStats()} disabled={exporting || resetStats.isPending}>
             <Download size={16} aria-hidden="true" /> {exporting ? 'Exporting…' : 'Export stats'}
           </button>
-          <button type="button" className="btn-secondary border-[var(--danger)] text-[var(--danger)]"
+          <button type="button" className="btn-danger"
             onClick={() => { setConfirmation('reset'); }} disabled={exporting || resetStats.isPending}>
             <Trash2 size={16} aria-hidden="true" /> Reset stats
           </button>

@@ -1,13 +1,13 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { ArrowRight, BookOpen, Send } from 'lucide-react';
+import { BookOpen, Send, ChevronDown, ChevronRight } from 'lucide-react';
 import { sendToBrowser, sendToTraps } from '../../lib/navigation/handoff';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
 import { Download, FileUp, RefreshCw, Search, Trash2, GitCompareArrows, RotateCcw } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
-import { Card, ConfirmDialog, Field, JsonView, StatusText, displayValue, jsonPost, useOperatorApi } from '../shared/operator-ui';
+import { Card, ConfirmDialog, Field, IconAction, JsonView, StatusText, displayValue, jsonPost, useOperatorApi } from '../shared/operator-ui';
 
 interface MibSource {
   name: string; file?: string; relative_path?: string; status?: string; source_kind?: string;
@@ -39,6 +39,10 @@ export function MibsPage() {
   // A stale session is cleared by apiRequest on authenticated 401 responses.
   const [query, setQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'name'|'status'>('name');
+  const [page, setPage] = useState(0);
+  const [inspectSource, setInspectSource] = useState<string|null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [sourceGroup, setSourceGroup] = useState('');
   const [compileMode, setCompileMode] = useState('full');
@@ -73,7 +77,14 @@ export function MibsPage() {
   const all = activeTab === 'sources' ? status.data?.source_inventory || [] : status.data?.mibs || [];
   const shown = useMemo(() => all.filter(item =>
     (!groupFilter || item.source_group === groupFilter) &&
-    (!query || JSON.stringify(item).toLowerCase().includes(query.toLowerCase()))), [all, query, groupFilter]);
+    (!statusFilter || (item.status||'active').toLowerCase() === statusFilter) &&
+    (!query || [item.name,item.file,item.relative_path,item.source_group,item.status,item.error]
+      .some(value=>value?.toLowerCase().includes(query.toLowerCase()))))
+    .sort((a,b)=>String(a[sortBy]||'').localeCompare(String(b[sortBy]||''))), [all,query,groupFilter,statusFilter,sortBy]);
+  const pageSize=75;
+  const visible=shown.slice(page*pageSize,(page+1)*pageSize);
+  const visibleSelectable=visible.filter(item=>activeTab==='sources' && item.deletable && (item.relative_path||item.file))
+    .map(item=>item.relative_path||item.file||'');
   const deletable = selectedPaths.filter(path => status.data?.source_inventory?.some(row => row.deletable && (row.relative_path || row.file) === path));
   function makeUploadForm() {
     const form = new FormData();
@@ -164,29 +175,60 @@ export function MibsPage() {
   return <div className="workspace-page">
     <header><p className="eyebrow">MIB Workbench / Manager</p><h1 className="mt-1 text-2xl font-semibold">MIB source &amp; bundle manager</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">Review active modules, validate sources, manage bundles and export catalogs.</p></header>
-    <div className="flex flex-wrap gap-2">
-      <Link className="btn-secondary" to="/browser"><BookOpen size={16}/> Browse active MIBs <ArrowRight size={15}/></Link>
-      <Link className="btn-secondary" to="/traps"><Send size={16}/> Notification sender</Link>
-    </div>
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {([['Active modules',status.data?.loaded],['Failed sources',status.data?.failed],['Active bundle',status.data?.active_bundle_label],['Producer',status.data?.producer_version]] as [string,unknown][]).map(([label,value]) =>
-        <div className="panel metric-card p-5" key={label}><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 break-words text-xl font-semibold">{displayValue(value)}</p></div>)}
+    <div className="manager-stat-strip">
+      {([['Modules',status.data?.loaded],['Failed sources',status.data?.failed],
+        ['Bundle',status.data?.active_bundle_label],['Compiler',status.data?.producer_version]] as [string,unknown][]).map(([label,value])=>
+        <div className="manager-stat" key={label}><span className="text-xs text-[var(--muted)]">{label}</span>
+          <strong className="block truncate text-base font-semibold" title={displayValue(value)}>{displayValue(value)}</strong></div>)}
     </div>
     {status.data?.recompile_recommended && <p role="status" className="rounded-xl bg-[var(--accent-soft)] p-4 text-sm text-[var(--warning)]">
       The active bundle was produced by an older compiler. Review the source and compile history before reloading.</p>}
-    <div className="workspace-grid workspace-grid--split">
-      <Card title="Catalog & source inventory" description="Source status includes active, pending, failed and shadowed entries.">
-        <div className="flex flex-wrap items-center gap-2">
-          {(['sources','modules','traps'] as const).map(tab => <button key={tab} className={activeTab===tab?'btn-primary':'btn-secondary'} onClick={()=>setActiveTab(tab)}>{tab}</button>)}
-          <button className="btn-secondary" onClick={()=>{void status.refetch();void bundles.refetch();}}><RefreshCw size={15}/> Refresh</button>
+    <div className="workspace-stack">
+      <Card title="Catalog & source inventory" description="Filter source files, loaded modules and notifications. Selection applies only to deletable uploaded sources.">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div role="group" aria-label="Inventory views" className="flex flex-wrap gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
+            {(['sources','modules','traps'] as const).map(tab=><button type="button" key={tab}
+              aria-pressed={activeTab===tab} className={activeTab===tab?'btn-primary':'btn-secondary'}
+              onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);}}>
+              {tab==='sources'?'Sources':tab==='modules'?'Modules':'Notifications'}
+            </button>)}
+          </div>
+          <IconAction label="Refresh MIB inventory" onClick={()=>{void status.refetch();void bundles.refetch();}}><RefreshCw size={16}/></IconAction>
         </div>
-        <label className="flex items-center gap-2"><Search size={16}/><span className="sr-only">Filter MIB inventory</span>
-          <input className="field-input" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Filter sources or modules" /></label>
-        <label className="text-xs">Source group <select className="field-input mt-1" value={groupFilter} onChange={e=>setGroupFilter(e.target.value)}>
-          <option value="">All groups</option>{status.data?.source_groups?.map(g=><option key={g.name} value={g.name}>{g.name} ({g.file_count})</option>)}</select></label>
+        <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto]">
+          <label className="relative min-w-0"><span className="sr-only">Search inventory</span>
+            <input className="field-input pr-9" value={query} placeholder="Search module, file or status"
+              onChange={e=>{setQuery(e.target.value);setPage(0);}}/>
+            <Search size={15} className="pointer-events-none absolute right-3 top-3 text-[var(--muted)]"/>
+          </label>
+          <label className="text-xs font-medium">Source group
+            <select className="field-input mt-1" value={groupFilter} onChange={e=>{setGroupFilter(e.target.value);setPage(0);}}>
+              <option value="">All groups</option>{status.data?.source_groups?.map(g=><option key={g.name} value={g.name}>{g.name} ({g.file_count})</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-medium">Status
+            <select className="field-input mt-1" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(0);}}>
+              <option value="">All statuses</option>{['active','pending','failed','shadowed','error'].map(item=><option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-medium">Sort
+            <select className="field-input mt-1" value={sortBy} onChange={e=>setSortBy(e.target.value as 'name'|'status')}>
+              <option value="name">Name</option><option value="status">Status</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
+          <span>{activeTab==='traps' ? (traps.data?.traps.length??'…')+' notifications' :
+            shown.length+' of '+all.length+' records'} · {selectedPaths.length} selected</span>
+          {activeTab==='sources' && <button type="button" className="btn-secondary" disabled={!visibleSelectable.length}
+            onClick={()=>setSelectedPaths(old=>visibleSelectable.every(path=>old.includes(path)) ?
+              old.filter(path=>!visibleSelectable.includes(path)) : [...new Set([...old,...visibleSelectable])])}>
+              {visibleSelectable.length && visibleSelectable.every(path=>selectedPaths.includes(path))?'Deselect visible':'Select visible'}
+            </button>}
+        </div>
         <StatusText busy={status.isPending} error={status.error} empty={!status.isPending && !shown.length && activeTab !== 'traps'} />
         {activeTab === 'traps' ? <><StatusText busy={traps.isPending} error={traps.error} empty={!traps.isPending && !traps.data?.traps.length}/>
-          <div className="max-h-[35rem] overflow-auto"><table className="min-w-full text-left text-xs">
+          <div className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
             <thead><tr><th className="p-2">Notification</th><th className="p-2">OID</th><th className="p-2">Use</th></tr></thead><tbody>
               {traps.data?.traps.filter(x=>!query||JSON.stringify(x).toLowerCase().includes(query.toLowerCase())).map(t=><tr key={t.oid} className="border-t border-[var(--border)]">
                 <td className="p-2">{t.full_name}</td><td className="break-all p-2 font-mono">{t.oid}</td>
@@ -199,28 +241,46 @@ export function MibsPage() {
                   })}><BookOpen size={15}/> Browse</Link>
                 </div></td></tr>)}
             </tbody></table></div></> :
-          <div className="max-h-[35rem] overflow-auto"><table className="min-w-full text-left text-xs">
+          <div className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
             <thead className="sticky top-0 bg-[var(--surface-muted)]"><tr><th className="p-2">Select</th><th className="p-2">Module / file</th><th className="p-2">Status</th><th className="p-2">Objects</th><th className="p-2">Traps</th></tr></thead>
-            <tbody>{shown.map((item,i)=>{const path=item.relative_path || item.file || '';return <tr key={path+item.name+i} className="border-t border-[var(--border)]">
+            <tbody>{visible.map((item,i)=>{const path=item.relative_path || item.file || '';const open=inspectSource===(path||item.name);return <tr key={path+item.name+i}
+              className="border-t border-[var(--border)] hover:bg-[var(--surface-muted)]">
               <td className="p-2">{activeTab==='sources'&&item.deletable&&path&&<input aria-label={'Select '+path} type="checkbox" checked={selectedPaths.includes(path)}
                 onChange={e=>setSelectedPaths(old=>e.target.checked?[...old,path]:old.filter(p=>p!==path))}/>}</td>
               <td className="max-w-64 break-words p-2"><span className="font-semibold">{item.name}</span>
                 <span className="block break-all font-mono text-[var(--muted)]">{path}</span>
                 {item.source_group && <span className="block text-[var(--muted)]">{item.source_group}</span>}
                 {item.error && <span className="block text-[var(--danger)]">{item.error}</span>}
+                {(item.imports?.length || item.missing_deps?.length || item.active_relative_path) && <div className="mt-2">
+                  <button type="button" className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                    aria-expanded={open} onClick={()=>setInspectSource(open?null:(path||item.name))}>
+                    {open?<ChevronDown size={14}/>:<ChevronRight size={14}/>} {open?'Hide source details':'Source details'}
+                  </button>
+                  {open&&<div className="mt-2 space-y-1 rounded-md border border-[var(--border)] p-2 text-xs">
+                    {item.active_relative_path&&<p>Active path: <code className="break-all">{item.active_relative_path}</code></p>}
+                    {!!item.imports?.length&&<p>Imports: {item.imports.join(', ')}</p>}
+                    {!!item.missing_deps?.length&&<p className="text-[var(--danger)]">Missing: {item.missing_deps.join(', ')}</p>}
+                  </div>}
+                </div>}
                 {activeTab === 'modules' && <Link className="mt-1 inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
                   to="/browser" onClick={() => sendToBrowser({ module: item.name })}>
                   <BookOpen size={13}/> Browse module
                 </Link>}</td>
-              <td className="p-2">{item.status||'active'}</td><td className="p-2">{item.objects??'—'}</td><td className="p-2">{item.traps??'—'}</td>
+              <td className="p-2"><span className={'manager-status manager-status-'+(item.status||'active').toLowerCase()}>
+                {item.status||'active'}</span></td><td className="p-2">{item.objects??'—'}</td><td className="p-2">{item.traps??'—'}</td>
             </tr>})}</tbody></table></div>}
+        {activeTab!=='traps' && shown.length>pageSize && <div className="flex items-center justify-end gap-2 text-xs">
+          <span>Page {page+1} of {Math.ceil(shown.length/pageSize)}</span>
+          <button className="btn-secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</button>
+          <button className="btn-secondary" disabled={(page+1)*pageSize>=shown.length} onClick={()=>setPage(p=>p+1)}>Next</button>
+        </div>}
         <div className="flex flex-wrap gap-2">
           <button className="btn-secondary" disabled={!selectedPaths.length||downloading}
             onClick={()=>void download('/api/mibs/download',{paths:selectedPaths},'trishul-mib-sources.zip')}><Download size={16}/> Download selected ({selectedPaths.length})</button>
-          <button className="btn-secondary text-[var(--danger)]" disabled={!deletable.length||pending} onClick={()=>setConfirm('delete')}><Trash2 size={16}/> Delete selected ({deletable.length})</button>
+          <button className="btn-danger" disabled={!deletable.length||pending} onClick={()=>setConfirm('delete')}><Trash2 size={16}/> Delete selected ({deletable.length})</button>
         </div>
       </Card>
-      <div className="workspace-stack">
+      <div className="manager-tools-grid">
         <Card title="Validate and upload" description="Validate without persisting; upload with explicit compile mode.">
           <Field label="Source files"><input id="mib-files" className="field-input h-auto" type="file" multiple
             accept=".mib,.txt,.my"
@@ -249,7 +309,7 @@ export function MibsPage() {
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={reloadAfterFetch} onChange={e=>setReloadAfterFetch(e.target.checked)}/> Reload after fetching</label>
           <button className="btn-secondary" disabled={!asList(dependencies).length||pending} onClick={()=>setConfirm('fetch')}><Download size={16}/> Fetch dependencies</button>
         </Card>
-        <Card title="Catalog export" description="Export only the desired catalog format.">
+        <Card title="Catalog export" description="Choose what to export, and the output format.">
           <div className="grid grid-cols-2 gap-2">
             <Field label="Format"><select className="field-input" value={exportFormat} onChange={e=>setExportFormat(e.target.value)}><option value="json">JSON</option><option value="csv">CSV</option></select></Field>
             <Field label="Export type"><select className="field-input" value={exportType} onChange={e=>setExportType(e.target.value)}>

@@ -30,7 +30,7 @@ export function WalkerPage() {
   const [retries, setRetries] = useState('1');
   const [parse, setParse] = useState(true);
   const [useMibs, setUseMibs] = useState(true);
-  const [layout, setLayout] = useState('flat');
+  const [layout, setLayout] = useState('grouped');
   const [loading, setLoading] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const { notify } = useNotifications();
@@ -41,7 +41,7 @@ export function WalkerPage() {
   const [result, setResult] = useState<WalkResponse | null>(null);
   const [history, setHistory] = useState(readHistory);
   const [search, setSearch] = useState('');
-  const [view, setView] = useState<'table' | 'raw' | 'parsed'>('table');
+  const [view, setView] = useState<'table' | 'raw' | 'parsed'>('raw');
   const [sort, setSort] = useState<{ field: string; reverse: boolean } | null>(null);
   useEffect(() => {
     try {
@@ -62,6 +62,14 @@ export function WalkerPage() {
     if (sort) subset.sort((a,b) => displayValue(a[sort.field]).localeCompare(displayValue(b[sort.field]), undefined, { numeric: true }) * (sort.reverse ? -1 : 1));
     return subset;
   }, [rows, search, sort]);
+  const groups = useMemo(() => {
+    const byCategory = new Map<string, Record<string, unknown>[]>();
+    for (const item of filtered) {
+      const category = String(item.metric_category || item.mib_module || item.module || 'Other objects');
+      byCategory.set(category, [...(byCategory.get(category) || []), item]);
+    }
+    return [...byCategory.entries()];
+  }, [filtered]);
   const columns = useMemo(() => [...new Set(rows.slice(0, 100).flatMap(row => Object.keys(row)))].slice(0, 12), [rows]);
   function persist(next: WalkRecord[]) {
     setHistory(next);
@@ -81,10 +89,10 @@ export function WalkerPage() {
     try {
       const next = await apiRequest<WalkResponse>('/api/walk/execute', token, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: abort.signal,
-        body: JSON.stringify({ target: target.trim(), port: portNumber, community, oid: oid.trim(), parse, use_mibs: useMibs, json_format: layout, timeout_ms: ms, retries: retryCount }),
+        body: JSON.stringify({ target: target.trim(), port: portNumber, community, oid: oid.trim(), parse, use_mibs: layout === 'grouped' && parse ? true : useMibs, json_format: layout, timeout_ms: ms, retries: retryCount }),
       });
       if (abort.signal.aborted) return;
-      setResult(next); setSearch(''); setSort(null); setView('table');
+      setResult(next); setSearch(''); setSort(null); setView('raw');
       const record: WalkRecord = { target: target.trim(), oid: oid.trim(), port: portNumber, count: next.count, at: new Date().toISOString(), result: next };
       persist([record, ...history.filter(item => item.target !== record.target || item.oid !== record.oid)].slice(0, 12));
       setNotice({ tone: 'success', text: 'Walk completed: ' + next.count + ' OIDs returned.' });
@@ -111,10 +119,11 @@ export function WalkerPage() {
           <Field label="Root OID"><input className="field-input font-mono text-xs" required value={oid} onChange={e => setOid(e.target.value)} /></Field>
           <Field label="Timeout (ms)"><input className="field-input" type="number" min="500" max="10000" value={timeout} onChange={e => setTimeoutValue(e.target.value)} /></Field>
           <Field label="Retries"><input className="field-input" type="number" min="0" max="5" value={retries} onChange={e => setRetries(e.target.value)} /></Field>
-          <Field label="JSON layout"><select className="field-input" value={layout} onChange={e => setLayout(e.target.value)}><option value="flat">Flat</option><option value="nested">Nested</option></select></Field>
+          <Field label="JSON layout"><select className="field-input" disabled={!parse} value={layout} onChange={e => setLayout(e.target.value)}><option value="flat">Flat</option><option value="grouped">Grouped metrics (category / labels)</option></select></Field>
           <div className="flex flex-col justify-center gap-3 pt-3 text-sm">
             <label><input type="checkbox" className="mr-2 accent-[var(--accent)]" checked={parse} onChange={e => setParse(e.target.checked)} /> Parse results</label>
-            <label><input type="checkbox" className="mr-2 accent-[var(--accent)]" checked={useMibs} onChange={e => setUseMibs(e.target.checked)} /> Resolve using MIBs</label>
+            <label><input type="checkbox" className="mr-2 accent-[var(--accent)]" checked={layout === 'grouped' && parse ? true : useMibs}
+              disabled={layout === 'grouped' && parse} onChange={e=>setUseMibs(e.target.checked)}/> Resolve using MIBs</label>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -132,22 +141,34 @@ export function WalkerPage() {
         {result ? <>
           <div className="flex flex-wrap gap-2">
             <label className="min-w-44 flex-1"><span className="sr-only">Filter results</span><span className="flex items-center gap-2"><Search size={16} /><input className="field-input" placeholder="Filter OIDs and values" value={search} onChange={e => setSearch(e.target.value)} /></span></label>
-            {(['table','parsed','raw'] as const).map(mode => <button type="button" key={mode} className={view === mode ? 'btn-primary' : 'btn-secondary'} onClick={() => setView(mode)}>{mode}</button>)}
+            {(['raw','table','parsed'] as const).map(mode => <button type="button" key={mode}
+              aria-pressed={view===mode} className={view===mode?'btn-primary':'btn-secondary'} onClick={()=>setView(mode)}>
+              {mode==='table'?'Grouped table':mode==='parsed'?'Parsed JSON':'Raw'}
+            </button>)
             <SaveDataButton value={result.data} filename="trishul-walk.json" />
             <button className="btn-secondary" type="button" disabled={!filtered.length} onClick={exportTable}><Download size={16} /> TSV</button>
           </div>
-          {view !== 'table' ? <JsonView data={view === 'raw' ? result.rawLines ?? result.data : result.data} /> :
-            filtered.length ? <div className="max-h-[38rem] overflow-auto"><table className="min-w-full text-left text-xs">
+          {view === 'raw' ? <pre aria-label="Raw SNMP walk result" className="max-h-[38rem] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--surface-muted)] p-4 font-mono text-xs leading-relaxed">
+              {result.rawLines?.length ? result.rawLines.join('\n') : Array.isArray(result.data) && result.mode === 'raw'
+                ? result.data.join('\n') : JSON.stringify(result.data, null, 2)}
+            </pre> : view === 'parsed' ? <JsonView data={result.data}/> :
+            filtered.length ? <div className="max-h-[38rem] overflow-auto"><p className="p-2 text-xs text-[var(--muted)]">
+              {groups.length} categories · {filtered.length} visible rows · grouped by MIB metric category/module when available
+            </p>{groups.map(([category, items]) => <section key={category} aria-label={'Category: '+category}>
+              <h3 className="sticky top-0 z-10 border-y border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm font-semibold">
+                {category} <span className="ml-2 text-xs font-normal text-[var(--muted)]">{items.length} entries</span>
+              </h3>
+              <table className="min-w-full text-left text-xs">
               <thead className="sticky top-0 bg-[var(--surface-muted)]"><tr>{columns.map(key => <th key={key} className="p-3">
                 <button className="font-semibold" onClick={() => setSort(old => ({ field: key, reverse: old?.field === key ? !old.reverse : false }))}>{key} ↕</button></th>)}</tr></thead>
-              <tbody>{filtered.map((row,i) => <tr className="border-t border-[var(--border)]" key={i}>
+              <tbody>{items.map((row,i) => <tr className="border-t border-[var(--border)]" key={i}>
                 {columns.map(key => <td key={key} className="max-w-96 break-all p-3 font-mono">
                   {key.toLowerCase() === 'oid' && typeof row[key] === 'string' && row[key] ?
                     <Link to="/browser" className="link" title={'Browse ' + row[key]}
                       onClick={() => sendToBrowser({ query: row[key] as string })}>{row[key] as string}</Link>
                     : displayValue(row[key])}
                 </td>)}</tr>)}</tbody>
-            </table></div> : <p className="text-sm text-[var(--muted)]">No result rows match the filter, or the returned result cannot be tabulated. Use the Parsed/Raw view.</p>}
+              </table></section>)}</div> : <p className="text-sm text-[var(--muted)]">No result rows match the filter, or the returned result cannot be tabulated. Use the Parsed/Raw view.</p>}
         </> : <p className="text-sm text-[var(--muted)]">Execute a walk or open an earlier result from history.</p>}
       </Card>
       <Card title="Recent walks" description="Saved in this browser only; never stores SNMP communities.">
@@ -158,7 +179,7 @@ export function WalkerPage() {
           <strong className="block">{record.target}</strong><span className="block break-all font-mono text-xs">{record.oid}</span>
           <span className="block text-xs text-[var(--muted)]">{record.count} OIDs · {new Date(record.at).toLocaleString()}</span>
         </button>)}</div>
-        {history.length > 0 && <button className="btn-secondary" onClick={() => persist([])}><Trash2 size={16} /> Clear local history</button>}
+        {history.length > 0 && <button className="btn-danger" onClick={() => persist([])}><Trash2 size={16}/> Clear local history</button>}
       </Card>
     </div>
   </div>;

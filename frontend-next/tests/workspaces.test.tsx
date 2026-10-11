@@ -21,7 +21,8 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
   if (path.startsWith('/api/simulator/data')) return {};
   if (path.startsWith('/api/simulator/logs')) return { items: [{ level: 'INFO', msg: 'started' }] };
   if (path === '/api/traps/status') return { running: receiverRunning, port: 1162, community: 'public', resolve_mibs: true };
-  if (path.startsWith('/api/traps/?')) return { data: [{ id: 42, trap_type: 'linkDown', source: 'localhost', varbinds: [] }], total: 1, count: 1 };
+  if (path.startsWith('/api/traps/?')) return { data: [{ id: 42, trap_type: 'linkDown', source: 'localhost',
+    varbinds: [{ oid:'1.3.6.1.2.1.2.2.1.1', name:'IF-MIB::ifIndex', value: 7, resolved:true }] }], total: 1, count: 1 };
   if (path === '/api/mibs/traps') return { traps: [{
     oid: '1.3.6.1.6.3.1.1.5.3', name: 'linkDown', full_name: 'IF-MIB::linkDown',
     objects: [{ name: 'ifIndex', oid: '1.3.6.1.2.1.2.2.1.1', input_type: 'Integer' }],
@@ -36,7 +37,9 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
     { name: 'IF-MIB', relative_path: 'uploads/IF-MIB', source_group: 'uploaded', status: 'active', deletable: true },
   ], source_groups: [{ name: 'uploaded', file_count: 1 }], active_bundle_label: 'bundle-1' };
   if (path === '/api/bundles') return { bundles: [{ id: 1, label: 'bundle-1' }, { id: 2, label: 'older' }], active_bundle_id: 1 };
-  if (path === '/api/walk/execute' && method === 'POST') return { mode: 'parsed', count: 1, data: [{ oid: '1.3.6.1', value: 17 }] };
+  if (path === '/api/walk/execute' && method === 'POST') return { mode: 'parsed', count: 1,
+    json_format: 'grouped', rawLines: ['1.3.6.1 = INTEGER: 17'],
+    data: [{ oid: '1.3.6.1', value: 17, metric_category:'system', mib_module:'SNMPv2-MIB' }] };
   return { status: 'ok' };
 }
 const calls: { path: string; method: string; init: RequestInit }[] = [];
@@ -99,7 +102,10 @@ describe('remaining five React workspaces', () => {
   it('Walker posts the current form, receives tabulated rows and keeps history local', async () => {
     mockApi(); setup(<WalkerPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Execute walk' }));
-    expect(await screen.findByText('17')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Raw SNMP walk result')).toHaveTextContent('INTEGER: 17');
+    expect(screen.getByRole('button', {name:'Raw'})).toHaveAttribute('aria-pressed','true');
+    fireEvent.click(screen.getByRole('button', {name:'Grouped table'}));
+    expect(screen.getByRole('region',{name:'Category: system'})).toHaveTextContent('17');
     const call = calls.find(c => c.path === '/api/walk/execute');
     expect(JSON.parse(String(call?.init.body))).toMatchObject({ target: '127.0.0.1', oid: '1.3.6.1.2.1', timeout_ms: 2000, parse: true });
     expect(screen.getByRole('region', { name: 'Recent walks' })).toHaveTextContent('127.0.0.1');
@@ -109,11 +115,38 @@ describe('remaining five React workspaces', () => {
     mockApi(); setup(<TrapsPage />);
     expect(await screen.findByText('linkDown')).toBeInTheDocument();
     const history = screen.getByRole('region', { name: 'Received trap history' });
-    fireEvent.click(within(history).getByRole('button', { name: 'Clear all' }));
+    fireEvent.click(within(history).getByRole('button', { name: 'Clear received trap history' }));
     expect(calls.some(c => c.path === '/api/traps/' && c.method === 'DELETE')).toBe(false);
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Delete all received traps?' })).getByRole('button', { name: 'Cancel' }));
     expect(calls.some(c => c.method === 'DELETE')).toBe(false);
     expect(calls.some(c => c.path === '/api/traps/?limit=50&offset=0')).toBe(true);
+  });
+  it('shows matching notification suggestions and opens an in-page notification catalog', async () => {
+    mockApi(); setup(<TrapsPage />);
+    const sender = screen.getByRole('region', {name:'Notification sender'});
+    const oid = within(sender).getByRole('textbox',{name:'Notification OID'});
+    fireEvent.change(oid,{target:{value:'linkDo'}});
+    const suggestion=await within(sender).findByRole('button',{name:/IF-MIB::linkDown/});
+    fireEvent.click(suggestion);
+    expect(oid).toHaveValue('1.3.6.1.6.3.1.1.5.3');
+    fireEvent.click(within(sender).getByRole('button',{name:'Browse notification catalog'}));
+    const dialog=await screen.findByRole('dialog',{name:'Notification catalog'});
+    expect(within(dialog).getByText('IF-MIB::linkDown')).toBeInTheDocument();
+  });
+  it('expands a received trap row with resolved varbind names and applies MIB names immediately', async () => {
+    const {calls}=mockApi(); setup(<TrapsPage />);
+    const history=screen.getByRole('region',{name:'Received trap history'});
+    const toggle=await within(history).findByRole('button',{name:'Expand trap event 42'});
+    fireEvent.click(toggle);
+    const detail=within(history).getByRole('region',{name:'Event details 42'});
+    expect(within(detail).getByText('IF-MIB::ifIndex')).toBeInTheDocument();
+    expect(within(history).queryByRole('button',{name:'Inspect'})).not.toBeInTheDocument();
+    const receiver=screen.getByRole('region',{name:'Trap receiver'});
+    const resolve=within(receiver).getByRole('checkbox',{name:'Resolve MIB names in received events'});
+    await waitFor(()=>expect(resolve).toBeEnabled());
+    fireEvent.click(resolve);
+    await waitFor(()=>expect(calls.some(c=>c.path==='/api/traps/resolve-mibs'&&c.method==='POST')).toBe(true));
+    expect(within(receiver).queryByRole('button',{name:'Apply MIB resolution'})).not.toBeInTheDocument();
   });
   it('MIB Browser shows module roots by default, expands and switches to numeric OID view', async () => {
     mockApi(); setup(<BrowserPage />);
@@ -182,6 +215,15 @@ describe('remaining five React workspaces', () => {
     fireEvent.click(browse);
     await waitFor(() => expect(calls.some(c => c.path.includes('/api/mibs/browse/tree/module?module=IF-MIB'))).toBe(true));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Module' })).toHaveValue('IF-MIB'));
+  });
+  it('keeps the Manager inventory full-width and the tool panels independent', async () => {
+    mockApi(); setup(<MibsPage />);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    expect(inventory.parentElement).toHaveClass('workspace-stack');
+    expect(await within(inventory).findByText('uploads/IF-MIB')).toBeInTheDocument();
+    expect(within(inventory).getByRole('combobox',{name:'Source group'})).toBeInTheDocument();
+    expect(screen.getByRole('region',{name:'Validate and upload'}).parentElement).toHaveClass('manager-tools-grid');
+    expect(screen.queryByRole('link',{name:'Browse active MIBs'})).not.toBeInTheDocument();
   });
   it('MIB Manager lists active sources and bundles, preventing immediate destructive actions', async () => {
     mockApi(); setup(<MibsPage />);

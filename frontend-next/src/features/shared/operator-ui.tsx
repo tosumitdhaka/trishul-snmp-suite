@@ -36,6 +36,14 @@ export function ServiceToggle({ running, disabled, busy, noun, onToggle }: {
   </button>;
 }
 
+/** Compact icon action, always with an accessible name and tooltip. */
+export function IconAction({ label, children, danger = false, disabled, onClick }: {
+  label: string; children: ReactNode; danger?: boolean; disabled?: boolean; onClick: () => void;
+}) {
+  return <button type="button" aria-label={label} title={label}
+    className={danger ? 'btn-danger btn-icon-action' : 'btn-secondary btn-icon-action'}
+    disabled={disabled} onClick={onClick}>{children}</button>;
+}
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return <label className="block space-y-1 text-sm font-semibold"><span>{label}</span>
     {children}{hint && <span className="block text-xs font-normal text-[var(--muted)]">{hint}</span>}
@@ -54,7 +62,7 @@ export function ConfirmDialog({ title, message, open, danger = false, busy = fal
         <Dialog.Description className="text-sm leading-relaxed text-[var(--muted)]">{message}</Dialog.Description>
         <div className="flex justify-end gap-2">
           <button className="btn-secondary" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button className={danger ? 'btn-secondary border-[var(--danger)] text-[var(--danger)]' : 'btn-primary'}
+          <button className={danger ? 'btn-danger' : 'btn-primary'}
             type="button" disabled={busy} onClick={onConfirm}>{busy ? 'Working…' : 'Confirm'}</button>
         </div>
       </Dialog.Content></Dialog.Portal>

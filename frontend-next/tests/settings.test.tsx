@@ -117,6 +117,20 @@ describe('Stage 3 Settings preview', () => {
     expect(calls.some((item) => item.path === '/api/settings/app' && item.method === 'POST')).toBe(false);
   });
 
+  it('toggles each password independently without changing its value', () => {
+    mockApi(); renderSettings();
+    const section=screen.getByRole('region',{name:'Authentication'});
+    const current=within(section).getByLabelText('Current password');
+    fireEvent.change(current,{target:{value:'my-secret'}});
+    expect(current).toHaveAttribute('type','password');
+    fireEvent.click(within(section).getByRole('button',{name:'Show current password'}));
+    expect(current).toHaveAttribute('type','text');
+    expect(current).toHaveValue('my-secret');
+    expect(within(section).getByLabelText('New password')).toHaveAttribute('type','password');
+    fireEvent.click(within(section).getByRole('button',{name:'Hide current password'}));
+    expect(current).toHaveAttribute('type','password');
+  });
+
   it('requires confirmation before credential rotation and invalidates the current session on success', async () => {
     const { calls } = mockApi();
     renderSettings();
