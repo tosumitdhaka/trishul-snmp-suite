@@ -360,7 +360,7 @@ export function TrapsPage() {
     </Card>
     <Dialog.Root open={catalogOpen} onOpenChange={setCatalogOpen}>
       <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/50"/>
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-60 w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 text-[var(--text)] shadow-2xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-60 w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 text-[var(--text)] shadow-2xl">
           <div className="flex items-center justify-between gap-2">
             <Dialog.Title className="text-lg font-semibold">Notification catalog</Dialog.Title>
             <Dialog.Close aria-label="Close notification catalog" className="btn-secondary btn-icon-action"><X size={16}/></Dialog.Close>
