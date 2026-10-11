@@ -398,3 +398,11 @@ select.field-input { padding-right: 2rem; }
  .browser-tree-toolbar { align-items:stretch; }
  .browser-tree-toolbar > div { flex-wrap:wrap; }
 }
+
+.manager-card-sort, .manager-card-hint { display:none; }
+@container manager-catalog (max-width:46rem) {
+ .manager-card-sort { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.65rem; align-items:end; }
+ .manager-card-hint { display:block; }
+ .manager-inventory-table { max-height:min(70vh,42rem); overflow-y:auto; scrollbar-gutter:stable; }
+ .manager-inventory-table:focus-visible { outline-offset:2px; }
+}
