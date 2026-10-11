@@ -342,7 +342,9 @@ describe('remaining five React workspaces', () => {
     expect(Array.from((type as HTMLSelectElement).options).map(option=>option.value)).toEqual(
       ['catalog','summary','modules','objects','notifications']);
     fireEvent.change(type,{target:{value:'objects'}});
-    fireEvent.change(within(exportPanel).getByRole('combobox',{name:'Export source group'}),{target:{value:'uploaded'}});
+    const group=within(exportPanel).getByRole('combobox',{name:'Export source group'});
+    await waitFor(()=>expect(group.querySelector('option[value="uploaded"]')).not.toBeNull());
+    fireEvent.change(group,{target:{value:'uploaded'}});
     vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:vi.fn(()=> 'blob:export-test'),revokeObjectURL:vi.fn()}));
     vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
     fireEvent.click(within(exportPanel).getByRole('button',{name:'Export catalog'}));
@@ -361,7 +363,7 @@ describe('remaining five React workspaces', () => {
     const oid=within(inventory).getByRole('columnheader',{name:/OID/});
     fireEvent.click(within(oid).getByRole('button',{name:'Sort notifications by OID'}));
     expect(oid).toHaveAttribute('aria-sort','ascending');
-    expect(within(inventory).getByText('IF-MIB',{exact:true})).toBeInTheDocument();
+    expect(await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'})).toBeInTheDocument();
   });
   it('accepts MIB files by drag and drop while retaining file input for keyboard users',async()=>{
     mockApi();setup(<MibsPage/>);
