@@ -24,7 +24,7 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
   if (path.startsWith('/api/traps/?')) return { data: [{ id: 42, trap_type: 'linkDown', source: 'localhost',
     varbinds: [{ oid:'1.3.6.1.2.1.2.2.1.1', name:'IF-MIB::ifIndex', value: 7, resolved:true }] }], total: 1, count: 1 };
   if (path === '/api/mibs/traps') return { traps: [{
-    oid: '1.3.6.1.6.3.1.1.5.3', name: 'linkDown', full_name: 'IF-MIB::linkDown',
+    oid: '1.3.6.1.6.3.1.1.5.3', name: 'linkDown', full_name: 'IF-MIB::linkDown', module: 'IF-MIB',
     objects: [{ name: 'ifIndex', oid: '1.3.6.1.2.1.2.2.1.1', input_type: 'Integer' }],
   }] };
   if (path.startsWith('/api/mibs/objects?')) return { objects: [] };
@@ -37,6 +37,9 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
     { name: 'IF-MIB', relative_path: 'uploads/IF-MIB', source_group: 'uploaded', status: 'active', deletable: true },
   ], source_groups: [{ name: 'uploaded', file_count: 1 }], active_bundle_label: 'bundle-1' };
   if (path === '/api/bundles') return { bundles: [{ id: 1, label: 'bundle-1' }, { id: 2, label: 'older' }], active_bundle_id: 1 };
+  if (path === '/api/mibs/fetch-dependencies' && method === 'POST') return {
+    attempted: ['IF-MIB'], resolved: ['IF-MIB'], cached: [], failed: [],
+  };
   if (path === '/api/walk/execute' && method === 'POST') return { mode: 'parsed', count: 1,
     json_format: 'grouped', rawLines: ['1.3.6.1 = INTEGER: 17'],
     data: [{ oid: '1.3.6.1', value: 17, metric_category:'system', mib_module:'SNMPv2-MIB' }] };
@@ -237,18 +240,80 @@ describe('remaining five React workspaces', () => {
     await waitFor(() => expect(calls.some(c => c.path.includes('/api/mibs/browse/tree/module?module=IF-MIB'))).toBe(true));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Module' })).toHaveValue('IF-MIB'));
   });
-  it('keeps the Manager inventory full-width and the tool panels independent', async () => {
+  it('keeps a 2:1 catalog/sidebar design and allows module + source + notification selection', async () => {
     mockApi(); setup(<MibsPage />);
     const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
-    expect(inventory.parentElement).toHaveClass('workspace-stack');
-    expect(await within(inventory).findByText('uploads/IF-MIB')).toBeInTheDocument();
-    expect(within(inventory).getByRole('combobox',{name:'Source group'})).toBeInTheDocument();
-    expect(screen.getByRole('region',{name:'Validate and upload'}).parentElement).toHaveClass('manager-tools-grid');
-    expect(screen.queryByRole('link',{name:'Browse active MIBs'})).not.toBeInTheDocument();
+    expect(inventory.parentElement).toHaveClass('manager-catalog-column');
+    expect(inventory.parentElement?.parentElement).toHaveClass('manager-layout');
+    const sidebar=screen.getByRole('complementary',{name:'Catalog export and bundle history'});
+    expect(within(sidebar).getByRole('region',{name:'Catalog export'})).toBeInTheDocument();
+    expect(within(sidebar).getByRole('region',{name:'Compiled bundle history'})).toBeInTheDocument();
+    const moduleBox=await within(inventory).findByRole('checkbox',{name:'Select IF-MIB'});
+    fireEvent.click(moduleBox);
+    expect(moduleBox).toBeChecked();
+    fireEvent.click(within(inventory).getByRole('button',{name:'Sources'}));
+    const source=await within(inventory).findByRole('checkbox',{name:'Select uploads/IF-MIB'});
+    fireEvent.click(source);
+    expect(source).toBeChecked();
+    fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
+    const notice=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
+    fireEvent.click(notice);
+    expect(notice).toBeChecked();
+    expect(within(inventory).getByRole('combobox',{name:'Notification module'})).toBeInTheDocument();
+    expect(within(inventory).queryByRole('combobox',{name:'Status'})).not.toBeInTheDocument();
+    expect(within(sidebar).getByRole('region',{name:'Catalog export'})).toHaveTextContent('1 modules · 1 notifications selected');
+  });
+  it('exports the selected module names and notification OIDs rather than the entire catalog', async () => {
+    mockApi(); setup(<MibsPage />);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    const moduleCheckbox=await within(inventory).findByRole('checkbox',{name:'Select IF-MIB'});
+    fireEvent.click(moduleCheckbox);
+    fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
+    const notificationCheckbox=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
+    fireEvent.click(notificationCheckbox);
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: vi.fn(()=> 'blob:export-test'), revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
+    const panel=screen.getByRole('region',{name:'Catalog export'});
+    fireEvent.click(within(panel).getByRole('button',{name:'Export catalog'}));
+    await waitFor(()=>expect(calls.some(c=>c.path==='/api/mibs/export' && c.method==='POST')).toBe(true));
+    const body=JSON.parse(String(calls.find(c=>c.path==='/api/mibs/export')?.init.body));
+    expect(body).toMatchObject({
+      format:'json', export_type:'catalog', modules:['IF-MIB'], notifications:['IF-MIB::linkDown'],
+    });
+  });
+  it('opens catalog header Add/Upload and fetches online by module name through the existing API', async () => {
+    mockApi(); setup(<MibsPage />);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    fireEvent.click(within(inventory).getByRole('button',{name:'Add / upload'}));
+    const dialog=await screen.findByRole('dialog',{name:'Add MIB sources'});
+    expect(within(dialog).getByRole('button',{name:'Fetch by name'})).toHaveAttribute('aria-pressed','true');
+    fireEvent.change(within(dialog).getByRole('textbox',{name:'MIB module names'}),{target:{value:'IF-MIB'}});
+    fireEvent.click(within(dialog).getByRole('button',{name:'Fetch MIBs by name'}));
+    await waitFor(()=>expect(calls.some(c=>c.path==='/api/mibs/fetch-dependencies' && c.method==='POST')).toBe(true));
+    const req=calls.find(c=>c.path==='/api/mibs/fetch-dependencies');
+    expect(JSON.parse(String(req?.init.body))).toEqual({dependencies:['IF-MIB'],reload_after_fetch:true});
+    expect(await within(dialog).findByRole('region',{name:'Online MIB fetch results'})).toHaveTextContent('Downloaded: IF-MIB');
+    fireEvent.click(within(dialog).getByRole('button',{name:'Upload files'}));
+    expect(within(dialog).getByLabelText('Source files')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button',{name:'Validate'})).toBeDisabled();
+    expect(calls.some(c=>c.path==='/api/mibs/upload')).toBe(false);
+  });
+  it('opens Reload and dependencies in a modal without triggering a compile before confirmation', async () => {
+    mockApi(); setup(<MibsPage />);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    fireEvent.click(within(inventory).getByRole('button',{name:'Reload & dependencies'}));
+    const dialog=await screen.findByRole('dialog',{name:'Reload & dependencies'});
+    expect(within(dialog).getByLabelText(/Missing dependency names/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button',{name:'Recompile / reload stored MIBs'}));
+    expect(calls.some(c=>c.path==='/api/mibs/reload'&&c.method==='POST')).toBe(false);
+    expect(await screen.findByRole('dialog',{name:'Recompile the current MIB sources?'})).toBeInTheDocument();
   });
   it('MIB Manager lists active sources and bundles, preventing immediate destructive actions', async () => {
     mockApi(); setup(<MibsPage />);
     expect(await screen.findByText('bundle-1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Sources'}));
     expect(await screen.findByText('uploads/IF-MIB')).toBeInTheDocument();
     const source = screen.getByRole('checkbox', { name: 'Select uploads/IF-MIB' });
     fireEvent.click(source);

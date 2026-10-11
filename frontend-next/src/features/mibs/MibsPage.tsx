@@ -1,7 +1,8 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Link } from 'react-router';
-import { BookOpen, Send, ChevronDown, ChevronRight } from 'lucide-react';
+import { BookOpen, Send, ChevronDown, ChevronRight, Plus, CloudDownload, Wrench, X } from 'lucide-react';
 import { sendToBrowser, sendToTraps } from '../../lib/navigation/handoff';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
@@ -47,6 +48,13 @@ export function MibsPage() {
   const [sourceGroup, setSourceGroup] = useState('');
   const [compileMode, setCompileMode] = useState('full');
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
+  const [selectedNotifications, setSelectedNotifications] = useState<string[]>([]);
+  const [modal, setModal] = useState<'add'|'maintenance'|null>(null);
+  const [addMode, setAddMode] = useState<'online'|'files'>('online');
+  const [onlineNames, setOnlineNames] = useState('');
+  const [onlineReload, setOnlineReload] = useState(true);
+  const [onlineResult, setOnlineResult] = useState<{cached?:string[];resolved?:string[];downloaded?:string[];failed?:string[];enabled?:boolean}|null>(null);
   const [validation, setValidation] = useState<unknown>(null);
   const [compileTargets, setCompileTargets] = useState<string[]>([]);
   const [lastResult, setLastResult] = useState<unknown>(null);
@@ -60,7 +68,7 @@ export function MibsPage() {
   const [diffAgainst, setDiffAgainst] = useState<number | null>(null);
   const [targetBundle, setTargetBundle] = useState<number | null>(null);
   const [diffResult, setDiffResult] = useState<unknown>(null);
-  const [activeTab, setActiveTab] = useState<'modules'|'sources'|'traps'>('sources');
+  const [activeTab, setActiveTab] = useState<'modules'|'sources'|'traps'>('modules');
   const status = useQuery({
     queryKey: ['mibs', 'manager-status'], enabled: !!token,
     queryFn: ({ signal }) => apiRequest<MibStatus>('/api/mibs/status', token, { signal }),
@@ -74,18 +82,40 @@ export function MibsPage() {
     queryKey: ['mibs', 'trap-catalog'], enabled: !!token && activeTab === 'traps',
     queryFn: ({ signal }) => apiRequest<TrapCatalog>('/api/mibs/traps', token, { signal }), staleTime: 60_000,
   });
-  const all = activeTab === 'sources' ? status.data?.source_inventory || [] : status.data?.mibs || [];
+  const all = activeTab === 'sources' ? status.data?.source_inventory || [] : activeTab === 'modules' ? status.data?.mibs || [] : [];
   const shown = useMemo(() => all.filter(item =>
     (!groupFilter || item.source_group === groupFilter) &&
     (!statusFilter || (item.status||'active').toLowerCase() === statusFilter) &&
     (!query || [item.name,item.file,item.relative_path,item.source_group,item.status,item.error]
       .some(value=>value?.toLowerCase().includes(query.toLowerCase()))))
     .sort((a,b)=>String(a[sortBy]||'').localeCompare(String(b[sortBy]||''))), [all,query,groupFilter,statusFilter,sortBy]);
+  const notificationModules=useMemo(() => [...new Set((traps.data?.traps||[]).map(t=>t.module).filter((name):name is string=>!!name))].sort(),[traps.data]);
+  const filteredNotifications=useMemo(()=>(traps.data?.traps||[]).filter(t=>
+    (!groupFilter || t.module===groupFilter) &&
+    (!query || [t.name,t.full_name,t.module,t.oid].some(value=>value?.toLowerCase().includes(query.toLowerCase()))))
+    .sort((a,b)=>a.full_name.localeCompare(b.full_name)),[traps.data,query,groupFilter]);
   const pageSize=75;
   const visible=shown.slice(page*pageSize,(page+1)*pageSize);
-  const visibleSelectable=visible.filter(item=>activeTab==='sources' && item.deletable && (item.relative_path||item.file))
-    .map(item=>item.relative_path||item.file||'');
+  const visibleNotifications=filteredNotifications.slice(page*pageSize,(page+1)*pageSize);
+  const visibleSelectable=activeTab==='sources' ? visible.map(item=>item.relative_path||item.file||'').filter(Boolean)
+    : activeTab==='modules' ? visible.map(item=>item.name) : visibleNotifications.map(item=>item.full_name);
+  const currentSelection=activeTab==='sources' ? selectedPaths : activeTab==='modules' ? selectedModules : selectedNotifications;
+  const totalVisible=activeTab==='traps' ? filteredNotifications.length : shown.length;
   const deletable = selectedPaths.filter(path => status.data?.source_inventory?.some(row => row.deletable && (row.relative_path || row.file) === path));
+  function updateSelection(id:string, checked:boolean) {
+    const setter=activeTab==='sources' ? setSelectedPaths : activeTab==='modules' ? setSelectedModules : setSelectedNotifications;
+    setter(old=>checked ? [...new Set([...old,id])] : old.filter(value=>value!==id));
+  }
+  function toggleVisibleSelection() {
+    const setter=activeTab==='sources' ? setSelectedPaths : activeTab==='modules' ? setSelectedModules : setSelectedNotifications;
+    setter(old=>visibleSelectable.every(id=>old.includes(id)) ? old.filter(id=>!visibleSelectable.includes(id))
+      : [...new Set([...old,...visibleSelectable])]);
+  }
+  function clearViewSelection() {
+    if(activeTab==='sources')setSelectedPaths([]);
+    else if(activeTab==='modules')setSelectedModules([]);
+    else setSelectedNotifications([]);
+  }
   function makeUploadForm() {
     const form = new FormData();
     files.forEach(file => form.append('files', file, file.name));
@@ -140,6 +170,26 @@ export function MibsPage() {
     }
     setConfirm(null);
   }
+  async function fetchByName() {
+    const requested=asList(onlineNames);
+    if(!requested.length || requested.length>30 ||
+      requested.some(name=>!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(name))) {
+      setNotice({tone:'error',text:'Enter 1–30 valid MIB module names (letters, numbers, hyphens or underscores), one per line or comma-separated.'});
+      return;
+    }
+    setOnlineResult(null);
+    const result=await invoke<{cached?:string[];resolved?:string[];downloaded?:string[];failed?:string[];enabled?:boolean}>(
+      '/api/mibs/fetch-dependencies',
+      jsonPost({dependencies:[...new Set(requested)],reload_after_fetch:onlineReload}),
+      [['mibs'],['bundles'],['stats']]);
+    if(result){
+      setOnlineResult(result);
+      setLastResult(result);
+      if(result.failed?.length) {
+        setNotice({tone:'error',text:'Could not fetch: '+result.failed.join(', ')+'. Check the configured remote sources in Settings.'});
+      }
+    }
+  }
   async function getDiff(id: number) {
     if (!token) return;
     setDiffResult(null);
@@ -183,54 +233,67 @@ export function MibsPage() {
     </div>
     {status.data?.recompile_recommended && <p role="status" className="rounded-xl bg-[var(--accent-soft)] p-4 text-sm text-[var(--warning)]">
       The active bundle was produced by an older compiler. Review the source and compile history before reloading.</p>}
-    <div className="workspace-stack">
-      <Card title="Catalog & source inventory" description="Filter source files, loaded modules and notifications. Selection applies only to deletable uploaded sources.">
+    <div className="manager-layout">
+      <div className="manager-catalog-column">
+      <Card title="Catalog & source inventory" description="Select and manage loaded modules, uploaded sources, and notifications."
+        trailing={<div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Catalog management actions">
+          <button type="button" className="btn-primary" onClick={()=>{setAddMode('online');setOnlineResult(null);setModal('add');}}><Plus size={16}/> Add / upload</button>
+          <button type="button" className="btn-secondary" onClick={()=>setModal('maintenance')}><Wrench size={16}/> Reload & dependencies</button>
+        </div>}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div role="group" aria-label="Inventory views" className="flex flex-wrap gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
             {(['sources','modules','traps'] as const).map(tab=><button type="button" key={tab}
               aria-pressed={activeTab===tab} className={activeTab===tab?'btn-primary':'btn-secondary'}
-              onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);}}>
+              onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);setQuery('');setGroupFilter('');setStatusFilter('');}}>
               {tab==='sources'?'Sources':tab==='modules'?'Modules':'Notifications'}
             </button>)}
           </div>
           <IconAction label="Refresh MIB inventory" onClick={()=>{void status.refetch();void bundles.refetch();}}><RefreshCw size={16}/></IconAction>
         </div>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto]">
+        <div className={'grid min-w-0 gap-3 sm:grid-cols-2 ' +
+          (activeTab==='traps'?'xl:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)]':
+            'xl:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto]')}>
           <label className="relative min-w-0"><span className="sr-only">Search inventory</span>
-            <input className="field-input pr-9" value={query} placeholder="Search module, file or status"
+            <input className="field-input pr-9" value={query} placeholder={activeTab==='traps'?'Search notifications by name or OID':'Search module, file or status'}
               onChange={e=>{setQuery(e.target.value);setPage(0);}}/>
             <Search size={15} className="pointer-events-none absolute right-3 top-3 text-[var(--muted)]"/>
           </label>
-          <label className="text-xs font-medium">Source group
+          <label className="text-xs font-medium">{activeTab==='traps'?'Notification module':'Source group'}
             <select className="field-input mt-1" value={groupFilter} onChange={e=>{setGroupFilter(e.target.value);setPage(0);}}>
-              <option value="">All groups</option>{status.data?.source_groups?.map(g=><option key={g.name} value={g.name}>{g.name} ({g.file_count})</option>)}
+              <option value="">{activeTab==='traps'?'All modules':'All groups'}</option>
+              {activeTab==='traps'?notificationModules.map(name=><option key={name} value={name}>{name}</option>)
+                :status.data?.source_groups?.map(g=><option key={g.name} value={g.name}>{g.name} ({g.file_count})</option>)}
             </select>
           </label>
-          <label className="text-xs font-medium">Status
-            <select className="field-input mt-1" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(0);}}>
-              <option value="">All statuses</option>{['active','pending','failed','shadowed','error'].map(item=><option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="text-xs font-medium">Sort
-            <select className="field-input mt-1" value={sortBy} onChange={e=>setSortBy(e.target.value as 'name'|'status')}>
-              <option value="name">Name</option><option value="status">Status</option>
-            </select>
-          </label>
+          {activeTab!=='traps' && <>
+            <label className="text-xs font-medium">Status
+              <select className="field-input mt-1" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(0);}}>
+                <option value="">All statuses</option>{['active','pending','missing_deps','failed','shadowed','invalid'].map(item=><option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-medium">Sort
+              <select className="field-input mt-1" value={sortBy} onChange={e=>setSortBy(e.target.value as 'name'|'status')}>
+                <option value="name">Name</option><option value="status">Status</option>
+              </select>
+            </label>
+          </>}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
-          <span>{activeTab==='traps' ? (traps.data?.traps.length??'…')+' notifications' :
-            shown.length+' of '+all.length+' records'} · {selectedPaths.length} selected</span>
-          {activeTab==='sources' && <button type="button" className="btn-secondary" disabled={!visibleSelectable.length}
-            onClick={()=>setSelectedPaths(old=>visibleSelectable.every(path=>old.includes(path)) ?
-              old.filter(path=>!visibleSelectable.includes(path)) : [...new Set([...old,...visibleSelectable])])}>
-              {visibleSelectable.length && visibleSelectable.every(path=>selectedPaths.includes(path))?'Deselect visible':'Select visible'}
-            </button>}
+          <span>{totalVisible} items · {currentSelection.length} selected in {activeTab==='traps'?'notifications':activeTab}</span>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary" disabled={!visibleSelectable.length} onClick={toggleVisibleSelection}>
+              {visibleSelectable.length&&visibleSelectable.every(id=>currentSelection.includes(id))?'Deselect visible':'Select visible'}
+            </button>
+            {currentSelection.length>0&&<button className="btn-secondary" type="button" onClick={clearViewSelection}>Clear selection</button>}
+          </div>
         </div>
         <StatusText busy={status.isPending} error={status.error} empty={!status.isPending && !shown.length && activeTab !== 'traps'} />
-        {activeTab === 'traps' ? <><StatusText busy={traps.isPending} error={traps.error} empty={!traps.isPending && !traps.data?.traps.length}/>
+        {activeTab === 'traps' ? <><StatusText busy={traps.isPending} error={traps.error} empty={!traps.isPending && !filteredNotifications.length}/>
           <div className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
-            <thead><tr><th className="p-2">Notification</th><th className="p-2">OID</th><th className="p-2">Use</th></tr></thead><tbody>
-              {traps.data?.traps.filter(x=>!query||JSON.stringify(x).toLowerCase().includes(query.toLowerCase())).map(t=><tr key={t.oid} className="border-t border-[var(--border)]">
+            <thead><tr><th className="p-2">Select</th><th className="p-2">Notification</th><th className="p-2">OID</th><th className="p-2">Use</th></tr></thead><tbody>
+              {visibleNotifications.map(t=><tr key={t.oid} className="border-t border-[var(--border)]">
+                <td className="p-2"><input type="checkbox" aria-label={'Select notification '+t.full_name}
+                  checked={selectedNotifications.includes(t.full_name)} onChange={e=>updateSelection(t.full_name,e.target.checked)}/></td>
                 <td className="p-2">{t.full_name}</td><td className="break-all p-2 font-mono">{t.oid}</td>
                 <td className="p-2"><div className="flex flex-wrap gap-2">
                   <Link to="/traps" className="btn-secondary" onClick={() => sendToTraps(t)}>
@@ -245,8 +308,10 @@ export function MibsPage() {
             <thead className="sticky top-0 bg-[var(--surface-muted)]"><tr><th className="p-2">Select</th><th className="p-2">Module / file</th><th className="p-2">Status</th><th className="p-2">Objects</th><th className="p-2">Traps</th></tr></thead>
             <tbody>{visible.map((item,i)=>{const path=item.relative_path || item.file || '';const open=inspectSource===(path||item.name);return <tr key={path+item.name+i}
               className="border-t border-[var(--border)] hover:bg-[var(--surface-muted)]">
-              <td className="p-2">{activeTab==='sources'&&item.deletable&&path&&<input aria-label={'Select '+path} type="checkbox" checked={selectedPaths.includes(path)}
-                onChange={e=>setSelectedPaths(old=>e.target.checked?[...old,path]:old.filter(p=>p!==path))}/>}</td>
+              <td className="p-2">{(activeTab==='sources'?!!path:!!item.name)&&<input type="checkbox"
+                aria-label={'Select '+(activeTab==='sources'?path:item.name)}
+                checked={activeTab==='sources'?selectedPaths.includes(path):selectedModules.includes(item.name)}
+                onChange={e=>updateSelection(activeTab==='sources'?path:item.name,e.target.checked)}/>}</td>
               <td className="max-w-64 break-words p-2"><span className="font-semibold">{item.name}</span>
                 <span className="block break-all font-mono text-[var(--muted)]">{path}</span>
                 {item.source_group && <span className="block text-[var(--muted)]">{item.source_group}</span>}
@@ -269,19 +334,95 @@ export function MibsPage() {
               <td className="p-2"><span className={'manager-status manager-status-'+(item.status||'active').toLowerCase()}>
                 {item.status||'active'}</span></td><td className="p-2">{item.objects??'—'}</td><td className="p-2">{item.traps??'—'}</td>
             </tr>})}</tbody></table></div>}
-        {activeTab!=='traps' && shown.length>pageSize && <div className="flex items-center justify-end gap-2 text-xs">
-          <span>Page {page+1} of {Math.ceil(shown.length/pageSize)}</span>
+        {totalVisible>pageSize && <div className="flex items-center justify-end gap-2 text-xs">
+          <span>Page {page+1} of {Math.ceil(totalVisible/pageSize)}</span>
           <button className="btn-secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</button>
-          <button className="btn-secondary" disabled={(page+1)*pageSize>=shown.length} onClick={()=>setPage(p=>p+1)}>Next</button>
+          <button className="btn-secondary" disabled={(page+1)*pageSize>=totalVisible} onClick={()=>setPage(p=>p+1)}>Next</button>
         </div>}
         <div className="flex flex-wrap gap-2">
-          <button className="btn-secondary" disabled={!selectedPaths.length||downloading}
-            onClick={()=>void download('/api/mibs/download',{paths:selectedPaths},'trishul-mib-sources.zip')}><Download size={16}/> Download selected ({selectedPaths.length})</button>
-          <button className="btn-danger" disabled={!deletable.length||pending} onClick={()=>setConfirm('delete')}><Trash2 size={16}/> Delete selected ({deletable.length})</button>
+          {activeTab==='sources' ? <>
+            <button className="btn-secondary" disabled={!selectedPaths.length||downloading}
+              onClick={()=>void download('/api/mibs/download',{paths:selectedPaths},'trishul-mib-sources.zip')}>
+              <Download size={16}/> Download selected ({selectedPaths.length})
+            </button>
+            <button className="btn-danger" disabled={!deletable.length||pending} onClick={()=>setConfirm('delete')}>
+              <Trash2 size={16}/> Delete selected ({deletable.length})
+            </button>
+          </> : <p className="text-xs text-[var(--muted)]">{currentSelection.length ?
+            'Export the selected definitions in the Catalog export panel.' : 'Select entries to export specific definitions.'}</p>}
         </div>
       </Card>
-      <div className="manager-tools-grid">
-        <Card title="Validate and upload" description="Validate without persisting; upload with explicit compile mode.">
+</div>
+<aside className="manager-sidebar" aria-label="Catalog export and bundle history">
+<Card title="Catalog export" description="Export all or selected MIB definitions.">
+          <p className="text-xs text-[var(--muted)]">{selectedModules.length} modules · {selectedNotifications.length} notifications selected. {!selectedModules.length&&!selectedNotifications.length?'Full catalog export':''}</p>
+        <div className="grid grid-cols-2 gap-2">
+            <Field label="Format"><select className="field-input" value={exportFormat} onChange={e=>setExportFormat(e.target.value)}><option value="json">JSON</option><option value="csv">CSV</option></select></Field>
+            <Field label="Export type"><select className="field-input" value={exportType} onChange={e=>setExportType(e.target.value)}>
+              <option value="catalog">Catalog</option><option value="notifications">Notifications</option></select></Field>
+          </div>
+          <button className="btn-secondary" disabled={downloading} onClick={()=>void download('/api/mibs/export',
+            {format:exportFormat,export_type:exportType,modules:selectedModules,notifications:selectedNotifications,source_groups:groupFilter?[groupFilter]:[]},
+            'trishul-mib-catalog.'+exportFormat)}><Download size={16}/> Export catalog</button>
+        </Card>
+<Card title="Compiled bundle history" description="Compare revisions before activating a different compiled bundle.">
+      <StatusText busy={bundles.isPending} error={bundles.error} empty={!bundles.isPending&&!bundles.data?.bundles.length}/>
+      <Field label="Diff against" hint="Leave on active bundle to compare a candidate with the current effective bundle.">
+        <select className="field-input max-w-xs" value={diffAgainst??''} onChange={e=>setDiffAgainst(e.target.value?Number(e.target.value):null)}>
+          <option value="">Active bundle</option>{bundles.data?.bundles.map(b=><option key={b.id} value={b.id}>#{b.id} {b.label||b.bundle_key}</option>)}</select></Field>
+      <div className="manager-bundle-list space-y-2 overflow-auto">
+ {bundles.data?.bundles.map(b=><div key={b.id} className="rounded-lg border border-[var(--border)] p-3 text-sm">
+   <div className="flex items-start justify-between gap-2">
+     <div className="min-w-0"><strong className="block break-all">#{b.id} · {b.label||b.bundle_key||'Bundle'}</strong>
+       <span className="text-xs text-[var(--muted)]">{b.module_count??'—'} modules</span></div>
+     <span className={bundles.data?.active_bundle_id===b.id?'manager-status manager-status-active':'manager-status'}>
+       {bundles.data?.active_bundle_id===b.id?'Active':b.status||'Stored'}</span>
+   </div>
+   <div className="mt-3 flex flex-wrap gap-2">
+     <button className="btn-secondary" disabled={bundles.data?.active_bundle_id===b.id||diffAgainst===b.id}
+       onClick={()=>void getDiff(b.id)}><GitCompareArrows size={15}/> Compare</button>
+     <button className="btn-secondary" disabled={pending||bundles.data?.active_bundle_id===b.id}
+       onClick={()=>{setTargetBundle(b.id);setConfirm('activate');}}>Activate / rollback</button>
+   </div>
+ </div>)}
+</div>
+{diffResult != null&&<details open><summary className="cursor-pointer text-sm font-semibold">Bundle difference</summary><JsonView data={diffResult}/></details>}
+      {lastResult != null&&<details><summary className="cursor-pointer text-sm font-semibold">Last operation details</summary><JsonView data={lastResult}/></details>}
+    </Card>
+</aside>
+</div>
+<Dialog.Root open={modal==='add'} onOpenChange={open=>{if(!pending)setModal(open?'add':null);}}>
+ <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/55"/>
+ <Dialog.Content className="manager-modal fixed left-1/2 top-1/2 z-50 w-[min(43rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 text-[var(--text)] shadow-2xl">
+   <div className="flex items-center justify-between gap-3">
+     <Dialog.Title className="text-lg font-semibold">Add MIB sources</Dialog.Title>
+     <Dialog.Close disabled={pending} className="btn-secondary btn-icon-action" aria-label="Close add MIB sources"><X size={18}/></Dialog.Close>
+   </div>
+   <Dialog.Description className="mb-4 mt-1 text-xs text-[var(--muted)]">Fetch by name from online sources, or validate and upload local MIB files.</Dialog.Description>
+   <div role="group" aria-label="Add MIB method" className="mb-4 flex flex-wrap gap-2">
+  <button className={addMode==='online'?'btn-primary':'btn-secondary'} aria-pressed={addMode==='online'} onClick={()=>setAddMode('online')}><CloudDownload size={16}/> Fetch by name</button>
+  <button className={addMode==='files'?'btn-primary':'btn-secondary'} aria-pressed={addMode==='files'} onClick={()=>setAddMode('files')}><FileUp size={16}/> Upload files</button>
+</div>
+{addMode==='online'?<div className="space-y-4">
+ <Field label="MIB module name(s)" hint="Example: IF-MIB. Enter up to 30 names separated by commas or new lines.">
+   <textarea aria-label="MIB module names" className="field-input min-h-24 font-mono text-sm" placeholder="IF-MIB"
+     value={onlineNames} onChange={ev=>{setOnlineNames(ev.target.value);setOnlineResult(null);}}/>
+ </Field>
+ <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlineReload}
+   onChange={ev=>setOnlineReload(ev.target.checked)}/> Recompile after new sources are fetched</label>
+ <p className="rounded-lg bg-[var(--surface-muted)] p-3 text-xs text-[var(--muted)]">
+   Requires remote MIB fetching enabled in <Link className="link" to="/settings" onClick={()=>setModal(null)}>Settings</Link>.
+   Already present modules are reported as cached; not all names are necessarily available remotely.
+ </p>
+ <button className="btn-primary" disabled={!onlineNames.trim()||pending} onClick={()=>void fetchByName()}>
+   <CloudDownload size={16}/> Fetch MIBs by name</button>
+ {onlineResult&&<section aria-label="Online MIB fetch results" className="space-y-1 rounded-lg border border-[var(--border)] p-3 text-xs">
+   <h3 className="text-sm font-semibold">Fetch results</h3>
+   <p>Downloaded: {(onlineResult.resolved||onlineResult.downloaded||[]).join(', ')||'None'}</p>
+   <p>Already cached: {(onlineResult.cached||[]).join(', ')||'None'}</p>
+   <p className={onlineResult.failed?.length?'text-[var(--danger)]':''}>Unresolved: {(onlineResult.failed||[]).join(', ')||'None'}</p>
+ </section>}
+</div>:<div className="space-y-4">
           <Field label="Source files"><input id="mib-files" className="field-input h-auto" type="file" multiple
             accept=".mib,.txt,.my"
             onChange={(e: ChangeEvent<HTMLInputElement>)=>{setFiles(Array.from(e.target.files||[]));setValidation(null);setCompileTargets([]);}} /></Field>
@@ -302,43 +443,24 @@ export function MibsPage() {
           <div className="flex flex-wrap gap-2"><button className="btn-secondary" disabled={!files.length||pending} onClick={()=>void validate()}><FileUp size={16}/> Validate</button>
             <button className="btn-primary" disabled={!files.length||pending} onClick={()=>void upload()}><FileUp size={16}/> Upload and compile</button></div>
           {validation != null && <details open><summary className="cursor-pointer text-sm font-semibold">Validation report</summary><JsonView data={validation}/></details>}
-        </Card>
-        <Card title="Reload & dependencies" description="Reload recompiles the stored MIB collection.">
+        </div>}
+ </Dialog.Content></Dialog.Portal>
+</Dialog.Root><Dialog.Root open={modal==='maintenance'} onOpenChange={open=>{if(!pending)setModal(open?'maintenance':null);}}>
+ <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/55"/>
+ <Dialog.Content className="manager-modal fixed left-1/2 top-1/2 z-50 w-[min(43rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 text-[var(--text)] shadow-2xl">
+   <div className="flex items-center justify-between gap-3">
+     <Dialog.Title className="text-lg font-semibold">Reload & dependencies</Dialog.Title>
+     <Dialog.Close disabled={pending} className="btn-secondary btn-icon-action" aria-label="Close reload and dependencies"><X size={18}/></Dialog.Close>
+   </div>
+   <Dialog.Description className="mb-4 mt-1 text-xs text-[var(--muted)]">Recompile stored sources, or fetch missing online dependencies.</Dialog.Description>
+   <div className="space-y-4">
           <button className="btn-secondary" disabled={pending} onClick={()=>setConfirm('reload')}><RotateCcw size={16}/> Recompile / reload stored MIBs</button>
           <Field label="Missing dependency names" hint="One module per line or comma; may fetch from configured remote sources."><textarea className="field-input h-24 font-mono text-xs" value={dependencies} onChange={e=>setDependencies(e.target.value)}/></Field>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={reloadAfterFetch} onChange={e=>setReloadAfterFetch(e.target.checked)}/> Reload after fetching</label>
           <button className="btn-secondary" disabled={!asList(dependencies).length||pending} onClick={()=>setConfirm('fetch')}><Download size={16}/> Fetch dependencies</button>
-        </Card>
-        <Card title="Catalog export" description="Choose what to export, and the output format.">
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Format"><select className="field-input" value={exportFormat} onChange={e=>setExportFormat(e.target.value)}><option value="json">JSON</option><option value="csv">CSV</option></select></Field>
-            <Field label="Export type"><select className="field-input" value={exportType} onChange={e=>setExportType(e.target.value)}>
-              <option value="catalog">Catalog</option><option value="notifications">Notifications</option></select></Field>
-          </div>
-          <button className="btn-secondary" disabled={downloading} onClick={()=>void download('/api/mibs/export',
-            {format:exportFormat,export_type:exportType,modules:[],notifications:[],source_groups:groupFilter?[groupFilter]:[]},
-            'trishul-mib-catalog.'+exportFormat)}><Download size={16}/> Export catalog</button>
-        </Card>
-      </div>
-    </div>
-    <Card title="Compiled bundle history" description="Compare revisions before activating a different compiled bundle.">
-      <StatusText busy={bundles.isPending} error={bundles.error} empty={!bundles.isPending&&!bundles.data?.bundles.length}/>
-      <Field label="Diff against" hint="Leave on active bundle to compare a candidate with the current effective bundle.">
-        <select className="field-input max-w-xs" value={diffAgainst??''} onChange={e=>setDiffAgainst(e.target.value?Number(e.target.value):null)}>
-          <option value="">Active bundle</option>{bundles.data?.bundles.map(b=><option key={b.id} value={b.id}>#{b.id} {b.label||b.bundle_key}</option>)}</select></Field>
-      <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr>
-        <th className="p-3">Bundle</th><th className="p-3">State</th><th className="p-3">Modules</th><th className="p-3">Actions</th></tr></thead><tbody>
-        {bundles.data?.bundles.map(b=><tr key={b.id} className="border-t border-[var(--border)]"><td className="p-3">
-          #{b.id} · {b.label||b.bundle_key||'Bundle'}</td><td className="p-3">{bundles.data?.active_bundle_id===b.id?'Active':b.status||'Stored'}</td>
-          <td className="p-3">{b.module_count??'—'}</td><td className="flex flex-wrap gap-2 p-2">
-            <button className="btn-secondary" disabled={bundles.data?.active_bundle_id===b.id||diffAgainst===b.id}
-              onClick={()=>void getDiff(b.id)}><GitCompareArrows size={15}/> Compare</button>
-            <button className="btn-secondary" disabled={pending||bundles.data?.active_bundle_id===b.id}
-              onClick={()=>{setTargetBundle(b.id);setConfirm('activate');}}>Activate / rollback</button>
-          </td></tr>)}</tbody></table></div>
-      {diffResult != null&&<details open><summary className="cursor-pointer text-sm font-semibold">Bundle difference</summary><JsonView data={diffResult}/></details>}
-      {lastResult != null&&<details><summary className="cursor-pointer text-sm font-semibold">Last operation details</summary><JsonView data={lastResult}/></details>}
-    </Card>
+        </div>
+ </Dialog.Content></Dialog.Portal>
+</Dialog.Root>
     <ConfirmDialog open={confirm!==null} danger={confirm==='delete'} busy={pending} onCancel={()=>setConfirm(null)}
       onConfirm={()=>void runConfirm()} title={
         confirm==='delete'?'Delete selected MIB source files?':confirm==='activate'?'Activate compiled bundle #'+targetBundle+'?':
