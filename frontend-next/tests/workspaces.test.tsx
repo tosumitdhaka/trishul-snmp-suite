@@ -69,6 +69,27 @@ describe('remaining five React workspaces', () => {
     expect(new Headers(call?.init.headers).get('X-Auth-Token')).toBe('test-token');
     expect(JSON.parse(String(call?.init.body))).toEqual({ port: 1061, community: 'public' });
   });
+  it('beautifies JSON locally without saving it until explicitly requested', async () => {
+    mockApi(); setup(<SimulatorPage />);
+    const panel=screen.getByRole('region',{name:'Custom SNMP data'});
+    const editor=await within(panel).findByRole('textbox',{name:/Override JSON/});
+    await waitFor(()=>expect(editor).toBeEnabled());
+    fireEvent.change(editor,{target:{value:'{"foo":1,"nested":{"bar":true}}'}});
+    fireEvent.click(within(panel).getByRole('button',{name:'Beautify JSON'}));
+    expect(editor).toHaveValue('{'+'\n  "foo": 1,\n  "nested": {\n    "bar": true\n  }\n}');
+    expect(calls.some(c=>c.path==='/api/simulator/data' && c.method==='POST')).toBe(false);
+    fireEvent.click(within(panel).getByRole('button',{name:'Save custom data'}));
+    await waitFor(()=>expect(calls.some(c=>c.path==='/api/simulator/data'&&c.method==='POST')).toBe(true));
+  });
+  it('pauses simulator log auto refresh with a checkbox', async () => {
+    mockApi(); setup(<SimulatorPage />);
+    const logs=screen.getByRole('region',{name:'Activity logs'});
+    const checkbox=within(logs).getByRole('checkbox',{name:'Pause auto refresh'});
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(within(logs).getByRole('button',{name:'Clear simulator logs'})).toHaveClass('btn-danger');
+  });
   it('uses a single red Stop action for a running simulator, retaining Restart', async () => {
     mockApi(true); setup(<SimulatorPage />);
     const runtime = screen.getByRole('region', { name: 'Runtime' });
