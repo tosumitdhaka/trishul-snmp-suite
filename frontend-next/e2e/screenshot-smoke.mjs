@@ -35,7 +35,7 @@ function fixture(path) {
   if (path === '/api/mibs/bundle-summary') return {active_bundle_id:1,loaded:1};
   if (path === '/api/mibs/status') return { loaded:1, failed:0, mibs:[{name:'IF-MIB',status:'active',objects:1}],source_inventory:[{name:'IF-MIB',status:'active',source_group:'fixture',relative_path:'uploads/IF-MIB',deletable:true}], source_groups:[{name:'fixture',file_count:1}], active_bundle_label:'fixture bundle' };
   if (path === '/api/bundles') return {bundles:[{id:1,label:'fixture bundle',status:'active'}],active_bundle_id:1};
-  if (path === '/api/settings/app') return {auto_fetch_mibs:false,trap_resolve_mibs:true,simulator_port:1061,trap_receiver_port:1162};
+  if (path === '/api/settings/app') return {auto_start_simulator:false,auto_start_trap_receiver:false,session_timeout:3600,mib_auto_fetch:false,mib_remote_sources:[],restart_required:false};
   if (path === '/api/stats/' || path === '/api/stats') return { simulator:{snmp_requests_served:12,oids_loaded:50},traps:{traps_received_total:1,traps_sent_total:2}, walker:{walks_executed:5,oids_returned:120},mibs:{reload_count:2,upload_count:1} };
   return {};
 }
@@ -114,4 +114,5 @@ try {
   server.kill('SIGTERM');
   console.log('Browser fixture screenshots:',report.routes.length,'; errors:',report.errors.length);
   console.log('Horizontal overflow cases:',report.routes.filter(x=>x.horizontalOverflowPx>4).length);
+  if(report.errors.length) console.log('Browser fixture error details:',JSON.stringify(report.errors.slice(0,8)));
 }
