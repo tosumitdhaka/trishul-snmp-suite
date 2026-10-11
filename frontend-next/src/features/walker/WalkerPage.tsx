@@ -6,19 +6,11 @@ import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
 import { Card, Field, JsonView, SaveDataButton, displayValue, positivePort, saveLocalFile, type Notice } from '../shared/operator-ui';
+import { purgeLegacyWalkHistory, walkColumns, walkRows, walkTsv } from './walk-table';
 
 interface WalkResponse { mode: string; count: number; data: unknown; rawLines?: string[]; json_format?: string }
-interface WalkRecord { target: string; oid: string; port: number; count: number; at: string; result: WalkResponse }
-const HISTORY_KEY = 'trishul_next_walk_history';
-function readHistory(): WalkRecord[] {
-  try { const value: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); return Array.isArray(value) ? value.slice(0, 12) as WalkRecord[] : []; }
-  catch { return []; }
-}
-function walkRows(data: unknown): Record<string, unknown>[] {
-  if (Array.isArray(data)) return data.slice(0, 2000).map((row) => row && typeof row === 'object' && !Array.isArray(row) ? row as Record<string, unknown> : { value: row });
-  if (data && typeof data === 'object') return Object.entries(data).slice(0, 2000).map(([oid, value]) => value && typeof value === 'object' && !Array.isArray(value) ? { oid, ...value as Record<string, unknown> } : { oid, value });
-  return [];
-}
+interface WalkRecord { target: string; oid: string; port: number; count: number; at: string }
+const PAGE_SIZE = 100;
 export function WalkerPage() {
   const { auth } = useAuth();
   const token = auth.state === 'authenticated' ? auth.token : null;
@@ -39,7 +31,13 @@ export function WalkerPage() {
     notify({ tone: next.tone, title: next.tone === 'error' ? 'Walk action failed' : 'Walk action completed', message: next.text });
   }
   const [result, setResult] = useState<WalkResponse | null>(null);
-  const [history, setHistory] = useState(readHistory);
+  const [history, setHistory] = useState<WalkRecord[]>(() => { purgeLegacyWalkHistory(); return []; });
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    // Auth expiry, logout, and account replacement must drop every in-memory result.
+    setHistory([]);
+    setResult(null);
+  }, [token]);
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'table' | 'raw' | 'parsed'>('raw');
   const [sort, setSort] = useState<{ field: string; reverse: boolean } | null>(null);
@@ -62,20 +60,18 @@ export function WalkerPage() {
     if (sort) subset.sort((a,b) => displayValue(a[sort.field]).localeCompare(displayValue(b[sort.field]), undefined, { numeric: true }) * (sort.reverse ? -1 : 1));
     return subset;
   }, [rows, search, sort]);
+  const preview = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
   const groups = useMemo(() => {
     const byCategory = new Map<string, Record<string, unknown>[]>();
-    for (const item of filtered) {
+    for (const item of preview) {
       const category = String(item.metric_category || item.mib_module || item.module || 'Other objects');
-      byCategory.set(category, [...(byCategory.get(category) || []), item]);
+      const items = byCategory.get(category) || [];
+      items.push(item);
+      byCategory.set(category, items);
     }
     return [...byCategory.entries()];
-  }, [filtered]);
-  const columns = useMemo(() => [...new Set(rows.slice(0, 100).flatMap(row => Object.keys(row)))].slice(0, 12), [rows]);
-  function persist(next: WalkRecord[]) {
-    setHistory(next);
-    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next.map(item => ({ ...item, result: item.result })))); }
-    catch { setNotice({ tone: 'error', text: 'Walk succeeded but local history could not be saved.' }); }
-  }
+  }, [preview]);
+  const columns = useMemo(() => walkColumns(rows), [rows]);
   async function run(event: FormEvent) {
     event.preventDefault();
     const portNumber = positivePort(port), ms = Number(timeout), retryCount = Number(retries);
@@ -93,19 +89,20 @@ export function WalkerPage() {
       });
       if (abort.signal.aborted) return;
       setResult(next); setSearch(''); setSort(null); setView('raw');
-      const record: WalkRecord = { target: target.trim(), oid: oid.trim(), port: portNumber, count: next.count, at: new Date().toISOString(), result: next };
-      persist([record, ...history.filter(item => item.target !== record.target || item.oid !== record.oid)].slice(0, 12));
+      const record: WalkRecord = { target: target.trim(), oid: oid.trim(), port: portNumber, count: next.count, at: new Date().toISOString() };
+      setPage(0);
+      // Only configuration metadata is kept, and only until this workspace/auth session ends.
+      setHistory(previous => [record, ...previous.filter(item => item.target !== record.target || item.oid !== record.oid)].slice(0, 12));
       setNotice({ tone: 'success', text: 'Walk completed: ' + next.count + ' OIDs returned.' });
     } catch (err) {
-      if (abort.signal.aborted) setNotice({ tone: 'success', text: 'Walk cancelled locally. The backend may still finish processing the request.' });
+      if (abort.signal.aborted) setNotice({ tone: 'info', text: 'Client request stopped; the backend SNMP walk may still be running.' });
       else setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Walk request failed.' });
     } finally { if (controller.current === abort) { controller.current = null; setLoading(false); } }
   }
   function exportTable() {
     if (!filtered.length) return;
-    const keys = columns;
-    const tsv = [keys.join('\t'), ...filtered.map(row => keys.map(key => displayValue(row[key]).replace(/\t/g, ' ').replace(/\r?\n/g, ' ')).join('\t'))].join('\n');
-    saveLocalFile(tsv, 'trishul-walk.tsv', 'text/tab-separated-values');
+    const tsv = walkTsv(filtered, columns);
+    saveLocalFile(tsv, 'trishul-walk-filtered.tsv', 'text/tab-separated-values');
   }
   return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Walk &amp; Parse</p><h1 className="mt-1 text-2xl font-semibold">SNMP walk explorer</h1>
@@ -140,27 +137,27 @@ export function WalkerPage() {
       <Card title="Walk results" description={result ? result.count + ' OIDs · ' + result.mode : 'No walk executed'}>
         {result ? <>
           <div className="flex flex-wrap gap-2">
-            <label className="min-w-44 flex-1"><span className="sr-only">Filter results</span><span className="flex items-center gap-2"><Search size={16} /><input className="field-input" placeholder="Filter OIDs and values" value={search} onChange={e => setSearch(e.target.value)} /></span></label>
+            <label className="min-w-44 flex-1"><span className="sr-only">Filter results</span><span className="flex items-center gap-2"><Search size={16} /><input className="field-input" placeholder="Filter OIDs and values" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} /></span></label>
             {(['raw','table','parsed'] as const).map(mode => <button type="button" key={mode}
               aria-pressed={view===mode} className={view===mode?'btn-primary':'btn-secondary'} onClick={()=>setView(mode)}>
               {mode==='table'?'Grouped table':mode==='parsed'?'Parsed JSON':'Raw'}
             </button>)}
             <SaveDataButton value={result.data} filename="trishul-walk.json" />
-            <button className="btn-secondary" type="button" disabled={!filtered.length} onClick={exportTable}><Download size={16} /> TSV</button>
+            <button className="btn-secondary" type="button" disabled={!filtered.length} onClick={exportTable}><Download size={16} /> Export all {filtered.length} filtered rows (TSV)</button>
           </div>
           {view === 'raw' ? <pre aria-label="Raw SNMP walk result" className="max-h-[38rem] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--surface-muted)] p-4 font-mono text-xs leading-relaxed">
               {result.rawLines?.length ? result.rawLines.join('\n') : Array.isArray(result.data) && result.mode === 'raw'
                 ? result.data.join('\n') : JSON.stringify(result.data, null, 2)}
             </pre> : view === 'parsed' ? <JsonView data={result.data}/> :
             filtered.length ? <div className="max-h-[38rem] overflow-auto"><p className="p-2 text-xs text-[var(--muted)]">
-              {groups.length} categories · {filtered.length} visible rows · grouped by MIB metric category/module when available
+              Showing {preview.length ? page * PAGE_SIZE + 1 : 0}–{page * PAGE_SIZE + preview.length} of {filtered.length} filtered rows ({rows.length} returned) · {columns.length} columns · grouped by MIB category/module
             </p>{groups.map(([category, items]) => <section key={category} aria-label={'Category: '+category}>
               <h3 className="sticky top-0 z-10 border-y border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm font-semibold">
                 {category} <span className="ml-2 text-xs font-normal text-[var(--muted)]">{items.length} entries</span>
               </h3>
               <table className="min-w-full text-left text-xs">
               <thead className="sticky top-0 bg-[var(--surface-muted)]"><tr>{columns.map(key => <th key={key} className="p-3">
-                <button className="font-semibold" onClick={() => setSort(old => ({ field: key, reverse: old?.field === key ? !old.reverse : false }))}>{key} ↕</button></th>)}</tr></thead>
+                <button className="font-semibold" onClick={() => { setSort(old => ({ field: key, reverse: old?.field === key ? !old.reverse : false })); setPage(0); }}>{key} ↕</button></th>)}</tr></thead>
               <tbody>{items.map((row,i) => <tr className="border-t border-[var(--border)]" key={i}>
                 {columns.map(key => <td key={key} className="max-w-96 break-all p-3 font-mono">
                   {key.toLowerCase() === 'oid' && typeof row[key] === 'string' && row[key] ?
@@ -168,18 +165,22 @@ export function WalkerPage() {
                       onClick={() => sendToBrowser({ query: row[key] as string })}>{row[key] as string}</Link>
                     : displayValue(row[key])}
                 </td>)}</tr>)}</tbody>
-              </table></section>)}</div> : <p className="text-sm text-[var(--muted)]">No result rows match the filter, or the returned result cannot be tabulated. Use the Parsed/Raw view.</p>}
-        </> : <p className="text-sm text-[var(--muted)]">Execute a walk or open an earlier result from history.</p>}
+              </table></section>)}<nav aria-label="Walk result pages" className="flex items-center justify-between gap-3 p-3 text-sm">
+              <span>Page {page + 1} of {Math.ceil(filtered.length / PAGE_SIZE)}</span>
+              <span className="flex gap-2"><button type="button" className="btn-secondary" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</button>
+              <button type="button" className="btn-secondary" disabled={(page + 1) * PAGE_SIZE >= filtered.length} onClick={() => setPage(p => p + 1)}>Next</button></span>
+            </nav></div> : <p className="text-sm text-[var(--muted)]">No result rows match the filter, or the returned result cannot be tabulated. Use the Parsed/Raw view.</p>}
+        </> : <p className="text-sm text-[var(--muted)]">Execute a walk to view results. Recent configurations can refill the form, not restore past values.</p>}
       </Card>
-      <Card title="Recent walks" description="Saved in this browser only; never stores SNMP communities.">
+      <Card title="Recent configurations" description="Memory-only for this login. No result values, communities or history survive reload or logout. Previous stored history is cleared.">
         {history.length === 0 && <p className="text-sm text-[var(--muted)]">No recent walks.</p>}
         <div className="space-y-2">{history.map((record,i) => <button type="button" key={i}
           className="block w-full rounded-lg border border-[var(--border)] p-3 text-left text-sm hover:bg-[var(--surface-muted)]"
-          onClick={() => { setTarget(record.target); setOid(record.oid); setPort(String(record.port)); setResult(record.result); }}>
+          onClick={() => { setTarget(record.target); setOid(record.oid); setPort(String(record.port)); setResult(null); }}>
           <strong className="block">{record.target}</strong><span className="block break-all font-mono text-xs">{record.oid}</span>
           <span className="block text-xs text-[var(--muted)]">{record.count} OIDs · {new Date(record.at).toLocaleString()}</span>
         </button>)}</div>
-        {history.length > 0 && <button className="btn-danger" onClick={() => persist([])}><Trash2 size={16}/> Clear local history</button>}
+        {history.length > 0 && <button className="btn-danger" onClick={() => setHistory([])}><Trash2 size={16}/> Clear recent configurations</button>}
       </Card>
     </div>
   </div>;
