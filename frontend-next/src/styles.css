@@ -445,3 +445,5 @@ select.field-input { padding-right: 2rem; }
  .traps-history-table .trap-history-details-row section { min-width:0; }
  .traps-history-table:focus-visible { outline-offset:2px; }
 }
+
+.manager-status { white-space:nowrap; font-size:.72rem; letter-spacing:-.01em; }
