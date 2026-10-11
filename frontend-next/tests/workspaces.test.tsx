@@ -88,10 +88,10 @@ describe('remaining five React workspaces', () => {
     fireEvent.click(within(panel).getByRole('button',{name:'Save custom data'}));
     await waitFor(()=>expect(calls.some(c=>c.path==='/api/simulator/data'&&c.method==='POST')).toBe(true));
   });
-  it('pauses simulator log auto refresh with a checkbox', async () => {
+  it('pauses simulator displayed log feed with a checkbox', async () => {
     mockApi(); setup(<SimulatorPage />);
     const logs=screen.getByRole('region',{name:'Activity logs'});
-    const checkbox=within(logs).getByRole('checkbox',{name:'Pause auto refresh'});
+    const checkbox=within(logs).getByRole('checkbox',{name:'Pause displayed feed'});
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
@@ -136,8 +136,8 @@ describe('remaining five React workspaces', () => {
     expect(screen.getByRole('region',{name:'Category: system'})).toHaveTextContent('17');
     const call = calls.find(c => c.path === '/api/walk/execute');
     expect(JSON.parse(String(call?.init.body))).toMatchObject({ target: '127.0.0.1', oid: '1.3.6.1.2.1', timeout_ms: 2000, parse: true });
-    expect(screen.getByRole('region', { name: 'Recent walks' })).toHaveTextContent('127.0.0.1');
-    expect(localStorage.getItem('trishul_next_walk_history')).not.toContain('public');
+    expect(screen.getByRole('region', { name: 'Recent configurations' })).toHaveTextContent('127.0.0.1');
+    expect(localStorage.getItem('trishul_next_walk_history')).toBeNull();
   });
   it('Traps uses a paginated history endpoint and requires confirmation before clearing', async () => {
     mockApi(); setup(<TrapsPage />);
@@ -178,13 +178,13 @@ describe('remaining five React workspaces', () => {
   });
   it('MIB Browser shows module roots by default, expands and switches to numeric OID view', async () => {
     mockApi(); setup(<BrowserPage />);
-    const tree = screen.getByRole('tree', { name: 'MIB module tree' });
+    const tree = screen.getByRole('region', { name: 'MIB module tree' });
     expect(await within(tree).findByRole('button', { name: 'Expand IF-MIB' })).toBeInTheDocument();
     expect(calls.some(c => c.path === '/api/mibs/browse/tree/module')).toBe(true);
     fireEvent.click(within(tree).getByRole('button', { name: 'Expand IF-MIB' }));
     expect(await within(tree).findByRole('button', { name: 'Expand ifTable' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'By OID' }));
-    expect(await screen.findByRole('tree', { name: 'Numeric OID tree' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Numeric OID tree' })).toBeInTheDocument();
     expect(calls.some(c => c.path.startsWith('/api/mibs/browse/tree/oid?root_oid=1.3.6.1'))).toBe(true);
     const expand = screen.getByRole('group', { name: 'Tree expansion controls' });
     expect(within(expand).getByRole('combobox', { name: 'Expansion depth' })).toHaveValue('3');
