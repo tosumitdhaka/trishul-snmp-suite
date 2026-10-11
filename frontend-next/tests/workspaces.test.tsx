@@ -283,7 +283,7 @@ describe('remaining five React workspaces', () => {
     const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
     fireEvent.click(within(inventory).getByRole('button',{name:'Reload & dependencies'}));
     const dialog=await screen.findByRole('dialog',{name:'Reload & dependencies'});
-    expect(within(dialog).getByLabelText('Missing dependency names')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Missing dependency names/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button',{name:'Recompile / reload stored MIBs'}));
     expect(calls.some(c=>c.path==='/api/mibs/reload'&&c.method==='POST')).toBe(false);
     expect(await screen.findByRole('dialog',{name:'Recompile the current MIB sources?'})).toBeInTheDocument();
