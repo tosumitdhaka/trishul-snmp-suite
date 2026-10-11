@@ -406,3 +406,13 @@ select.field-input { padding-right: 2rem; }
  .manager-inventory-table { max-height:min(70vh,42rem); overflow-y:auto; scrollbar-gutter:stable; }
  .manager-inventory-table:focus-visible { outline-offset:2px; }
 }
+
+.manager-tab-short { display:none; }
+.manager-inventory-tabs-row { min-width:0; }
+.manager-inventory-tabs-row > [role="group"] { min-width:0; }
+.manager-inventory-tabs-row > [role="group"] button { min-width:0; }
+@container manager-catalog (max-width:30rem) {
+ .manager-tab-full { display:none; }
+ .manager-tab-short { display:inline; }
+ .manager-inventory-tabs-row > [role="group"] button { white-space:nowrap; padding-inline:.65rem; }
+}
