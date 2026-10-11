@@ -308,24 +308,24 @@ export function TrapsPage() {
         <IconAction danger label="Clear received trap history" disabled={pending || !history.data?.total} onClick={()=>setConfirm('clear')}><Trash2 size={16}/></IconAction>
       </div>
       <StatusText busy={history.isPending} error={history.error} empty={!history.isPending && !filtered.length} />
-      <div className="max-h-[30rem] overflow-auto"><table className="min-w-full text-left text-xs">
+      <div role="region" aria-label="Received trap records" tabIndex={0} className="traps-history-table max-h-[30rem] overflow-auto"><table className="min-w-full text-left text-xs">
         <thead><tr className="border-b border-[var(--border)]">
           {['Time','Source','Notification','Details'].map(x=><th className="p-3" key={x}>{x}</th>)}
         </tr></thead><tbody>
         {filtered.map((row,i)=>{
           const opened=selected === row || (selected?.id != null && selected.id===row.id);
           return <React.Fragment key={row.id ?? i}>
-            <tr className={'cursor-pointer border-b border-[var(--border)] hover:bg-[var(--surface-muted)] '+(opened?'bg-[var(--accent-soft)]':'')}
+            <tr className={'trap-history-record cursor-pointer border-b border-[var(--border)] hover:bg-[var(--surface-muted)] '+(opened?'bg-[var(--accent-soft)]':'')}
               onClick={()=>setSelected(opened?null:row)}>
-              <td className="whitespace-nowrap p-3">{displayValue(row.timestamp || row.time)}</td>
-              <td className="p-3">{displayValue(row.source)}</td>
-              <td className="max-w-64 break-all p-3 font-semibold">{displayValue(row.trap_type)}</td>
-              <td className="p-2"><button type="button" className="btn-secondary btn-icon-action"
+              <td data-label="Time" className="whitespace-nowrap p-3">{displayValue(row.timestamp || row.time)}</td>
+              <td data-label="Source" className="p-3 break-all">{displayValue(row.source)}</td>
+              <td data-label="Notification" className="max-w-64 break-all p-3 font-semibold">{displayValue(row.trap_type)}</td>
+              <td data-label="Details" className="p-2"><button type="button" className="btn-secondary btn-icon-action"
                 aria-label={(opened?'Collapse':'Expand')+' trap event '+(row.id??i)} aria-expanded={opened}
                 onClick={event=>{event.stopPropagation();setSelected(opened?null:row);}}>
                 {opened?<ChevronDown size={16}/>:<ChevronRight size={16}/>}</button></td>
             </tr>
-            {opened&&<tr className="border-b border-[var(--border)]"><td colSpan={4} className="p-4">
+            {opened&&<tr className="trap-history-details-row border-b border-[var(--border)]"><td colSpan={4} className="p-4">
               <section aria-label={'Event details '+(row.id??i)} className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-semibold">Event #{row.id??'—'} · {displayValue(row.trap_type)}</h3>
@@ -354,7 +354,7 @@ export function TrapsPage() {
           </React.Fragment>;
         })}
         </tbody></table></div>
-      <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted)]"><span>{history.data ? 'Server page ' + (offset+1) + '–' + (offset+history.data.data.length) + ' of ' + history.data.total + '; ' + filtered.length + ' local matches' : 'No history loaded'}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--muted)]"><span>{history.data ? 'Server page ' + (offset+1) + '–' + (offset+history.data.data.length) + ' of ' + history.data.total + '; ' + filtered.length + ' local matches' : 'No history loaded'}</span>
         <div className="flex gap-2"><button className="btn-secondary" disabled={offset===0} onClick={()=>setOffset(x=>Math.max(0,x-50))}>Previous</button>
           <button className="btn-secondary" disabled={!history.data || offset+50>=history.data.total} onClick={()=>setOffset(x=>x+50)}>Next</button></div></div>
     </Card>
