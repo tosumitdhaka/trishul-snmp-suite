@@ -131,7 +131,7 @@ export function SimulatorPage() {
       </Card>
     </div>
     <Card title="Activity logs" description="Bounded server history; search, severity filter and export.">
-      <div className="flex flex-wrap gap-2">
+      <div className="simulator-log-toolbar flex flex-wrap gap-2">
         <label className="flex min-w-[13rem] flex-1 items-center gap-2"><Search size={16} /><span className="sr-only">Search logs</span><input className="field-input" placeholder="Search logs" value={filter} onChange={e => setFilter(e.target.value)} /></label>
         <label><span className="sr-only">Log level</span><select className="field-input" value={level} onChange={e => setLevel(e.target.value)}>
           <option value="all">All levels</option>{['info','warning','error','debug'].map(item => <option key={item} value={item}>{item}</option>)}
