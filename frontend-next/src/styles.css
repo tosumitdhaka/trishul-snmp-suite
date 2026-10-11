@@ -451,7 +451,7 @@ select.field-input { padding-right: 2rem; }
 /* Real mobile cell labels also prevent invisible desktop sort headers in keyboard tab order. */
 .manager-mobile-cell-label { display:none; }
 @container manager-catalog (max-width:46rem) {
- .manager-inventory-table td::before { display:none; }
+ .manager-inventory-table td::before, .manager-inventory-table td[data-label="Module / source"]::before { display:none; }
  .manager-inventory-table .manager-mobile-cell-label {
    display:block; min-width:0; color:var(--muted); font-size:.75rem; font-weight:650;
  }
