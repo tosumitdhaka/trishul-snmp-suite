@@ -10,6 +10,7 @@ export interface CatalogEntry extends CatalogSource {
   sourcePath?:string;
   active:boolean;
 }
+export type CatalogSearchScope='all'|'module'|'imports'|'path';
 export type CatalogSortKey='name'|'source_group'|'status'|'objects'|'traps';
 export type CatalogSort = { field:CatalogSortKey; descending:boolean };
 export function buildCatalogEntries(modules:CatalogSource[], sources:CatalogSource[]):CatalogEntry[] {
@@ -32,12 +33,19 @@ export function buildCatalogEntries(modules:CatalogSource[], sources:CatalogSour
   }
   return rows;
 }
-export function filterSortCatalog(entries:CatalogEntry[],query:string,group:string,status:string,sort:CatalogSort){
+export function filterSortCatalog(entries:CatalogEntry[],query:string,group:string,status:string,sort:CatalogSort,scope:CatalogSearchScope='all'){
+  const matches=(item:CatalogEntry,needle:string)=>{
+    const module=[item.name,item.moduleName];
+    const dependencies=[...(item.imports||[]),...(item.missing_deps||[])];
+    const paths=[item.relative_path,item.file,item.sourcePath,item.active_relative_path];
+    const values=scope==='module'?module:scope==='imports'?dependencies:scope==='path'?paths:
+      [...module,...dependencies,...paths,item.source_group,item.status,item.error];
+    return values.some(value=>value?.toLowerCase().includes(needle));
+  };
   const needle=query.trim().toLowerCase();
   return entries.filter(item=>(!group||item.source_group===group) &&
     (!status||(item.status||'active').toLowerCase()===status.toLowerCase()) &&
-    (!needle||[item.name,item.file,item.relative_path,item.source_group,item.status,item.error]
-      .some(value=>value?.toLowerCase().includes(needle)))).sort((a,b)=>{
+    (!needle||matches(item,needle))).sort((a,b)=>{
     const left=a[sort.field],right=b[sort.field];
     const order=typeof left==='number'&&typeof right==='number' ? left-right :
       String(left??'').localeCompare(String(right??''),undefined,{numeric:true,sensitivity:'base'});
@@ -54,4 +62,16 @@ export function scopedSelection(entries:CatalogEntry[],selectedKeys:string[]){
 }
 export function nextCatalogSort(previous:CatalogSort,key:CatalogSortKey):CatalogSort{
   return {field:key,descending:previous.field===key?!previous.descending:false};
+}
+
+export type NotificationSortKey='name'|'oid'|'module'|'objects';
+export interface CatalogNotification { name:string;full_name:string;oid:string;module?:string;objects?:unknown[] }
+export function sortCatalogNotifications<T extends CatalogNotification>(entries:T[],field:NotificationSortKey,descending:boolean):T[]{
+  return [...entries].sort((a,b)=>{
+    const left=field==='objects'?a.objects?.length??0:field==='name'?a.full_name:a[field]||'';
+    const right=field==='objects'?b.objects?.length??0:field==='name'?b.full_name:b[field]||'';
+    const diff=typeof left==='number'&&typeof right==='number'?left-right:
+      String(left).localeCompare(String(right),undefined,{numeric:true,sensitivity:'base'});
+    return descending?-diff:diff;
+  });
 }
