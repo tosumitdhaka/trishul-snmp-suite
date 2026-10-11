@@ -33,6 +33,10 @@ function safeFilename(value: string | null, fallback: string): string {
   const found = value?.match(/filename="?([^";]+)"?/i)?.[1];
   return found && /^[A-Za-z0-9_.-]+$/.test(found) ? found : fallback;
 }
+function sourceStatusLabel(value:string|undefined):string {
+  const status=value||'active';
+  return status==='missing_deps'?'Missing deps':status.replace(/_/g,' ');
+}
 function asList(value: unknown): string[] {
   return typeof value === 'string' ? value.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean) : [];
 }
@@ -399,7 +403,7 @@ export function MibsPage() {
                 </Link>}</td>
               <td data-label="Source group" className="p-2 text-xs">{item.source_group||'Built-in / compiled'}</td>
               <td data-label="Status" className="p-2"><span className={'manager-status manager-status-'+(item.status||'active').toLowerCase()}>
-                {item.status||'active'}</span></td><td data-label="Objects" className="p-2">{item.objects??'—'}</td><td data-label="Traps" className="p-2">{item.traps??'—'}</td>
+                {sourceStatusLabel(item.status)}</span></td><td data-label="Objects" className="p-2">{item.objects??'—'}</td><td data-label="Traps" className="p-2">{item.traps??'—'}</td>
             </tr>})}</tbody></table></div>}
         {totalVisible>pageSize && <div className="flex items-center justify-end gap-2 text-xs">
           <span>Page {page+1} of {Math.ceil(totalVisible/pageSize)}</span>
