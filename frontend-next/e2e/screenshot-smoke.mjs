@@ -88,6 +88,7 @@ try {
           await page.getByRole('button',{name:'Expand trap event 42'}).click();
           const details=page.getByRole('region',{name:'Event details 42'});
           await details.waitFor({timeout:5000});
+          await page.evaluate(()=>globalThis.scrollTo(0,0));
           const file=theme+'-'+width+'-traps-expanded-event.png';
           await page.screenshot({path:join(artifacts,file),fullPage:true,animations:'disabled'});
           report.routes.push({workspace:'traps',theme,width,sidebar:'expanded',state:'event-details',screenshot:file});
