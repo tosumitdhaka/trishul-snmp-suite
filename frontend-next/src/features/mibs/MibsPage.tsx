@@ -89,9 +89,11 @@ export function MibsPage() {
     (!query || [item.name,item.file,item.relative_path,item.source_group,item.status,item.error]
       .some(value=>value?.toLowerCase().includes(query.toLowerCase()))))
     .sort((a,b)=>String(a[sortBy]||'').localeCompare(String(b[sortBy]||''))), [all,query,groupFilter,statusFilter,sortBy]);
+  const notificationModules=useMemo(() => [...new Set((traps.data?.traps||[]).map(t=>t.module).filter((name):name is string=>!!name))].sort(),[traps.data]);
   const filteredNotifications=useMemo(()=>(traps.data?.traps||[]).filter(t=>
     (!groupFilter || t.module===groupFilter) &&
-    (!query || [t.name,t.full_name,t.module,t.oid].some(value=>value?.toLowerCase().includes(query.toLowerCase())))),[traps.data,query,groupFilter]);
+    (!query || [t.name,t.full_name,t.module,t.oid].some(value=>value?.toLowerCase().includes(query.toLowerCase()))))
+    .sort((a,b)=>a.full_name.localeCompare(b.full_name)),[traps.data,query,groupFilter]);
   const pageSize=75;
   const visible=shown.slice(page*pageSize,(page+1)*pageSize);
   const visibleNotifications=filteredNotifications.slice(page*pageSize,(page+1)*pageSize);
@@ -242,33 +244,39 @@ export function MibsPage() {
           <div role="group" aria-label="Inventory views" className="flex flex-wrap gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
             {(['sources','modules','traps'] as const).map(tab=><button type="button" key={tab}
               aria-pressed={activeTab===tab} className={activeTab===tab?'btn-primary':'btn-secondary'}
-              onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);}}>
+              onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);setQuery('');setGroupFilter('');setStatusFilter('');}}>
               {tab==='sources'?'Sources':tab==='modules'?'Modules':'Notifications'}
             </button>)}
           </div>
           <IconAction label="Refresh MIB inventory" onClick={()=>{void status.refetch();void bundles.refetch();}}><RefreshCw size={16}/></IconAction>
         </div>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto]">
+        <div className={'grid min-w-0 gap-3 sm:grid-cols-2 ' +
+          (activeTab==='traps'?'xl:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)]':
+            'xl:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto]')}>
           <label className="relative min-w-0"><span className="sr-only">Search inventory</span>
-            <input className="field-input pr-9" value={query} placeholder="Search module, file or status"
+            <input className="field-input pr-9" value={query} placeholder={activeTab==='traps'?'Search notifications by name or OID':'Search module, file or status'}
               onChange={e=>{setQuery(e.target.value);setPage(0);}}/>
             <Search size={15} className="pointer-events-none absolute right-3 top-3 text-[var(--muted)]"/>
           </label>
-          <label className="text-xs font-medium">Source group
+          <label className="text-xs font-medium">{activeTab==='traps'?'Notification module':'Source group'}
             <select className="field-input mt-1" value={groupFilter} onChange={e=>{setGroupFilter(e.target.value);setPage(0);}}>
-              <option value="">All groups</option>{status.data?.source_groups?.map(g=><option key={g.name} value={g.name}>{g.name} ({g.file_count})</option>)}
+              <option value="">{activeTab==='traps'?'All modules':'All groups'}</option>
+              {activeTab==='traps'?notificationModules.map(name=><option key={name} value={name}>{name}</option>)
+                :status.data?.source_groups?.map(g=><option key={g.name} value={g.name}>{g.name} ({g.file_count})</option>)}
             </select>
           </label>
-          <label className="text-xs font-medium">Status
-            <select className="field-input mt-1" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(0);}}>
-              <option value="">All statuses</option>{['active','pending','failed','shadowed','error'].map(item=><option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="text-xs font-medium">Sort
-            <select className="field-input mt-1" value={sortBy} onChange={e=>setSortBy(e.target.value as 'name'|'status')}>
-              <option value="name">Name</option><option value="status">Status</option>
-            </select>
-          </label>
+          {activeTab!=='traps' && <>
+            <label className="text-xs font-medium">Status
+              <select className="field-input mt-1" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(0);}}>
+                <option value="">All statuses</option>{['active','pending','missing_deps','failed','shadowed','invalid'].map(item=><option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-medium">Sort
+              <select className="field-input mt-1" value={sortBy} onChange={e=>setSortBy(e.target.value as 'name'|'status')}>
+                <option value="name">Name</option><option value="status">Status</option>
+              </select>
+            </label>
+          </>}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
           <span>{totalVisible} items · {currentSelection.length} selected in {activeTab==='traps'?'notifications':activeTab}</span>
