@@ -270,12 +270,14 @@ export function MibsPage() {
           <button type="button" className="btn-primary" onClick={()=>{setAddMode('online');setOnlineResult(null);setModal('add');}}><Plus size={16}/> Add / upload</button>
           <button type="button" className="btn-secondary" onClick={()=>setModal('maintenance')}><Wrench size={16}/> Reload & dependencies</button>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div role="group" aria-label="Inventory views" className="flex flex-wrap gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
+        <div className="manager-inventory-tabs-row flex items-center justify-between gap-2">
+          <div role="group" aria-label="Inventory views" className="flex flex-nowrap gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
             {(['modules','traps'] as const).map(tab=><button type="button" key={tab}
+              aria-label={tab==='modules'?'Modules & sources':'Notifications'}
               aria-pressed={activeTab===tab} className={activeTab===tab?'btn-primary':'btn-secondary'}
               onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);setQuery('');setGroupFilter('');setStatusFilter('');setSearchScope('all');}}>
-              {tab==='modules'?'Modules & sources':'Notifications'}
+              <span className="manager-tab-full" aria-hidden="true">{tab==='modules'?'Modules & sources':'Notifications'}</span>
+              <span className="manager-tab-short" aria-hidden="true">{tab==='modules'?'Sources':'Traps'}</span>
             </button>)}
           </div>
           <IconAction label="Refresh MIB inventory" onClick={()=>{void status.refetch();void bundles.refetch();}}><RefreshCw size={16}/></IconAction>
