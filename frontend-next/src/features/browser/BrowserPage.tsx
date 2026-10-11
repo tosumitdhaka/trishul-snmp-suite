@@ -405,7 +405,7 @@ export function BrowserPage() {
         </Card>
       </div>
       <Card title="Object details" description="Symbolic identity, data definition, table indexes and notification members.">
-        {!selected ? <div className="flex min-h-56 flex-col items-center justify-center text-center text-[var(--muted)]">
+        {!selected ? <div className="browser-detail-empty flex min-h-56 flex-col items-center justify-center text-center text-[var(--muted)]">
           <FolderTree size={28} strokeWidth={1.5} /><p className="mt-3 text-sm font-semibold">Select a node in the tree</p>
           <p className="mt-1 max-w-xs text-xs">Click a symbol to inspect metadata, or expand its chevron to see child objects.</p>
         </div> : <>
