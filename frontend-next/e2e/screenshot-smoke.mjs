@@ -118,7 +118,7 @@ try {
             await page.screenshot({path:join(artifacts,file),fullPage:true,animations:'disabled'});
             report.routes.push({workspace:'mibs',theme,width,sidebar:'expanded',state,screenshot:file});
           };
-          const tableDisplay=await page.locator('.manager-inventory-table table').evaluate(el=>getComputedStyle(el).display);
+          const tableDisplay=await page.locator('.manager-inventory-table table').evaluate(el=>globalThis.getComputedStyle(el).display);
           if(width===390 && tableDisplay!=='block') report.errors.push({theme,width,problem:'Manager inventory did not reflow into cards',tableDisplay});
           await page.getByRole('button',{name:'Notifications',exact:true}).click();
           await page.waitForTimeout(100);await snapshot('notification-catalog');
