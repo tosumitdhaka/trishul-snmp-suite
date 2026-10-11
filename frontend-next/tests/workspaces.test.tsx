@@ -24,7 +24,7 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
   if (path.startsWith('/api/traps/?')) return { data: [{ id: 42, trap_type: 'linkDown', source: 'localhost',
     varbinds: [{ oid:'1.3.6.1.2.1.2.2.1.1', name:'IF-MIB::ifIndex', value: 7, resolved:true }] }], total: 1, count: 1 };
   if (path === '/api/mibs/traps') return { traps: [{
-    oid: '1.3.6.1.6.3.1.1.5.3', name: 'linkDown', full_name: 'IF-MIB::linkDown',
+    oid: '1.3.6.1.6.3.1.1.5.3', name: 'linkDown', full_name: 'IF-MIB::linkDown', module: 'IF-MIB',
     objects: [{ name: 'ifIndex', oid: '1.3.6.1.2.1.2.2.1.1', input_type: 'Integer' }],
   }] };
   if (path.startsWith('/api/mibs/objects?')) return { objects: [] };
@@ -259,7 +259,29 @@ describe('remaining five React workspaces', () => {
     const notice=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
     fireEvent.click(notice);
     expect(notice).toBeChecked();
+    expect(within(inventory).getByRole('combobox',{name:'Notification module'})).toBeInTheDocument();
+    expect(within(inventory).queryByRole('combobox',{name:'Status'})).not.toBeInTheDocument();
     expect(within(sidebar).getByRole('region',{name:'Catalog export'})).toHaveTextContent('1 modules · 1 notifications selected');
+  });
+  it('exports the selected module names and notification OIDs rather than the entire catalog', async () => {
+    mockApi(); setup(<MibsPage />);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    const moduleCheckbox=await within(inventory).findByRole('checkbox',{name:'Select IF-MIB'});
+    fireEvent.click(moduleCheckbox);
+    fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
+    const notificationCheckbox=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
+    fireEvent.click(notificationCheckbox);
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: vi.fn(()=> 'blob:export-test'), revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
+    const panel=screen.getByRole('region',{name:'Catalog export'});
+    fireEvent.click(within(panel).getByRole('button',{name:'Export catalog'}));
+    await waitFor(()=>expect(calls.some(c=>c.path==='/api/mibs/export' && c.method==='POST')).toBe(true));
+    const body=JSON.parse(String(calls.find(c=>c.path==='/api/mibs/export')?.init.body));
+    expect(body).toMatchObject({
+      format:'json', export_type:'catalog', modules:['IF-MIB'], notifications:['1.3.6.1.6.3.1.1.5.3'],
+    });
   });
   it('opens catalog header Add/Upload and fetches online by module name through the existing API', async () => {
     mockApi(); setup(<MibsPage />);
