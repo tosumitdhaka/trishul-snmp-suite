@@ -15,10 +15,10 @@ The catalog heading has **Add / upload** and **Reload & dependencies** controls,
 The initial catalog view is **Modules**, so active MIBs can be selected even when no managed source files have been uploaded.
 
 - **Modules:** checkboxes select loaded module names, scoped into catalog exports; selecting is not destructive.
-- **Notifications:** checkboxes select notification OIDs, scoped into catalog exports; Send/Browse links remain per row.
+- **Notifications:** checkboxes select symbolic notification full names, scoped into catalog exports; Send/Browse links remain per row.
 - **Sources:** checkboxes select real managed source paths, allowing downloads. Delete is enabled only for selected paths explicitly marked deletable by the backend and still requires confirmation. Non-managed builtin modules cannot be deleted or downloaded through source endpoints.
 - Bulk **Select visible / Deselect visible** operates on the currently displayed page. Selections persist while switching tabs. A per-view Clear selection action is available.
-- Export includes the selected module names / notification OIDs in the backend export contract. With no selection, it exports the full eligible catalog subject to source group/export type.
+- Export includes the selected module names / symbolic notification full names in the backend export contract. With no selection, it exports the full eligible catalog subject to source group/export type.
 - Active bundle changes, compile actions, activation/rollback, and diff are unchanged.
 
 ## Acceptance tests still needed
