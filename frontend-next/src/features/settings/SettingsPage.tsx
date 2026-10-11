@@ -47,7 +47,7 @@ function ConfirmAction({ kind, pending, onCancel, onConfirm }: {
       <Dialog.Content aria-describedby="settings-confirm-description" className="fixed left-1/2 top-1/2 z-70 w-[min(29rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--text)] shadow-2xl focus:outline-none">
         <div className="flex items-start justify-between gap-3">
           <span className="inline-flex rounded-xl bg-[var(--danger-soft)] p-2.5 text-[var(--danger)]"><AlertTriangle size={22} aria-hidden="true" /></span>
-          <Dialog.Close disabled={pending} aria-label="Close confirmation" className="btn-secondary p-2"><X size={17} aria-hidden="true" /></Dialog.Close>
+          <Dialog.Close disabled={pending} aria-label="Close confirmation" className="btn-secondary btn-icon-action"><X size={17} aria-hidden="true" /></Dialog.Close>
         </div>
         <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
         <Dialog.Description id="settings-confirm-description" className="text-sm leading-relaxed text-[var(--muted)]">{message}</Dialog.Description>

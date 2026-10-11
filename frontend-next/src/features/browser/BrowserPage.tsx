@@ -9,7 +9,7 @@ import { sendToWalker, sendToTraps, takeBrowserHandoff } from '../../lib/navigat
 import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
-import { Card, StatusText, displayValue, saveLocalFile } from '../shared/operator-ui';
+import { Card, IconAction, StatusText, displayValue, saveLocalFile } from '../shared/operator-ui';
 import {
   BROWSER_STATE_KEY, BROWSER_ROOT_OID, BROWSER_TYPES, browserNodeKey, flatVisibleNodes,
   readBrowserState, type BrowserMode, type BrowserNode, type BrowserModule, type BrowserState,
@@ -318,7 +318,7 @@ export function BrowserPage() {
                 {BROWSER_TYPES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
             </label>
-            <button type="button" className="btn-secondary" onClick={clearFilters}>Clear filters</button>
+            <button type="button" className="btn-secondary" onClick={clearFilters}><X size={16}/> Clear filters</button>
           </div>}
           {mode === 'module' && <StatusText busy={modules.isPending} error={modules.error}/>}
         </Card>
@@ -339,9 +339,9 @@ export function BrowserPage() {
               </>}
             </div>
             <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Refresh and export">
-              <button type="button" className="btn-secondary" onClick={() => void refresh()} disabled={refreshing}>
-                <RefreshCw size={16}/> Refresh
-              </button>
+              <IconAction label="Refresh MIB tree" onClick={() => { void refresh(); }} disabled={refreshing}>
+                <RefreshCw size={16}/>
+              </IconAction>
               <div className="inline-flex flex-wrap gap-1">
                 <button type="button" className="btn-secondary" onClick={() => exportCurrent('json')} disabled={!exportRows.length}>
                   <Download size={16}/> JSON
@@ -426,7 +426,7 @@ export function BrowserPage() {
           <div className="space-y-2 rounded-xl bg-[var(--surface-muted)] p-3">
             <p className="text-xs font-semibold text-[var(--muted)]">Numeric OID</p>
             <div className="flex flex-wrap items-center gap-2"><code className="min-w-0 flex-1 break-all text-xs">{displayed?.oid}</code>
-              <button className="btn-secondary p-2" aria-label="Copy OID" onClick={()=>void copyValue(displayed?.oid||'','OID')}><ClipboardCopy size={16}/></button></div>
+              <IconAction label="Copy OID" onClick={()=>{void copyValue(displayed?.oid||'','OID');}}><ClipboardCopy size={16}/></IconAction></div>
             <div className="flex flex-wrap items-center gap-2">
               <button className="btn-secondary" onClick={()=>void copyValue(displayed?.full_name||'','Symbolic name')} disabled={!displayed?.full_name}><ClipboardCopy size={16}/> Copy name</button>
               {displayed?.type === 'NotificationType'

@@ -39,6 +39,7 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
   if (path === '/api/bundles') return { bundles: [{ id: 1, label: 'bundle-1' }, { id: 2, label: 'older' }], active_bundle_id: 1 };
   if (path === '/api/mibs/fetch-dependencies' && method === 'POST') return {
     attempted: ['IF-MIB'], resolved: ['IF-MIB'], cached: [], failed: [],
+    auto_enabled:true,using_default_sources:true,
   };
   if (path === '/api/walk/execute' && method === 'POST') return { mode: 'parsed', count: 1,
     json_format: 'grouped', rawLines: ['1.3.6.1 = INTEGER: 17'],
@@ -51,7 +52,10 @@ function mockApi(simulatorRunning = false, receiverRunning = false) {
   vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
     const path = String(input), method = init.method || 'GET';
     calls.push({ path, method, init });
-    return new Response(JSON.stringify(fixture(path, method, simulatorRunning, receiverRunning)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const response=path==='/api/mibs/fetch-dependencies'&&String(init.body||'').includes('CERAGON-MIB')
+      ? {attempted:['CERAGON-MIB'],resolved:[],cached:[],failed:['CERAGON-MIB'],auto_enabled:true,using_default_sources:true}
+      : fixture(path, method, simulatorRunning, receiverRunning);
+    return new Response(JSON.stringify(response), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }));
 }
 function setup(component: React.ReactNode) {
@@ -187,7 +191,7 @@ describe('remaining five React workspaces', () => {
     expect(within(expand).getByRole('button', { name: 'Expand' })).toBeInTheDocument();
     expect(within(expand).getByRole('button', { name: 'Collapse all' })).toBeInTheDocument();
     const downloads = screen.getByRole('group', { name: 'Refresh and export' });
-    expect(within(downloads).getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    expect(within(downloads).getByRole('button', { name: 'Refresh MIB tree' })).toBeInTheDocument();
     expect(within(downloads).getByRole('button', { name: 'JSON' })).toBeInTheDocument();
   });
   it('moves simulator port into Walker while keeping the editor compact', async () => {
@@ -234,13 +238,13 @@ describe('remaining five React workspaces', () => {
       <Route path="/" element={<MibsPage />} />
       <Route path="/browser" element={<BrowserPage />} />
     </Routes>);
-    fireEvent.click(screen.getByRole('button', { name: 'Modules' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Modules & sources' }));
     const browse = await screen.findByRole('link', { name: 'Browse module' });
     fireEvent.click(browse);
     await waitFor(() => expect(calls.some(c => c.path.includes('/api/mibs/browse/tree/module?module=IF-MIB'))).toBe(true));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Module' })).toHaveValue('IF-MIB'));
   });
-  it('keeps a 2:1 catalog/sidebar design and allows module + source + notification selection', async () => {
+  it('shows modules and stored sources in the same catalog, including restricted source actions', async () => {
     mockApi(); setup(<MibsPage />);
     const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
     expect(inventory.parentElement).toHaveClass('manager-catalog-column');
@@ -248,20 +252,31 @@ describe('remaining five React workspaces', () => {
     const sidebar=screen.getByRole('complementary',{name:'Catalog export and bundle history'});
     expect(within(sidebar).getByRole('region',{name:'Catalog export'})).toBeInTheDocument();
     expect(within(sidebar).getByRole('region',{name:'Compiled bundle history'})).toBeInTheDocument();
-    const moduleBox=await within(inventory).findByRole('checkbox',{name:'Select IF-MIB'});
-    fireEvent.click(moduleBox);
-    expect(moduleBox).toBeChecked();
-    fireEvent.click(within(inventory).getByRole('button',{name:'Sources'}));
-    const source=await within(inventory).findByRole('checkbox',{name:'Select uploads/IF-MIB'});
-    fireEvent.click(source);
-    expect(source).toBeChecked();
+    expect(within(inventory).queryByRole('button',{name:'Sources'})).not.toBeInTheDocument();
+    const selected=await within(inventory).findByRole('checkbox',{name:'Select IF-MIB'});
+    expect(within(inventory).getByText('uploads/IF-MIB')).toBeInTheDocument();
+    fireEvent.click(selected);
+    expect(selected).toBeChecked();
+    expect(within(inventory).getByRole('button',{name:'Sources (1)'})).toBeEnabled();
+    expect(within(inventory).getByRole('button',{name:'Delete sources (1)'})).toBeEnabled();
     fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
-    const notice=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
-    fireEvent.click(notice);
-    expect(notice).toBeChecked();
+    const notification=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
+    fireEvent.click(notification);
+    expect(notification).toBeChecked();
     expect(within(inventory).getByRole('combobox',{name:'Notification module'})).toBeInTheDocument();
     expect(within(inventory).queryByRole('combobox',{name:'Status'})).not.toBeInTheDocument();
     expect(within(sidebar).getByRole('region',{name:'Catalog export'})).toHaveTextContent('1 modules · 1 notifications selected');
+  });
+  it('sorts catalog rows using clickable headers without a sort dropdown',async()=>{
+    mockApi(); setup(<MibsPage/>);
+    const panel=screen.getByRole('region',{name:'Catalog & source inventory'});
+    const heading=within(panel).getByRole('columnheader',{name:/Status/});
+    expect(heading).toHaveAttribute('aria-sort','none');
+    fireEvent.click(within(heading).getByRole('button',{name:'Sort by Status'}));
+    expect(heading).toHaveAttribute('aria-sort','ascending');
+    fireEvent.click(within(heading).getByRole('button',{name:'Sort by Status'}));
+    expect(heading).toHaveAttribute('aria-sort','descending');
+    expect(within(panel).queryByRole('combobox',{name:'Sort'})).not.toBeInTheDocument();
   });
   it('exports the selected module names and notification OIDs rather than the entire catalog', async () => {
     mockApi(); setup(<MibsPage />);
@@ -300,6 +315,19 @@ describe('remaining five React workspaces', () => {
     expect(within(dialog).getByRole('button',{name:'Validate'})).toBeDisabled();
     expect(calls.some(c=>c.path==='/api/mibs/upload')).toBe(false);
   });
+  it('diagnoses an unresolved CERAGON-MIB without reporting a false fetch success',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    fireEvent.click(within(inventory).getByRole('button',{name:'Add / upload'}));
+    const dialog=await screen.findByRole('dialog',{name:'Add MIB sources'});
+    fireEvent.change(within(dialog).getByRole('textbox',{name:'MIB module names'}),{target:{value:'CERAGON-MIB'}});
+    fireEvent.click(within(dialog).getByRole('button',{name:'Fetch MIBs by name'}));
+    const report=await within(dialog).findByRole('region',{name:'Online MIB fetch results'});
+    expect(report).toHaveTextContent('Unresolved: CERAGON-MIB');
+    expect(report).toHaveTextContent('default fetch sources did not return');
+    expect(within(report).getByRole('button',{name:'Upload a local MIB file instead'})).toBeInTheDocument();
+    expect(screen.queryByText('Action failed')).not.toBeInTheDocument();
+  });
   it('opens Reload and dependencies in a modal without triggering a compile before confirmation', async () => {
     mockApi(); setup(<MibsPage />);
     const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
@@ -313,11 +341,10 @@ describe('remaining five React workspaces', () => {
   it('MIB Manager lists active sources and bundles, preventing immediate destructive actions', async () => {
     mockApi(); setup(<MibsPage />);
     expect(await screen.findByText('bundle-1')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'Sources'}));
     expect(await screen.findByText('uploads/IF-MIB')).toBeInTheDocument();
-    const source = screen.getByRole('checkbox', { name: 'Select uploads/IF-MIB' });
+    const source = screen.getByRole('checkbox', { name: 'Select IF-MIB' });
     fireEvent.click(source);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete selected (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete sources (1)' }));
     expect(calls.some(c => c.path === '/api/mibs/delete-batch')).toBe(false);
     expect(await screen.findByRole('dialog', { name: 'Delete selected MIB source files?' })).toBeInTheDocument();
   });
