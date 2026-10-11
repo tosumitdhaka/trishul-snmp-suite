@@ -280,7 +280,7 @@ describe('remaining five React workspaces', () => {
     await waitFor(()=>expect(calls.some(c=>c.path==='/api/mibs/export' && c.method==='POST')).toBe(true));
     const body=JSON.parse(String(calls.find(c=>c.path==='/api/mibs/export')?.init.body));
     expect(body).toMatchObject({
-      format:'json', export_type:'catalog', modules:['IF-MIB'], notifications:['1.3.6.1.6.3.1.1.5.3'],
+      format:'json', export_type:'catalog', modules:['IF-MIB'], notifications:['IF-MIB::linkDown'],
     });
   });
   it('opens catalog header Add/Upload and fetches online by module name through the existing API', async () => {
