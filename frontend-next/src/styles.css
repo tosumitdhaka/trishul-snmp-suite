@@ -354,7 +354,7 @@ select.field-input { padding-right: 2rem; }
 .manager-inventory-table td { overflow-wrap:anywhere; }
 @container manager-catalog (min-width:33rem) {
   .manager-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .manager-search-field { grid-column:1 / -1; }
+  .manager-search-field { grid-column:auto; }
 }
 @container manager-catalog (min-width:58rem) {
   .manager-filter-grid { grid-template-columns:2fr repeat(3,minmax(0,1fr)); }
@@ -415,4 +415,33 @@ select.field-input { padding-right: 2rem; }
  .manager-tab-full { display:none; }
  .manager-tab-short { display:inline; }
  .manager-inventory-tabs-row > [role="group"] button { white-space:nowrap; padding-inline:.65rem; }
+}
+
+/* Received Trap history: retain accessible table data and expanded rows in compact view. */
+@media (max-width:639px) {
+ .traps-history-table { border:0; max-height:min(75vh,38rem); scrollbar-gutter:stable; }
+ .traps-history-table table, .traps-history-table tbody { display:block; min-width:0; width:100%; }
+ .traps-history-table thead {
+   position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden;
+   clip-path:inset(50%); white-space:nowrap;
+ }
+ .traps-history-table tbody { display:grid; gap:.75rem; }
+ .traps-history-table tr.trap-history-record {
+   display:block; border:1px solid var(--border); border-radius:.7rem;
+   overflow:hidden; background:var(--surface);
+ }
+ .traps-history-table .trap-history-record td {
+   display:grid; grid-template-columns:minmax(5.5rem,34%) minmax(0,1fr);
+   max-width:none; min-width:0; width:100%; gap:.65rem; align-items:center;
+   white-space:normal; padding:.65rem .8rem;
+   overflow-wrap:anywhere; border-bottom:1px solid var(--border);
+ }
+ .traps-history-table .trap-history-record td:last-child { border-bottom:0; }
+ .traps-history-table .trap-history-record td::before {
+   content:attr(data-label); font-weight:650; color:var(--muted); font-size:.75rem;
+ }
+ .traps-history-table .trap-history-details-row { display:block; }
+ .traps-history-table .trap-history-details-row > td { display:block; padding:.5rem 0; }
+ .traps-history-table .trap-history-details-row section { min-width:0; }
+ .traps-history-table:focus-visible { outline-offset:2px; }
 }
