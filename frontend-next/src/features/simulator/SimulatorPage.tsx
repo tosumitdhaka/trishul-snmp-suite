@@ -21,6 +21,7 @@ export function SimulatorPage() {
   const live = useRealtime() === 'live';
   const status = useQuery({ queryKey: statusKey, queryFn: ({ signal }) => apiRequest<SimulatorStatus>('/api/simulator/status', token, { signal }), enabled: !!token, refetchInterval: live ? 20_000 : 5_000 });
   const [follow, setFollow] = useState(true);
+  const [pausedLogs, setPausedLogs] = useState<LogEntry[] | null>(null);
   const logs = useQuery({ queryKey: logsKey, queryFn: ({ signal }) => apiRequest<SimulatorLogs>('/api/simulator/logs?limit=200', token, { signal }), enabled: !!token, refetchInterval: follow ? 5_000 : false });
   const data = useQuery({ queryKey: ['simulator', 'data'], queryFn: ({ signal }) => apiRequest<Record<string, unknown>>('/api/simulator/data', token, { signal }), enabled: !!token });
   const [port, setPort] = useState('1061');
@@ -42,13 +43,13 @@ export function SimulatorPage() {
     if (data.data && !dirty) setEditor(JSON.stringify(data.data, null, 2));
   }, [data.data, dirty]);
   const listed = useMemo(() => {
-    const rows = Array.isArray(logs.data?.items) ? logs.data.items : [];
+    const rows = !follow && pausedLogs ? pausedLogs : Array.isArray(logs.data?.items) ? logs.data.items : [];
     return rows.filter((row) => {
       const category = String(row.level || '').toLowerCase();
       return (level === 'all' || category === level) &&
         JSON.stringify(row).toLowerCase().includes(filter.trim().toLowerCase());
     });
-  }, [logs.data, filter, level]);
+  }, [logs.data, pausedLogs, follow, filter, level]);
   async function run(action: 'start' | 'stop' | 'restart') {
     if (action === 'start' && (!positivePort(port) || !community.trim())) {
       setNotice({ tone: 'error', text: 'Enter a valid UDP port and community.' }); return;
@@ -136,7 +137,7 @@ export function SimulatorPage() {
           <option value="all">All levels</option>{['info','warning','error','debug'].map(item => <option key={item} value={item}>{item}</option>)}
         </select></label>
         <label className="flex items-center gap-2 rounded-lg px-2 text-xs font-medium">
-          <input type="checkbox" checked={!follow} onChange={e=>setFollow(!e.target.checked)}/> Pause auto refresh
+          <input type="checkbox" checked={!follow} onChange={e=>{const paused=e.target.checked;setPausedLogs(paused ? (logs.data?.items || []).slice(-200) : null);setFollow(!paused);if (!paused) void logs.refetch();}}/> Pause displayed feed
         </label>
         <IconAction label="Refresh simulator logs" onClick={()=>{ void logs.refetch(); }}><RefreshCw size={16}/></IconAction>
         <IconAction label="Download simulator logs JSON" disabled={!listed.length}
@@ -145,7 +146,8 @@ export function SimulatorPage() {
         </IconAction>
         <IconAction danger label="Clear simulator logs" onClick={()=>setConfirmClear(true)}><Trash2 size={16}/></IconAction>
       </div>
-      <StatusText busy={logs.isPending} error={logs.error} empty={!listed.length && !logs.isPending && !logs.isError} />
+      {!follow && <p role="status" className="text-sm text-[var(--muted)]">Displayed feed paused; live events continue in the background.</p>}
+       <StatusText busy={logs.isPending} error={logs.error} empty={!listed.length && !logs.isPending && !logs.isError} />
       <div className="max-h-[24rem] space-y-1 overflow-auto" role="log" aria-label="Simulator activity" aria-live="off">
         {listed.slice(-200).map((item,i) => <div key={i} className="rounded-lg border-b border-[var(--border)] p-2 text-xs">
           <span className="mr-2 font-mono text-[var(--muted)]">{item.timestamp || ''}</span>

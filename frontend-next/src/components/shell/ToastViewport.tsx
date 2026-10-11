@@ -3,19 +3,22 @@ import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from 'lucide-react';
 import { useNotifications, type ActivityNotification } from '../../lib/notifications/NotificationProvider';
 
 export const TOAST_DURATION_MS = 2700;
+export function toastDurationMs(tone: ActivityNotification['tone']): number {
+  return tone === 'error' ? 12000 : tone === 'warning' ? 8000 : tone === 'info' ? 5000 : TOAST_DURATION_MS;
+}
 const toneIcons = { success: CircleCheck, error: CircleAlert, warning: TriangleAlert, info: Info } as const;
 
 function ToastItem({ item, onDismiss }: { item: ActivityNotification; onDismiss: (id: number) => void }) {
   useEffect(() => {
-    const timer = window.setTimeout(() => onDismiss(item.id), TOAST_DURATION_MS);
+    const timer = window.setTimeout(() => onDismiss(item.id), toastDurationMs(item.tone));
     return () => window.clearTimeout(timer);
-  }, [item.id, onDismiss]);
+  }, [item.id, item.tone, onDismiss]);
   const Icon = toneIcons[item.tone];
   return <div className={'toast-item pointer-events-auto flex items-start gap-3 border-l-4 toast-tone-' + item.tone}>
     <Icon className="mt-0.5 shrink-0" size={19} aria-hidden="true" />
     <div className="min-w-0 flex-1">
       <p className="text-sm font-semibold leading-5">{item.title}</p>
-      {item.message && <p className="mt-0.5 line-clamp-2 break-words text-xs text-[var(--muted)]">{item.message}</p>}
+      {item.message && <div className="mt-1"><p className="line-clamp-2 break-words text-xs text-[var(--muted)]">{item.message}</p>{item.message.length > 125 && <details className="mt-1 text-xs"><summary className="cursor-pointer font-medium underline underline-offset-2">Read full details</summary><p className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap break-words text-[var(--muted)]">{item.message}</p></details>}</div>}
     </div>
     <button type="button" className="notification-item-action shrink-0" aria-label={'Close toast: ' + item.title}
       onClick={() => onDismiss(item.id)}>
