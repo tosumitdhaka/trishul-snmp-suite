@@ -61,6 +61,9 @@ jobs:
         run: npm run build
       - name: Exercise seven workspaces and capture light/dark responsive screenshots
         run: node e2e/screenshot-smoke.mjs
+      - name: Capture matched legacy seven-workspace screenshots (synthetic API baseline)
+        run: node e2e/legacy-parity-smoke.mjs
+        continue-on-error: true
       - name: Upload synthetic-fixture browser evidence
         if: always()
         uses: actions/upload-artifact@v4
