@@ -63,7 +63,7 @@ The dashboard normalizes the legacy MIB REST response and the WebSocket summary 
 
 The Stage 2 shell uses the unchanged legacy Trishul SVG brand mark in both the sidebar and sign-in screen. One header navigation button controls either the sidebar or mobile drawer (no duplicate hamburger button): on desktop (lg and wider) it toggles between the labeled 256px sidebar and compact icon rail (76px), while on smaller viewports it opens the full-label drawer. The desktop choice is persisted in `localStorage` as `trishul_next_sidebar_collapsed`. Compact icons have accessible names and hover titles. The single button always displays the three-line hamburger icon at every viewport size; its accessible label describes its current action. This setting is independent from `trishul_theme` and login state. Retry, stale/error and light/dark behavior still need real-browser sign-off.
 
-Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, Playwright/browser E2E evidence, production container integration or /next/ preview serving.
+Not yet implemented: full shadcn/ui component library, generated OpenAPI schemas, production container integration or backend-mounted /next/ preview serving. **Synthetic Playwright Chromium evidence is available** for both React and legacy screenshots, but live backend parity, large real MIB data, actual 200% zoom and assistive-technology sign-off remain pending.
 
 See docs/ui-modernization/settings-review-spec.md, docs/ui-modernization/architecture.md, docs/ui-modernization/migration-plan.md, docs/ui-modernization/design-system.md, docs/ui-modernization/legacy-feature-inventory.md and docs/ui-modernization/dashboard-review-spec.md.
 
@@ -125,3 +125,9 @@ The navigation contract mirrors the legacy SPA's intent while routing through Re
 These links prefill and navigate, **not** execute SNMP operations; users must explicitly start the walk/send action. Backend continues to validate target and OID. One-time form transfer does not store credentials, communities, auth tokens or received trap payloads.
 
 **Manual review:** exercise these links in both directions, validate symbolic and numeric OIDs, confirm the correct MIB module and varbinds, check 390px/1024px/1440px compact card sizing, and test with a real compiled bundle and running simulator. Component tests are mocked; real device traffic and visual parity remain release gates. No backend or legacy modification.
+
+## Manager alignment and final acceptance
+
+Draft PR #43 restores the five legacy Manager export modes, module/import/path filtering, sortable notification metadata and drag/drop MIB source selection; Manager inventory reflows to labeled compact cards with accessible sorting on narrow panels. Trap history also uses labeled cards at phone widths. See [Manager responsive/parity implementation](../docs/ui-modernization/manager-responsive-parity-pass.md) and the [live acceptance checklist](../docs/ui-modernization/live-acceptance-checklist.md).
+
+From `frontend-next/`, CI validates `npm ci`, `npm run typecheck`, `npm run lint`, `npm test` and `npm run build`, then runs `node e2e/screenshot-smoke.mjs` and `node e2e/legacy-parity-smoke.mjs` using a shared **synthetic** fixture. The legacy static screenshot harness uses the original `frontend/` source; the modern app remains preview-only. Browser errors, document-level modern overflow and missing legacy captures now fail CI. A green fixture run does **not** prove UDP SNMP or device parity.
