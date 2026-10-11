@@ -369,7 +369,7 @@ select.field-input { padding-right: 2rem; }
 @container manager-catalog (max-width:46rem) {
  .manager-inventory-table { border:0; max-height:none; min-height:0; overflow:visible; }
  .manager-inventory-table table, .manager-inventory-table tbody { display:block; width:100%; min-width:0; }
- .manager-inventory-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+ .manager-inventory-table thead { display:none; }
  .manager-inventory-table tbody { display:grid; gap:.75rem; }
  .manager-inventory-table tr { display:block; border:1px solid var(--border); border-radius:.75rem; background:var(--surface); overflow:hidden; }
  .manager-inventory-table td {
@@ -447,3 +447,15 @@ select.field-input { padding-right: 2rem; }
 }
 
 .manager-status { white-space:nowrap; font-size:.72rem; letter-spacing:-.01em; }
+
+/* Real mobile cell labels also prevent invisible desktop sort headers in keyboard tab order. */
+.manager-mobile-cell-label { display:none; }
+@container manager-catalog (max-width:46rem) {
+ .manager-inventory-table td::before { display:none; }
+ .manager-inventory-table .manager-mobile-cell-label {
+   display:block; min-width:0; color:var(--muted); font-size:.75rem; font-weight:650;
+ }
+ .manager-inventory-table td[data-label="Module / source"] > .manager-mobile-cell-label {
+   margin-bottom:.35rem;
+ }
+}
