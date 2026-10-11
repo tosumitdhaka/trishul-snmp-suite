@@ -8,6 +8,7 @@ import { sendToBrowser, takeTrapHandoff } from '../../lib/navigation/handoff';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { Card, ConfirmDialog, Field, IconAction, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { syncUntouched } from '../shared/draft-sync';
 
 type TrapOption = { name: string; full_name: string; oid: string; module?: string; objects?: { name: string; oid: string; input_type?: string }[] };
 type Varbind = { oid: string; type: string; value: string };
@@ -22,6 +23,10 @@ export function TrapsPage() {
   const [receiverPort, setReceiverPort] = useState('1162');
   const [receiverCommunity, setReceiverCommunity] = useState('public');
   const [resolveMibs, setResolveMibs] = useState(true);
+  const [portTouched, setPortTouched] = useState(false);
+  const [communityTouched, setCommunityTouched] = useState(false);
+  const [resolveOverride, setResolveOverride] = useState<boolean | null>(null);
+  const [resolvePending, setResolvePending] = useState(false);
   const [sendHost, setSendHost] = useState('127.0.0.1');
   const [sendPort, setSendPort] = useState('1162');
   const [sendCommunity, setSendCommunity] = useState('public');
@@ -66,11 +71,16 @@ export function TrapsPage() {
   });
   useEffect(() => {
     if (status.data) {
-      setReceiverPort(String(status.data.port ?? 1162));
-      setReceiverCommunity(status.data.community || 'public');
-      setResolveMibs(!!status.data.resolve_mibs);
+      setReceiverPort(current => syncUntouched(current, String(status.data.port ?? 1162), portTouched));
+      setReceiverCommunity(current => syncUntouched(current, status.data.community || 'public', communityTouched));
+      // Ignore stale polls while a resolve-MIB mutation is pending.
+      if (resolveOverride === null) setResolveMibs(!!status.data.resolve_mibs);
+      else if (status.data.resolve_mibs === resolveOverride) {
+        setResolveMibs(resolveOverride);
+        setResolveOverride(null);
+      }
     }
-  }, [status.data]);
+  }, [status.data, portTouched, communityTouched, resolveOverride]);
   useEffect(() => {
     const handoff = takeTrapHandoff();
     if (handoff) {
@@ -138,7 +148,8 @@ export function TrapsPage() {
   async function listener(action: 'start'|'stop') {
     const port = positivePort(receiverPort);
     if (action === 'start' && (!port || !receiverCommunity.trim())) { setNotice({ tone: 'error', text: 'Enter a valid listener port and community.' }); return; }
-    await invoke('/api/traps/' + action, action === 'start' ? jsonPost({ port, community: receiverCommunity, resolve_mibs: resolveMibs }) : { method: 'POST' }, [['traps','status'], ['stats']]);
+    const response = await invoke('/api/traps/' + action, action === 'start' ? jsonPost({ port, community: receiverCommunity, resolve_mibs: resolveMibs }) : { method: 'POST' }, [['traps','status'], ['stats']]);
+    if (response && action === 'start') { setPortTouched(false); setCommunityTouched(false); }
   }
   async function send() {
     const port = positivePort(sendPort);
@@ -150,12 +161,6 @@ export function TrapsPage() {
         varbinds: varbinds.map(row => ({ oid: row.oid, type: row.type, value: row.value })) }), [['stats'], historyKey]);
     if (response) {
       setOperationResult(response);
-      const detail = response as { response?: { error_status_code?: number; error_status?: string } };
-      if (selectedMode === 'inform' && detail.response?.error_status_code &&
-          detail.response.error_status_code !== 0) {
-        setNotice({ tone: 'error', text: 'Inform response reported ' +
-          (detail.response.error_status || 'error status ' + detail.response.error_status_code) });
-      }
     }
   }
   async function confirmOperation() {
@@ -174,9 +179,13 @@ export function TrapsPage() {
   function downloadCsv() {
     const entries = filtered;
     const cols = ['id','timestamp','source','trap_type','varbinds'];
-    const cell = (value: unknown) => '"' + displayValue(value).replace(/"/g, '""') + '"';
+    const cell = (value: unknown) => {
+      const text = displayValue(value);
+      const safe = /^[\s]*[=+@-]/.test(text) ? "'" + text : text;
+      return '"' + safe.replace(/"/g, '""') + '"';
+    };
     const csv = [cols.join(','), ...entries.map(row => cols.map(key => cell(row[key])).join(','))].join('\r\n');
-    saveLocalFile(csv, 'trishul-received-traps.csv', 'text/csv');
+    saveLocalFile(csv, 'trishul-received-traps-current-page.csv', 'text/csv');
   }
   return <div className="workspace-page">
     <header><p className="eyebrow">Operations / Notifications</p><h1 className="mt-1 text-2xl font-semibold">Traps &amp; informs</h1>
@@ -246,15 +255,28 @@ export function TrapsPage() {
         <StatusText busy={status.isPending} error={status.error} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Listener UDP port"><input className="field-input" type="number" min={1} max={65535} value={receiverPort}
-            disabled={!!status.data?.running || pending} onChange={e=>setReceiverPort(e.target.value)} /></Field>
+            disabled={!!status.data?.running || pending} onChange={e=>{setReceiverPort(e.target.value);setPortTouched(true);}} /></Field>
           <Field label="Listener community"><input className="field-input" type="password" autoComplete="off" value={receiverCommunity}
-            disabled={!!status.data?.running || pending} onChange={e=>setReceiverCommunity(e.target.value)} /></Field>
+            disabled={!!status.data?.running || pending} onChange={e=>{setReceiverCommunity(e.target.value);setCommunityTouched(true);}} /></Field>
         </div>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={resolveMibs} disabled={pending || status.isPending || status.isError}
-          onChange={e=>{const previous=resolveMibs;const next=e.target.checked;setResolveMibs(next);
+        {(portTouched || communityTouched) && <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-[var(--warning)]">
+          <span>Unsaved receiver draft preserved across polls.</span>
+          <button type="button" className="btn-secondary" onClick={() => {
+            setReceiverPort(String(status.data?.port ?? 1162)); setReceiverCommunity(status.data?.community || 'public');
+            setPortTouched(false); setCommunityTouched(false);
+          }}>Reset to server</button>
+        </div>}
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={resolveMibs} disabled={pending || resolvePending || resolveOverride !== null || status.isPending || status.isError}
+          onChange={e=>{
+            const previous=resolveMibs, next=e.target.checked;
+            setResolveMibs(next); setResolveOverride(next); setResolvePending(true);
             void invoke('/api/traps/resolve-mibs',jsonPost({resolve_mibs:next}),[['traps','status'],historyKey])
-              .then(result=>{if(!result)setResolveMibs(previous);});}} />
+              .then(result=>{
+                if (!result) { setResolveMibs(previous); setResolveOverride(null); }
+              }).finally(()=>setResolvePending(false));
+          }} />
           Resolve MIB names in received events</label>
+        {(resolvePending || resolveOverride !== null) && <p role="status" className="text-xs text-[var(--muted)]">{resolvePending ? 'Applying MIB-resolution setting…' : 'Awaiting matching server status; stale polls are ignored.'}</p>}
         <p className="text-xs text-[var(--muted)]">Applies immediately without restarting the receiver. Resolved symbolic names are shown when the active MIB bundle recognizes an OID; unknown OIDs remain numeric.</p>
         <p className="text-xs text-[var(--muted)]">Uptime: {status.data?.uptime_seconds == null ? '—' : status.data.uptime_seconds + 's'} · Live feed: {ws}</p>
         <div className="flex flex-wrap gap-2">
@@ -279,7 +301,10 @@ export function TrapsPage() {
           <input className="field-input" placeholder="Filter current page" value={search} onChange={e=>setSearch(e.target.value)}/></span></label>
         <label className="flex items-center gap-2 px-2 text-xs font-medium"><input type="checkbox" checked={paused} onChange={toggleHistoryPause}/> Pause auto refresh</label>
         <IconAction label="Refresh received traps" onClick={()=>{void history.refetch();}}><RefreshCw size={16}/></IconAction>
-        <button className="btn-secondary" onClick={downloadCsv} disabled={!filtered.length}><Download size={16}/> CSV</button>
+        <button className="btn-secondary" onClick={downloadCsv} disabled={!filtered.length}
+          title="Exports only locally filtered rows from this server page, not all history">
+          <Download size={16}/> Export current page ({filtered.length}) CSV
+        </button>
         <IconAction danger label="Clear received trap history" disabled={pending || !history.data?.total} onClick={()=>setConfirm('clear')}><Trash2 size={16}/></IconAction>
       </div>
       <StatusText busy={history.isPending} error={history.error} empty={!history.isPending && !filtered.length} />
@@ -329,7 +354,7 @@ export function TrapsPage() {
           </React.Fragment>;
         })}
         </tbody></table></div>
-      <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted)]"><span>{history.data ? offset+1 + '–' + (offset+filtered.length) + ' of ' + history.data.total : 'No history loaded'}</span>
+      <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted)]"><span>{history.data ? 'Server page ' + (offset+1) + '–' + (offset+history.data.data.length) + ' of ' + history.data.total + '; ' + filtered.length + ' local matches' : 'No history loaded'}</span>
         <div className="flex gap-2"><button className="btn-secondary" disabled={offset===0} onClick={()=>setOffset(x=>Math.max(0,x-50))}>Previous</button>
           <button className="btn-secondary" disabled={!history.data || offset+50>=history.data.total} onClick={()=>setOffset(x=>x+50)}>Next</button></div></div>
     </Card>

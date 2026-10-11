@@ -7,6 +7,7 @@ import { RefreshCw, RotateCcw, Save, Trash2, Download, Search, WandSparkles } fr
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { Card, ConfirmDialog, Field, IconAction, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { syncUntouched } from '../shared/draft-sync';
 
 interface SimulatorStatus { running?: boolean; port?: number; community?: string; uptime_seconds?: number; requests?: number; last_activity?: string | null }
 interface LogEntry { timestamp?: string; level?: string; message?: string; msg?: string; [key: string]: unknown }
@@ -24,6 +25,8 @@ export function SimulatorPage() {
   const data = useQuery({ queryKey: ['simulator', 'data'], queryFn: ({ signal }) => apiRequest<Record<string, unknown>>('/api/simulator/data', token, { signal }), enabled: !!token });
   const [port, setPort] = useState('1061');
   const [community, setCommunity] = useState('public');
+  const [portTouched, setPortTouched] = useState(false);
+  const [communityTouched, setCommunityTouched] = useState(false);
   const [editor, setEditor] = useState('');
   const [dirty, setDirty] = useState(false);
   const [filter, setFilter] = useState('');
@@ -31,10 +34,10 @@ export function SimulatorPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => {
     if (status.data && !status.isError) {
-      setPort(String(status.data.port ?? 1061));
-      setCommunity(status.data.community || 'public');
+      setPort(current => syncUntouched(current, String(status.data.port ?? 1061), portTouched));
+      setCommunity(current => syncUntouched(current, status.data.community || 'public', communityTouched));
     }
-  }, [status.data]);
+  }, [status.data, status.isError, portTouched, communityTouched]);
   useEffect(() => {
     if (data.data && !dirty) setEditor(JSON.stringify(data.data, null, 2));
   }, [data.data, dirty]);
@@ -51,10 +54,8 @@ export function SimulatorPage() {
       setNotice({ tone: 'error', text: 'Enter a valid UDP port and community.' }); return;
     }
     const body = action === 'start' ? jsonPost({ port: positivePort(port), community }) : { method: 'POST' };
-    const response = await invoke<{ custom_data_warnings?: string[] }>('/api/simulator/' + action, body, [statusKey, ['stats']]);
-    if (response?.custom_data_warnings?.length) {
-      setNotice({ tone: 'error', text: 'Started with override warnings: ' + response.custom_data_warnings.join('; ') });
-    }
+    const response = await invoke('/api/simulator/' + action, body, [statusKey, ['stats']]);
+    if (response && action === 'start') { setPortTouched(false); setCommunityTouched(false); }
   }
   function formatJson() {
     try {
@@ -85,8 +86,15 @@ export function SimulatorPage() {
       <Card title="Runtime" compact description="Run the SNMP responder and inspect its activity."
         trailing={<span role="status" className={'service-status ' + (status.data?.running ? 'service-status-simulator' : 'service-status-off')}>{status.isError ? 'Unavailable' : status.isPending ? 'Checking…' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
         <StatusText busy={status.isPending} error={status.error} />
-        <div className="grid gap-3 sm:grid-cols-2"><Field label="UDP port"><input className="field-input" type="number" min={1} max={65535} value={port} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setPort(e.target.value)} /></Field>
-          <Field label="Community" hint="Not displayed in exported logs."><input className="field-input" type="password" autoComplete="off" value={community} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setCommunity(e.target.value)} /></Field></div>
+        <div className="grid gap-3 sm:grid-cols-2"><Field label="UDP port"><input className="field-input" type="number" min={1} max={65535} value={port} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => { setPort(e.target.value); setPortTouched(true); }} /></Field>
+          <Field label="Community" hint="Not displayed in exported logs."><input className="field-input" type="password" autoComplete="off" value={community} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => { setCommunity(e.target.value); setCommunityTouched(true); }} /></Field></div>
+        {(portTouched || communityTouched) && <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-[var(--warning)]">
+          <span>Unsaved runtime configuration; polling will not overwrite it. Restart uses server settings.</span>
+          <button type="button" className="btn-secondary" onClick={() => {
+            setPort(String(status.data?.port ?? 1061)); setCommunity(status.data?.community || 'public');
+            setPortTouched(false); setCommunityTouched(false);
+          }}>Reset to server</button>
+        </div>}
         <div className="grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-muted)] p-3 text-xs">
           <div>Requests served<strong className="block text-xl">{status.data?.requests ?? '—'}</strong></div>
           <div>Uptime<strong className="block text-xl">{status.data?.uptime_seconds == null ? '—' : status.data.uptime_seconds + 's'}</strong></div>

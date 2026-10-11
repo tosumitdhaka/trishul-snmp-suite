@@ -1,12 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AlertTriangle, Download, Play, Square, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api/client';
 import { useAuth } from '../../lib/auth/AuthProvider';
 import { useNotifications } from '../../lib/notifications/NotificationProvider';
+import { assessActionOutcome } from './operator-outcome';
 
-export type Notice = { tone: 'success' | 'error'; text: string } | null;
+export type Notice = { tone: 'success' | 'error' | 'warning' | 'info'; text: string } | null;
 export function Card({ title, description, children, trailing, compact = false }: {
   title: string; description?: string; children: ReactNode; trailing?: ReactNode; compact?: boolean;
 }) {
@@ -112,28 +113,31 @@ export function useOperatorApi() {
   const token = auth.state === 'authenticated' ? auth.token : null;
   const cache = useQueryClient();
   const [pending, setPending] = useState(false);
+  const pendingLock = useRef(false);
   const { notify } = useNotifications();
   const setNotice = (next: Notice) => {
     if (!next) return;
     notify({
       tone: next.tone,
-      title: next.tone === 'error' ? 'Action failed' : 'Action completed',
+      title: next.tone === 'error' ? 'Action failed' : next.tone === 'warning' ? 'Action requires attention' : next.tone === 'info' ? 'Action update' : 'Action completed',
       message: next.text,
     });
   };
   async function invoke<T>(path: string, init: RequestInit = {}, keys: readonly (readonly string[])[] = []): Promise<T | null> {
-    if (!token || pending) return null;
+    if (!token || pendingLock.current) return null;
+    pendingLock.current = true;
     setPending(true);
     try {
       const data = await apiRequest<T>(path, token, init);
       for (const key of keys) await cache.invalidateQueries({ queryKey: [...key] });
-      notify({ tone: 'success', title: operatorActionLabel(path, init.method) + ' completed' });
+      const outcome = assessActionOutcome(path, data);
+      notify({ tone: outcome.tone, title: operatorActionLabel(path, init.method) + (outcome.tone === 'success' ? ' completed' : outcome.tone === 'warning' ? ' partially completed' : ' reported an error'), message: outcome.detail });
       return data;
     } catch (cause) {
       notify({ tone: 'error', title: operatorActionLabel(path, init.method) + ' failed',
         message: cause instanceof Error ? cause.message : 'Request failed.' });
       return null;
-    } finally { setPending(false); }
+    } finally { pendingLock.current = false; setPending(false); }
   }
   return { token, pending, setNotice, invoke };
 }
