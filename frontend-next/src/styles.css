@@ -364,3 +364,22 @@ select.field-input { padding-right: 2rem; }
   .manager-primary-actions { display:grid; grid-template-columns:minmax(0,1fr); }
   .manager-primary-actions button { width:100%; }
 }
+
+/* Compact Manager inventory: keep one semantic table, display rows as cards in narrow panels. */
+@container manager-catalog (max-width:46rem) {
+ .manager-inventory-table { border:0; max-height:none; min-height:0; overflow:visible; }
+ .manager-inventory-table table, .manager-inventory-table tbody { display:block; width:100%; min-width:0; }
+ .manager-inventory-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+ .manager-inventory-table tbody { display:grid; gap:.75rem; }
+ .manager-inventory-table tr { display:block; border:1px solid var(--border); border-radius:.75rem; background:var(--surface); overflow:hidden; }
+ .manager-inventory-table td {
+   display:grid; grid-template-columns:minmax(5.6rem,32%) minmax(0,1fr); gap:.6rem;
+   max-width:none; width:100%; min-width:0; padding:.7rem .8rem; border-bottom:1px solid var(--border);
+   white-space:normal; overflow-wrap:anywhere;
+ }
+ .manager-inventory-table td:last-child { border-bottom:0; }
+ .manager-inventory-table td::before { content:attr(data-label); color:var(--muted); font-size:.75rem; font-weight:650; }
+ .manager-inventory-table td[data-label="Module / source"] { display:block; }
+ .manager-inventory-table td[data-label="Module / source"]::before { display:block; margin-bottom:.35rem; }
+ .manager-inventory-table td > * { min-width:0; }
+}
