@@ -317,9 +317,35 @@ export function MibsPage() {
             {currentSelection.length>0&&<button className="btn-secondary" type="button" onClick={clearViewSelection}>Clear selection</button>}
           </div>
         </div>
+        <div className="manager-card-sort" role="group" aria-label="Compact inventory sorting">
+          <label className="text-xs font-medium">Sort inventory cards
+            <select className="field-input mt-1" value={activeTab==='traps'?notificationSort.field:catalogSort.field}
+              onChange={event=>{
+                if(activeTab==='traps')setNotificationSort({field:event.target.value as NotificationSortKey,descending:false});
+                else setCatalogSort({field:event.target.value as CatalogSortKey,descending:false});
+                setPage(0);
+              }}>
+              {activeTab==='traps'?<>
+                <option value="name">Notification</option><option value="oid">OID</option>
+                <option value="module">Module</option><option value="objects">Object count</option>
+              </>:<>
+                <option value="name">Module / source</option><option value="source_group">Source group</option>
+                <option value="status">Status</option><option value="objects">Object count</option>
+                <option value="traps">Trap count</option>
+              </>}
+            </select>
+          </label>
+          <button type="button" className="btn-secondary" aria-label="Reverse inventory card sort"
+            onClick={()=>{
+              if(activeTab==='traps')setNotificationSort(old=>({...old,descending:!old.descending}));
+              else setCatalogSort(old=>({...old,descending:!old.descending}));
+              setPage(0);
+            }}>{(activeTab==='traps'?notificationSort.descending:catalogSort.descending)?<ArrowDown size={17}/>:<ArrowUp size={17}/>}</button>
+        </div>
+        <p className="manager-card-hint text-xs text-[var(--muted)]">Inventory rows appear as readable cards at this panel width. Scroll the list for more sources.</p>
         <StatusText busy={status.isPending} error={status.error} empty={!status.isPending && !shown.length && activeTab !== 'traps'} />
         {activeTab === 'traps' ? <><StatusText busy={traps.isPending} error={traps.error} empty={!traps.isPending && !filteredNotifications.length}/>
-          <div className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
+          <div role="region" aria-label="Notification catalog results" tabIndex={0} className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
             <thead><tr><th className="p-2">Select</th>
               {([['name','Notification'],['oid','OID'],['module','Module'],['objects','Objects']] as [NotificationSortKey,string][]).map(([field,label])=>
                 <th className="p-2" key={field} aria-sort={notificationSort.field===field?(notificationSort.descending?'descending':'ascending'):'none'}>{notificationHeader(field,label)}</th>)}
@@ -340,7 +366,7 @@ export function MibsPage() {
                   })}><BookOpen size={15}/> Browse</Link>
                 </div></td></tr>)}
             </tbody></table></div></> :
-          <div className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
+          <div role="region" aria-label="MIB inventory results" tabIndex={0} className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
             <thead className="sticky top-0 bg-[var(--surface-muted)]"><tr><th className="p-2">Select</th>
               {([['name','Module / source'],['source_group','Source group'],['status','Status'],['objects','Objects'],['traps','Traps']] as [CatalogSortKey,string][]).map(([field,label])=>
                 <th className="p-2" key={field} aria-sort={catalogSort.field===field?(catalogSort.descending?'descending':'ascending'):'none'}>
