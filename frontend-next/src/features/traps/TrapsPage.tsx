@@ -296,7 +296,7 @@ export function TrapsPage() {
       </Card>
     </div>
     <Card title="Received trap history" description="Server-paginated; local search filters the current page only. The community is masked.">
-      <div className="flex flex-wrap gap-2">
+      <div className="traps-history-toolbar flex flex-wrap gap-2">
         <label className="min-w-44 flex-1"><span className="sr-only">Filter current page</span><span className="flex items-center gap-2"><Search size={16}/>
           <input className="field-input" placeholder="Filter current page" value={search} onChange={e=>setSearch(e.target.value)}/></span></label>
         <label className="flex items-center gap-2 px-2 text-xs font-medium"><input type="checkbox" checked={paused} onChange={toggleHistoryPause}/> Pause auto refresh</label>
