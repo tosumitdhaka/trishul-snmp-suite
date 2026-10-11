@@ -144,7 +144,7 @@ export function WalkerPage() {
             {(['raw','table','parsed'] as const).map(mode => <button type="button" key={mode}
               aria-pressed={view===mode} className={view===mode?'btn-primary':'btn-secondary'} onClick={()=>setView(mode)}>
               {mode==='table'?'Grouped table':mode==='parsed'?'Parsed JSON':'Raw'}
-            </button>)
+            </button>)}
             <SaveDataButton value={result.data} filename="trishul-walk.json" />
             <button className="btn-secondary" type="button" disabled={!filtered.length} onClick={exportTable}><Download size={16} /> TSV</button>
           </div>
