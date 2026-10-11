@@ -1,3 +1,4 @@
+/* global URL, process, fetch, setTimeout, sessionStorage, localStorage, document, innerWidth, console */
 // Browser-only preview fixture smoke. Mock REST/WS data are deliberately synthetic.
 // Never interpret these screenshots as validation against a live SNMP backend.
 import { chromium } from 'playwright';
@@ -48,7 +49,7 @@ const report = { fixture: true, browser:'Chromium (Playwright)', collectedAt:new
 try {
   let ready = false;
   for(let attempt=0;attempt<80;attempt++){
-    try { const response=await fetch(baseUrl); if(response.ok){ ready=true; break; } } catch {}
+    try { const response=await fetch(baseUrl); if(response.ok){ ready=true; break; } } catch { /* Vite is still starting. */ }
     await new Promise(resolve=>setTimeout(resolve,250));
   }
   if(!ready) throw Error('Vite preview failed to start: '+serverOutput);
