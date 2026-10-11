@@ -176,6 +176,20 @@ describe('remaining five React workspaces', () => {
     expect(screen.getByRole('region', { name: 'Recent configurations' })).toHaveTextContent('127.0.0.1');
     expect(localStorage.getItem('trishul_next_walk_history')).toBeNull();
   });
+  it('labels compact trap-history cells and keeps record details keyboard accessible', async()=>{
+    mockApi();setup(<TrapsPage/>);
+    const history=screen.getByRole('region',{name:'Received trap history'});
+    const records=within(history).getByRole('region',{name:'Received trap records'});
+    expect(records).toHaveAttribute('tabindex','0');
+    const expand=await within(records).findByRole('button',{name:'Expand trap event 42'});
+    const tr=expand.closest('tr');
+    expect(tr).toHaveClass('trap-history-record');
+    expect(tr?.querySelector('[data-label="Notification"]')).toHaveTextContent('linkDown');
+    expect(tr?.querySelector('[data-label="Source"]')).toHaveTextContent('localhost');
+    fireEvent.click(expand);
+    expect(within(records).getByRole('region',{name:'Event details 42'})).toBeInTheDocument();
+    expect(within(records).getByRole('button',{name:'Collapse trap event 42'})).toHaveAttribute('aria-expanded','true');
+  });
   it('Traps uses a paginated history endpoint and requires confirmation before clearing', async () => {
     mockApi(); setup(<TrapsPage />);
     expect(await screen.findByText('linkDown')).toBeInTheDocument();
