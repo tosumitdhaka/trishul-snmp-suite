@@ -15,6 +15,7 @@
   --warning: #9a6700;
   --danger: #b42318;
   --danger-soft: #ffebe8;
+  --on-danger-hover: #ffffff;
   --panel-radius: 0.9rem;
   --workspace-gap: 1rem;
 }
@@ -32,6 +33,7 @@
   --warning: #fbbf24;
   --danger: #fca5a5;
   --danger-soft: #3c252f;
+  --on-danger-hover: #1c0e14;
 }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--canvas); color: var(--text); }
@@ -251,7 +253,7 @@ select.field-input { padding-right: 2rem; }
   border: 1px solid var(--danger); color: var(--danger);
   background: var(--danger-soft); font-size: .875rem; font-weight: 650;
 }
-.btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: var(--danger); color: var(--on-danger-hover); }
 .btn-danger:disabled { cursor: not-allowed; opacity: .55; }
 .btn-icon-action { display: inline-flex; align-items: center; justify-content: center; width: 2.65rem; height: 2.65rem; padding: .5rem; flex-shrink: 0; }
 .btn-icon-action:focus-visible, .btn-danger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -290,11 +292,10 @@ select.field-input { padding-right: 2rem; }
 .dashboard-summary-stopped { border-left-color: var(--muted); }
 .dashboard-summary-stopped .dashboard-summary-icon { color: var(--muted); background: var(--surface-muted); }
 .dashboard-workspace-link { border-top: 2px solid var(--accent-soft); }
-.dashboard-workspace-link:nth-child(3n + 2) { border-top-color: color-mix(in srgb,var(--success) 33%,var(--surface)); }
-.dashboard-workspace-link:nth-child(3n + 3) { border-top-color: color-mix(in srgb,var(--warning) 38%,var(--surface)); }
+.dashboard-workspace-link:hover { border-top-color: var(--accent); }
 .dashboard-activity-cell dd { color: var(--text); }
 .dashboard-activity-cell:nth-child(4n + 1) { background: color-mix(in srgb,var(--accent) 4%,var(--surface)); }
-.dashboard-activity-cell:nth-child(4n + 3) { background: color-mix(in srgb,var(--success) 4%,var(--surface)); }
+.dashboard-activity-cell:nth-child(4n + 3) { background: color-mix(in srgb,var(--accent) 3%,var(--surface)); }
 
 /* Catalog-first MIB manager: 67% inventory, 33% export/history at wide widths. */
 .manager-layout { display: grid; grid-template-columns: minmax(0,1fr); gap: 1rem; align-items: start; }
@@ -305,9 +306,8 @@ select.field-input { padding-right: 2rem; }
 .manager-modal { max-height: calc(100dvh - 2.5rem); }
 .manager-modal textarea { width: 100%; min-width: 0; }
 .manager-bundle-list { max-height: min(46vh, 31rem); }
-@media (min-width: 1100px) {
-  .manager-layout { grid-template-columns: minmax(0,2fr) minmax(19rem,1fr); }
-}
+.workspace-page { container-type: inline-size; }
+@container (min-width: 69rem) { .manager-layout { grid-template-columns: minmax(0,2fr) minmax(19rem,1fr); } }
 
 /* Consistent action sizing & semantics across all seven preview pages. */
 .btn-primary, .btn-secondary, .btn-danger {
@@ -334,8 +334,128 @@ select.field-input { padding-right: 2rem; }
 .manager-sidebar .panel-body .field-input { min-width: 0; }
 .workspace-page input[type="checkbox"] { accent-color: var(--accent); width: 1rem; height: 1rem; flex: none; }
 .workspace-page label:has(input[type="checkbox"]) { cursor: pointer; }
+@media (pointer: coarse) { .browser-tree-toggle, .notification-item-action { min-width: 2.75rem; min-height: 2.75rem; } }
 @media (max-width: 639px) {
  .panel-heading, .panel-body { padding: .9rem; }
  .workspace-page { gap: 1rem; }
  .manager-inventory-table { max-height: 52vh; }
+}
+
+/* Manager alignment follows available catalog panel width. */
+.manager-catalog-column { container: manager-catalog / inline-size; }
+.manager-primary-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; }
+.manager-filter-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:.75rem; align-items:end; }
+.manager-filter-grid > label { display:block; min-width:0; font-size:.8rem; font-weight:600; }
+.manager-filter-grid > label > .field-input { margin-top:.375rem; }
+.manager-search-field .field-label { margin-bottom:.375rem; }
+.manager-dropzone { display:grid; gap:.4rem; min-width:0; padding:1rem; border:2px dashed var(--border); border-radius:.75rem; background:var(--surface-muted); }
+.manager-dropzone:focus-within { border-color:var(--accent); }
+.manager-inventory-table table { width:100%; }
+.manager-inventory-table td { overflow-wrap:anywhere; }
+@container manager-catalog (min-width:33rem) {
+  .manager-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .manager-search-field { grid-column:auto; }
+}
+@container manager-catalog (min-width:58rem) {
+  .manager-filter-grid { grid-template-columns:2fr repeat(3,minmax(0,1fr)); }
+  .manager-search-field { grid-column:auto; }
+}
+@container manager-catalog (max-width:30rem) {
+  .manager-primary-actions { display:grid; grid-template-columns:minmax(0,1fr); }
+  .manager-primary-actions button { width:100%; }
+}
+
+/* Compact Manager inventory: keep one semantic table, display rows as cards in narrow panels. */
+@container manager-catalog (max-width:46rem) {
+ .manager-inventory-table { border:0; max-height:none; min-height:0; overflow:visible; }
+ .manager-inventory-table table, .manager-inventory-table tbody { display:block; width:100%; min-width:0; }
+ .manager-inventory-table thead { display:none; }
+ .manager-inventory-table tbody { display:grid; gap:.75rem; }
+ .manager-inventory-table tr { display:block; border:1px solid var(--border); border-radius:.75rem; background:var(--surface); overflow:hidden; }
+ .manager-inventory-table td {
+   display:grid; grid-template-columns:minmax(5.6rem,32%) minmax(0,1fr); gap:.6rem;
+   max-width:none; width:100%; min-width:0; padding:.7rem .8rem; border-bottom:1px solid var(--border);
+   white-space:normal; overflow-wrap:anywhere;
+ }
+ .manager-inventory-table td:last-child { border-bottom:0; }
+ .manager-inventory-table td::before { content:attr(data-label); color:var(--muted); font-size:.75rem; font-weight:650; }
+ .manager-inventory-table td[data-label="Module / source"] { display:block; }
+ .manager-inventory-table td[data-label="Module / source"]::before { display:block; margin-bottom:.35rem; }
+ .manager-inventory-table td > * { min-width:0; }
+}
+
+/* Shared mobile toolbar priorities: search first, then compact controls. */
+@media (max-width:639px) {
+ .browser-tree-viewport { min-height:11rem; }
+ .browser-detail-empty { min-height:10rem; }
+ .simulator-log-toolbar, .traps-history-toolbar {
+   display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.65rem; align-items:center;
+ }
+ .simulator-log-toolbar > :first-child, .traps-history-toolbar > :first-child {
+   grid-column:1 / -1; width:100%; min-width:0;
+ }
+ .simulator-log-toolbar > :first-child input, .traps-history-toolbar > :first-child input { width:100%; }
+ .browser-tree-toolbar { align-items:stretch; }
+ .browser-tree-toolbar > div { flex-wrap:wrap; }
+}
+
+.manager-card-sort, .manager-card-hint { display:none; }
+@container manager-catalog (max-width:46rem) {
+ .manager-card-sort { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.65rem; align-items:end; }
+ .manager-card-hint { display:block; }
+ .manager-inventory-table { max-height:min(70vh,42rem); overflow-y:auto; scrollbar-gutter:stable; }
+ .manager-inventory-table:focus-visible { outline-offset:2px; }
+}
+
+.manager-tab-short { display:none; }
+.manager-inventory-tabs-row { min-width:0; }
+.manager-inventory-tabs-row > [role="group"] { min-width:0; }
+.manager-inventory-tabs-row > [role="group"] button { min-width:0; }
+@container manager-catalog (max-width:30rem) {
+ .manager-tab-full { display:none; }
+ .manager-tab-short { display:inline; }
+ .manager-inventory-tabs-row > [role="group"] button { white-space:nowrap; padding-inline:.65rem; }
+}
+
+/* Received Trap history: retain accessible table data and expanded rows in compact view. */
+@media (max-width:639px) {
+ .traps-history-table { border:0; max-height:min(75vh,38rem); scrollbar-gutter:stable; }
+ .traps-history-table table, .traps-history-table tbody { display:block; min-width:0; width:100%; }
+ .traps-history-table thead {
+   position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden;
+   clip-path:inset(50%); white-space:nowrap;
+ }
+ .traps-history-table tbody { display:grid; gap:.75rem; }
+ .traps-history-table tr.trap-history-record {
+   display:block; border:1px solid var(--border); border-radius:.7rem;
+   overflow:hidden; background:var(--surface);
+ }
+ .traps-history-table .trap-history-record td {
+   display:grid; grid-template-columns:minmax(5.5rem,34%) minmax(0,1fr);
+   max-width:none; min-width:0; width:100%; gap:.65rem; align-items:center;
+   white-space:normal; padding:.65rem .8rem;
+   overflow-wrap:anywhere; border-bottom:1px solid var(--border);
+ }
+ .traps-history-table .trap-history-record td:last-child { border-bottom:0; }
+ .traps-history-table .trap-history-record td::before {
+   content:attr(data-label); font-weight:650; color:var(--muted); font-size:.75rem;
+ }
+ .traps-history-table .trap-history-details-row { display:block; }
+ .traps-history-table .trap-history-details-row > td { display:block; padding:.5rem 0; }
+ .traps-history-table .trap-history-details-row section { min-width:0; }
+ .traps-history-table:focus-visible { outline-offset:2px; }
+}
+
+.manager-status { white-space:nowrap; font-size:.72rem; letter-spacing:-.01em; }
+
+/* Real mobile cell labels also prevent invisible desktop sort headers in keyboard tab order. */
+.manager-mobile-cell-label { display:none; }
+@container manager-catalog (max-width:46rem) {
+ .manager-inventory-table td::before, .manager-inventory-table td[data-label="Module / source"]::before { display:none; }
+ .manager-inventory-table .manager-mobile-cell-label {
+   display:block; min-width:0; color:var(--muted); font-size:.75rem; font-weight:650;
+ }
+ .manager-inventory-table td[data-label="Module / source"] > .manager-mobile-cell-label {
+   margin-bottom:.35rem;
+ }
 }

@@ -44,7 +44,7 @@ function ConfirmAction({ kind, pending, onCancel, onConfirm }: {
   return <Dialog.Root open={kind !== null} onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
     <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/60" />
-      <Dialog.Content aria-describedby="settings-confirm-description" className="fixed left-1/2 top-1/2 z-70 w-[min(29rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--text)] shadow-2xl focus:outline-none">
+      <Dialog.Content aria-describedby="settings-confirm-description" className="fixed left-1/2 top-1/2 z-70 w-[min(29rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--text)] shadow-2xl focus:outline-none">
         <div className="flex items-start justify-between gap-3">
           <span className="inline-flex rounded-xl bg-[var(--danger-soft)] p-2.5 text-[var(--danger)]"><AlertTriangle size={22} aria-hidden="true" /></span>
           <Dialog.Close disabled={pending} aria-label="Close confirmation" className="btn-secondary btn-icon-action"><X size={17} aria-hidden="true" /></Dialog.Close>

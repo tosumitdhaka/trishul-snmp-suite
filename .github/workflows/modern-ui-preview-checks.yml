@@ -1,0 +1,73 @@
+name: Modern UI preview checks
+
+on:
+  push:
+    branches:
+      - feat/modern-ui-gui-hardening
+  pull_request:
+    paths:
+      - 'frontend-next/**'
+      - 'docs/ui-modernization/**'
+      - '.github/workflows/modern-ui-preview-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-next:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend-next/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: TypeScript check
+        run: npm run typecheck
+      - name: ESLint
+        run: npm run lint
+      - name: Vitest
+        run: npm test
+      - name: Production-mode preview build (not deployed)
+        run: npm run build
+
+  browser-fixtures:
+    needs: frontend-next
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend-next/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Install pinned browser harness (CI-only; no lockfile mutation)
+        run: npm install --no-save --package-lock=false playwright@1.56.1
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build isolated preview for production-mode browser smoke
+        run: npm run build
+      - name: Exercise seven workspaces and capture light/dark responsive screenshots
+        run: node e2e/screenshot-smoke.mjs
+      - name: Capture matched legacy seven-workspace screenshots (synthetic API baseline)
+        run: node e2e/legacy-parity-smoke.mjs
+      - name: Upload synthetic-fixture browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modern-ui-browser-fixture-screenshots
+          path: frontend-next/e2e/artifacts/
+          if-no-files-found: warn
+          retention-days: 14

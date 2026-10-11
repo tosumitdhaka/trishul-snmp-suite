@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { SimulatorPage } from '../src/features/simulator/SimulatorPage';
@@ -76,6 +76,43 @@ describe('remaining five React workspaces', () => {
     expect(new Headers(call?.init.headers).get('X-Auth-Token')).toBe('test-token');
     expect(JSON.parse(String(call?.init.body))).toEqual({ port: 1061, community: 'public' });
   });
+  it('preserves unsaved Simulator port/community after a live status change, then resets deliberately', async () => {
+    mockApi();
+    const { cache } = setup(<SimulatorPage />);
+    const panel=screen.getByRole('region',{name:'Runtime'});
+    const port=within(panel).getByRole('spinbutton',{name:'UDP port'});
+    const community=within(panel).getByLabelText(/Community/);
+    await waitFor(()=>expect(port).toBeEnabled());
+    fireEvent.change(port,{target:{value:'2061'}});
+    fireEvent.change(community,{target:{value:'private-draft'}});
+    act(()=>cache.setQueryData(['simulator','status'],{running:false,port:3061,community:'server-change'}));
+    await waitFor(()=>expect(port).toHaveValue(2061));
+    expect(community).toHaveValue('private-draft');
+    fireEvent.click(within(panel).getByRole('button',{name:'Reset to server'}));
+    expect(port).toHaveValue(3061);
+    expect(community).toHaveValue('server-change');
+  });
+  it('preserves unsaved Trap receiver fields through fresh status without masking new server values', async () => {
+    mockApi();
+    const { cache } = setup(<TrapsPage />);
+    const panel=screen.getByRole('region',{name:'Trap receiver'});
+    const port=within(panel).getByRole('spinbutton',{name:'Listener UDP port'});
+    const community=within(panel).getByLabelText('Listener community');
+    await waitFor(()=>expect(port).toBeEnabled());
+    fireEvent.change(port,{target:{value:'2262'}});
+    fireEvent.change(community,{target:{value:'trap-draft'}});
+    act(()=>cache.setQueryData(['traps','status'],{running:false,port:3362,community:'server-value',resolve_mibs:false}));
+    await waitFor(()=>expect(port).toHaveValue(2262));
+    expect(community).toHaveValue('trap-draft');
+    fireEvent.click(within(panel).getByRole('button',{name:'Reset to server'}));
+    expect(port).toHaveValue(3362);
+    expect(community).toHaveValue('server-value');
+  });
+  it('purges prior full Walker payload before any new walk', () => {
+    localStorage.setItem('trishul_next_walk_history',JSON.stringify([{result:{data:'secret-sentinel-not-to-survive'}}]));
+    mockApi();setup(<WalkerPage />);
+    expect(localStorage.getItem('trishul_next_walk_history')).toBeNull();
+  });
   it('beautifies JSON locally without saving it until explicitly requested', async () => {
     mockApi(); setup(<SimulatorPage />);
     const panel=screen.getByRole('region',{name:'Custom SNMP data'});
@@ -88,10 +125,10 @@ describe('remaining five React workspaces', () => {
     fireEvent.click(within(panel).getByRole('button',{name:'Save custom data'}));
     await waitFor(()=>expect(calls.some(c=>c.path==='/api/simulator/data'&&c.method==='POST')).toBe(true));
   });
-  it('pauses simulator log auto refresh with a checkbox', async () => {
+  it('pauses simulator displayed log feed with a checkbox', async () => {
     mockApi(); setup(<SimulatorPage />);
     const logs=screen.getByRole('region',{name:'Activity logs'});
-    const checkbox=within(logs).getByRole('checkbox',{name:'Pause auto refresh'});
+    const checkbox=within(logs).getByRole('checkbox',{name:'Pause displayed feed'});
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
@@ -136,8 +173,22 @@ describe('remaining five React workspaces', () => {
     expect(screen.getByRole('region',{name:'Category: system'})).toHaveTextContent('17');
     const call = calls.find(c => c.path === '/api/walk/execute');
     expect(JSON.parse(String(call?.init.body))).toMatchObject({ target: '127.0.0.1', oid: '1.3.6.1.2.1', timeout_ms: 2000, parse: true });
-    expect(screen.getByRole('region', { name: 'Recent walks' })).toHaveTextContent('127.0.0.1');
-    expect(localStorage.getItem('trishul_next_walk_history')).not.toContain('public');
+    expect(screen.getByRole('region', { name: 'Recent configurations' })).toHaveTextContent('127.0.0.1');
+    expect(localStorage.getItem('trishul_next_walk_history')).toBeNull();
+  });
+  it('labels compact trap-history cells and keeps record details keyboard accessible', async()=>{
+    mockApi();setup(<TrapsPage/>);
+    const history=screen.getByRole('region',{name:'Received trap history'});
+    const records=within(history).getByRole('region',{name:'Received trap records'});
+    expect(records).toHaveAttribute('tabindex','0');
+    const expand=await within(records).findByRole('button',{name:'Expand trap event 42'});
+    const tr=expand.closest('tr');
+    expect(tr).toHaveClass('trap-history-record');
+    expect(tr?.querySelector('[data-label="Notification"]')).toHaveTextContent('linkDown');
+    expect(tr?.querySelector('[data-label="Source"]')).toHaveTextContent('localhost');
+    fireEvent.click(expand);
+    expect(within(records).getByRole('region',{name:'Event details 42'})).toBeInTheDocument();
+    expect(within(records).getByRole('button',{name:'Collapse trap event 42'})).toHaveAttribute('aria-expanded','true');
   });
   it('Traps uses a paginated history endpoint and requires confirmation before clearing', async () => {
     mockApi(); setup(<TrapsPage />);
@@ -178,13 +229,13 @@ describe('remaining five React workspaces', () => {
   });
   it('MIB Browser shows module roots by default, expands and switches to numeric OID view', async () => {
     mockApi(); setup(<BrowserPage />);
-    const tree = screen.getByRole('tree', { name: 'MIB module tree' });
+    const tree = screen.getByRole('region', { name: 'MIB module tree' });
     expect(await within(tree).findByRole('button', { name: 'Expand IF-MIB' })).toBeInTheDocument();
     expect(calls.some(c => c.path === '/api/mibs/browse/tree/module')).toBe(true);
     fireEvent.click(within(tree).getByRole('button', { name: 'Expand IF-MIB' }));
     expect(await within(tree).findByRole('button', { name: 'Expand ifTable' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'By OID' }));
-    expect(await screen.findByRole('tree', { name: 'Numeric OID tree' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Numeric OID tree' })).toBeInTheDocument();
     expect(calls.some(c => c.path.startsWith('/api/mibs/browse/tree/oid?root_oid=1.3.6.1'))).toBe(true);
     const expand = screen.getByRole('group', { name: 'Tree expansion controls' });
     expect(within(expand).getByRole('combobox', { name: 'Expansion depth' })).toHaveValue('3');
@@ -297,6 +348,61 @@ describe('remaining five React workspaces', () => {
     expect(body).toMatchObject({
       format:'json', export_type:'catalog', modules:['IF-MIB'], notifications:['IF-MIB::linkDown'],
     });
+  });
+  it('provides text cell labels and a separate sorter for compact Manager inventories',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    expect(within(inventory).getByRole('combobox',{name:'Sort inventory cards'})).toBeInTheDocument();
+    const checkbox=await within(inventory).findByRole('checkbox',{name:'Select IF-MIB'});
+    const labels=Array.from(checkbox.closest('tr')?.querySelectorAll('.manager-mobile-cell-label')||[]);
+    expect(labels.map(node=>node.textContent)).toEqual(['Select','Module / source','Source group','Status','Objects','Traps']);
+    fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
+    const notification=await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'});
+    const notificationLabels=Array.from(notification.closest('tr')?.querySelectorAll('.manager-mobile-cell-label')||[]);
+    expect(notificationLabels.map(node=>node.textContent)).toEqual(['Select','Notification','OID','Module','Objects','Use']);
+  });
+  it('restores legacy Manager catalog export formats and independent source group selection', async () => {
+    mockApi(); setup(<MibsPage />);
+    const exportPanel=screen.getByRole('region',{name:'Catalog export'});
+    const type=within(exportPanel).getByRole('combobox',{name:'Export type'});
+    expect(Array.from((type as HTMLSelectElement).options).map(option=>option.value)).toEqual(
+      ['catalog','summary','modules','objects','notifications']);
+    fireEvent.change(type,{target:{value:'objects'}});
+    const group=within(exportPanel).getByRole('combobox',{name:'Export source group'});
+    await waitFor(()=>expect(group.querySelector('option[value="uploaded"]')).not.toBeNull());
+    fireEvent.change(group,{target:{value:'uploaded'}});
+    vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:vi.fn(()=> 'blob:export-test'),revokeObjectURL:vi.fn()}));
+    vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
+    fireEvent.click(within(exportPanel).getByRole('button',{name:'Export catalog'}));
+    await waitFor(()=>expect(calls.some(call=>call.path==='/api/mibs/export'&&call.method==='POST')).toBe(true));
+    const request=calls.find(call=>call.path==='/api/mibs/export');
+    expect(JSON.parse(String(request?.init.body))).toMatchObject({format:'json',export_type:'objects',source_groups:['uploaded']});
+  });
+  it('has scope-aware inventory search and sortable notification metadata',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    const scope=within(inventory).getByRole('combobox',{name:'Search scope'});
+    fireEvent.change(scope,{target:{value:'path'}});
+    expect(scope).toHaveValue('path');
+    fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
+    expect(within(inventory).getByRole('columnheader',{name:/Module/})).toBeInTheDocument();
+    const oid=within(inventory).getByRole('columnheader',{name:/OID/});
+    fireEvent.click(within(oid).getByRole('button',{name:'Sort notifications by OID'}));
+    expect(oid).toHaveAttribute('aria-sort','ascending');
+    expect(await within(inventory).findByRole('checkbox',{name:'Select notification IF-MIB::linkDown'})).toBeInTheDocument();
+  });
+  it('accepts MIB files by drag and drop while retaining file input for keyboard users',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    fireEvent.click(within(inventory).getByRole('button',{name:'Add / upload'}));
+    const dialog=await screen.findByRole('dialog',{name:'Add MIB sources'});
+    fireEvent.click(within(dialog).getByRole('button',{name:'Upload files'}));
+    const zone=within(dialog).getByText('Drop MIB files here').closest('.manager-dropzone');
+    expect(zone).not.toBeNull();
+    fireEvent.drop(zone!,{dataTransfer:{files:[new File(['TEST-MIB DEFINITIONS ::= BEGIN END'],'TEST-MIB.mib')]}});
+    expect(within(dialog).getByText(/1 files selected/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button',{name:'Validate'})).toBeEnabled();
+    expect(within(dialog).getByLabelText('Source files')).toBeInTheDocument();
   });
   it('opens catalog header Add/Upload and fetches online by module name through the existing API', async () => {
     mockApi(); setup(<MibsPage />);

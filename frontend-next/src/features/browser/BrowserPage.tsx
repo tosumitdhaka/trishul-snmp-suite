@@ -52,8 +52,7 @@ function TreeNode({ node, module, token, bundleId, selectedKey, expanded, collap
     staleTime: 60_000,
   });
 
-  return <li className="min-w-0" role="treeitem" aria-level={level + 1} aria-selected={selectedKey === key}
-    aria-expanded={node.has_children ? opened : undefined}>
+  return <li className="min-w-0"  >
     <div className={'browser-tree-row ' + (selectedKey === key ? 'browser-tree-row-selected' : '')}
       style={{ paddingLeft: Math.min(level * 15 + 4, 112) }}>
       {node.has_children
@@ -71,9 +70,9 @@ function TreeNode({ node, module, token, bundleId, selectedKey, expanded, collap
         {node.oid.split('.').slice(-2).join('.')}
       </code>
     </div>
-    {opened && node.has_children && <div className="pl-1" role="group">
+    {opened && node.has_children && <div className="pl-1" >
       <StatusText busy={children.isPending} error={children.error} empty={!children.isPending && !children.isError && !children.data?.children.length} />
-      {children.data?.children && <ul role="group">
+      {children.data?.children && <ul >
         {children.data.children.map((child, i) => <TreeNode key={browserNodeKey(child.oid, child.module || moduleName) + i}
           node={child} module={moduleName} token={token} bundleId={bundleId}
           selectedKey={selectedKey} expanded={expanded} collapsed={collapsed} toggle={toggle} onSelect={onSelect}
@@ -281,7 +280,7 @@ export function BrowserPage() {
       <div className="workspace-stack">
         <Card title="Browse" compact>
           <div className="browser-browse-toolbar flex flex-wrap items-center gap-3">
-            <div role="group" aria-label="Browse mode" className="inline-flex shrink-0 gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
+            <div  aria-label="Browse mode" className="inline-flex shrink-0 gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
               <button type="button" className={mode === 'module' ? 'btn-primary' : 'btn-secondary'} onClick={() => switchMode('module')}
                 aria-pressed={mode === 'module'}><BookOpen size={16}/> By module</button>
               <button type="button" className={mode === 'oid' ? 'btn-primary' : 'btn-secondary'} onClick={() => switchMode('oid')}
@@ -352,11 +351,11 @@ export function BrowserPage() {
               </div>
             </div>
           </div>
-          <div className="browser-tree-viewport overflow-auto rounded-lg border border-[var(--border)]" role="tree" aria-label={isSearching?'MIB search results':mode==='module'?'MIB module tree':'Numeric OID tree'}>
+          <div className="browser-tree-viewport overflow-auto rounded-lg border border-[var(--border)]" role="region" aria-label={isSearching?'MIB search results':mode==='module'?'MIB module tree':'Numeric OID tree'}>
             {isSearching ? <>
               <StatusText busy={search.isPending} error={search.error} empty={!search.isPending && !search.isError && !search.data?.results.length}/>
-              <ul role="group">{search.data?.results.map((node,i) => <li key={browserNodeKey(node.oid,node.module || '')+i} role="treeitem"
-                aria-selected={selectedKey===browserNodeKey(node.oid,node.module || '')}>
+              <ul >{search.data?.results.map((node,i) => <li key={browserNodeKey(node.oid,node.module || '')+i} 
+                >
                 <button className={'browser-tree-row block w-full text-left ' + (selectedKey===browserNodeKey(node.oid,node.module||'')?'browser-tree-row-selected':'')}
                   onClick={()=>setSelected(node)}>
                   <span className="block text-sm font-semibold">{node.full_name||node.name}</span>
@@ -365,11 +364,11 @@ export function BrowserPage() {
                 </button></li>)}</ul>
             </> : mode === 'module' ? <>
               <StatusText busy={moduleTree.isPending} error={moduleTree.error} empty={!moduleTree.isPending && !moduleTree.isError && !moduleTree.data?.modules.length}/>
-              <ul role="group">
+              <ul >
                 {moduleTree.data?.modules.map(mod => {
                   const key='module:'+mod.name;
                   const opened=!collapsed.has(key) && (expanded.has(key) || (autoDepth > 0 && !!moduleName));
-                  return <li role="treeitem" key={mod.name} aria-expanded={opened}>
+                  return <li  key={mod.name}>
                     <div className="browser-tree-row browser-module-row">
                       <button className="browser-tree-toggle" aria-label={(opened?'Collapse ':'Expand ')+mod.name} aria-expanded={opened}
                         onClick={()=>toggle(key, opened)}>{opened?<ChevronDown size={17}/>:<ChevronRight size={17}/>}</button>
@@ -377,7 +376,7 @@ export function BrowserPage() {
                         <BookOpen size={15} className="mr-2 inline text-[var(--accent)]"/> {mod.name}</button>
                       <span className="text-xs text-[var(--muted)]">{mod.object_count} objects</span>
                     </div>
-                    {opened && <ul role="group" className="pl-2">
+                    {opened && <ul  className="pl-2">
                       {mod.children.map((node,i) => <TreeNode key={browserNodeKey(node.oid,node.module||mod.name)+i} node={node}
                         module={mod.name} token={token} bundleId={bundleId} typeFilter={typeFilter}
                         selectedKey={selectedKey} expanded={expanded} collapsed={collapsed} toggle={toggle} onSelect={setSelected}
@@ -389,13 +388,13 @@ export function BrowserPage() {
               {!moduleTree.isPending && !moduleTree.data?.modules.length && !moduleName && !typeFilter && <p className="p-3 text-xs text-[var(--muted)]">Load a MIB bundle in <Link className="link" to="/mibs">MIB Manager</Link> to populate this tree.</p>}
             </> : <>
               <StatusText busy={oidTree.isPending} error={oidTree.error}/>
-              {oidTree.data?.root && <ul role="group"><li role="treeitem" aria-expanded>
+              {oidTree.data?.root && <ul ><li>
                 <div className="browser-tree-row browser-module-row">
                   <FolderTree size={17} className="mx-1 shrink-0 text-[var(--accent)]"/>
                   <button className="min-w-0 flex-1 py-2 text-left font-semibold" onClick={()=>setSelected(oidTree.data!.root!)}>{oidTree.data.root.name||rootOid}</button>
                   <code className="text-xs text-[var(--muted)]">{rootOid}</code>
                 </div>
-                <ul role="group" className="pl-2">{oidTree.data.children.map((node,i)=><TreeNode
+                <ul  className="pl-2">{oidTree.data.children.map((node,i)=><TreeNode
                   key={browserNodeKey(node.oid,node.module||'')+i} node={node} module="" token={token} bundleId={bundleId} typeFilter=""
                   selectedKey={selectedKey} expanded={expanded} collapsed={collapsed} toggle={toggle} onSelect={setSelected}
                   level={1} autoDepth={autoDepth} oidMode/>)}</ul>
@@ -406,7 +405,7 @@ export function BrowserPage() {
         </Card>
       </div>
       <Card title="Object details" description="Symbolic identity, data definition, table indexes and notification members.">
-        {!selected ? <div className="flex min-h-56 flex-col items-center justify-center text-center text-[var(--muted)]">
+        {!selected ? <div className="browser-detail-empty flex min-h-56 flex-col items-center justify-center text-center text-[var(--muted)]">
           <FolderTree size={28} strokeWidth={1.5} /><p className="mt-3 text-sm font-semibold">Select a node in the tree</p>
           <p className="mt-1 max-w-xs text-xs">Click a symbol to inspect metadata, or expand its chevron to see child objects.</p>
         </div> : <>

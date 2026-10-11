@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { parseRealtimeEvent, type RealtimeEvent } from '../api/types';
 import { getSafeDirectWsOrigin, isLoopbackHost } from './dev-ws-origin';
+import { appendSimulatorLog } from './simulator-logs';
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline' | 'unauthorized';
 
@@ -26,7 +27,7 @@ export function applyRealtimeUpdate(cache: QueryClient, event: RealtimeEvent) {
       void cache.invalidateQueries({ queryKey: ['traps', 'history'] });
       break;
     case 'simulator_log':
-      // Streaming logs receive a separate bounded feed in the Simulator slice.
+      if (event.entry) cache.setQueryData(['simulator', 'logs'], (previous: { items?: Record<string, unknown>[]; total?: number } | undefined) => appendSimulatorLog(previous, event.entry!));
       break;
     case 'reauth_required':
       break;

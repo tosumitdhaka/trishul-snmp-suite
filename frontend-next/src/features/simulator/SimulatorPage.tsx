@@ -7,6 +7,7 @@ import { RefreshCw, RotateCcw, Save, Trash2, Download, Search, WandSparkles } fr
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { Card, ConfirmDialog, Field, IconAction, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
+import { syncUntouched } from '../shared/draft-sync';
 
 interface SimulatorStatus { running?: boolean; port?: number; community?: string; uptime_seconds?: number; requests?: number; last_activity?: string | null }
 interface LogEntry { timestamp?: string; level?: string; message?: string; msg?: string; [key: string]: unknown }
@@ -20,10 +21,13 @@ export function SimulatorPage() {
   const live = useRealtime() === 'live';
   const status = useQuery({ queryKey: statusKey, queryFn: ({ signal }) => apiRequest<SimulatorStatus>('/api/simulator/status', token, { signal }), enabled: !!token, refetchInterval: live ? 20_000 : 5_000 });
   const [follow, setFollow] = useState(true);
+  const [pausedLogs, setPausedLogs] = useState<LogEntry[] | null>(null);
   const logs = useQuery({ queryKey: logsKey, queryFn: ({ signal }) => apiRequest<SimulatorLogs>('/api/simulator/logs?limit=200', token, { signal }), enabled: !!token, refetchInterval: follow ? 5_000 : false });
   const data = useQuery({ queryKey: ['simulator', 'data'], queryFn: ({ signal }) => apiRequest<Record<string, unknown>>('/api/simulator/data', token, { signal }), enabled: !!token });
   const [port, setPort] = useState('1061');
   const [community, setCommunity] = useState('public');
+  const [portTouched, setPortTouched] = useState(false);
+  const [communityTouched, setCommunityTouched] = useState(false);
   const [editor, setEditor] = useState('');
   const [dirty, setDirty] = useState(false);
   const [filter, setFilter] = useState('');
@@ -31,30 +35,28 @@ export function SimulatorPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => {
     if (status.data && !status.isError) {
-      setPort(String(status.data.port ?? 1061));
-      setCommunity(status.data.community || 'public');
+      setPort(current => syncUntouched(current, String(status.data.port ?? 1061), portTouched));
+      setCommunity(current => syncUntouched(current, status.data.community || 'public', communityTouched));
     }
-  }, [status.data]);
+  }, [status.data, status.isError, portTouched, communityTouched]);
   useEffect(() => {
     if (data.data && !dirty) setEditor(JSON.stringify(data.data, null, 2));
   }, [data.data, dirty]);
   const listed = useMemo(() => {
-    const rows = Array.isArray(logs.data?.items) ? logs.data.items : [];
+    const rows = !follow && pausedLogs ? pausedLogs : Array.isArray(logs.data?.items) ? logs.data.items : [];
     return rows.filter((row) => {
       const category = String(row.level || '').toLowerCase();
       return (level === 'all' || category === level) &&
         JSON.stringify(row).toLowerCase().includes(filter.trim().toLowerCase());
     });
-  }, [logs.data, filter, level]);
+  }, [logs.data, pausedLogs, follow, filter, level]);
   async function run(action: 'start' | 'stop' | 'restart') {
     if (action === 'start' && (!positivePort(port) || !community.trim())) {
       setNotice({ tone: 'error', text: 'Enter a valid UDP port and community.' }); return;
     }
     const body = action === 'start' ? jsonPost({ port: positivePort(port), community }) : { method: 'POST' };
-    const response = await invoke<{ custom_data_warnings?: string[] }>('/api/simulator/' + action, body, [statusKey, ['stats']]);
-    if (response?.custom_data_warnings?.length) {
-      setNotice({ tone: 'error', text: 'Started with override warnings: ' + response.custom_data_warnings.join('; ') });
-    }
+    const response = await invoke('/api/simulator/' + action, body, [statusKey, ['stats']]);
+    if (response && action === 'start') { setPortTouched(false); setCommunityTouched(false); }
   }
   function formatJson() {
     try {
@@ -85,8 +87,15 @@ export function SimulatorPage() {
       <Card title="Runtime" compact description="Run the SNMP responder and inspect its activity."
         trailing={<span role="status" className={'service-status ' + (status.data?.running ? 'service-status-simulator' : 'service-status-off')}>{status.isError ? 'Unavailable' : status.isPending ? 'Checking…' : status.data?.running ? 'Running' : 'Stopped'}</span>}>
         <StatusText busy={status.isPending} error={status.error} />
-        <div className="grid gap-3 sm:grid-cols-2"><Field label="UDP port"><input className="field-input" type="number" min={1} max={65535} value={port} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setPort(e.target.value)} /></Field>
-          <Field label="Community" hint="Not displayed in exported logs."><input className="field-input" type="password" autoComplete="off" value={community} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => setCommunity(e.target.value)} /></Field></div>
+        <div className="grid gap-3 sm:grid-cols-2"><Field label="UDP port"><input className="field-input" type="number" min={1} max={65535} value={port} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => { setPort(e.target.value); setPortTouched(true); }} /></Field>
+          <Field label="Community" hint="Not displayed in exported logs."><input className="field-input" type="password" autoComplete="off" value={community} disabled={pending || status.data?.running || status.isPending || status.isError} onChange={e => { setCommunity(e.target.value); setCommunityTouched(true); }} /></Field></div>
+        {(portTouched || communityTouched) && <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-[var(--warning)]">
+          <span>Unsaved runtime configuration; polling will not overwrite it. Restart uses server settings.</span>
+          <button type="button" className="btn-secondary" onClick={() => {
+            setPort(String(status.data?.port ?? 1061)); setCommunity(status.data?.community || 'public');
+            setPortTouched(false); setCommunityTouched(false);
+          }}>Reset to server</button>
+        </div>}
         <div className="grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-muted)] p-3 text-xs">
           <div>Requests served<strong className="block text-xl">{status.data?.requests ?? '—'}</strong></div>
           <div>Uptime<strong className="block text-xl">{status.data?.uptime_seconds == null ? '—' : status.data.uptime_seconds + 's'}</strong></div>
@@ -122,13 +131,13 @@ export function SimulatorPage() {
       </Card>
     </div>
     <Card title="Activity logs" description="Bounded server history; search, severity filter and export.">
-      <div className="flex flex-wrap gap-2">
+      <div className="simulator-log-toolbar flex flex-wrap gap-2">
         <label className="flex min-w-[13rem] flex-1 items-center gap-2"><Search size={16} /><span className="sr-only">Search logs</span><input className="field-input" placeholder="Search logs" value={filter} onChange={e => setFilter(e.target.value)} /></label>
         <label><span className="sr-only">Log level</span><select className="field-input" value={level} onChange={e => setLevel(e.target.value)}>
           <option value="all">All levels</option>{['info','warning','error','debug'].map(item => <option key={item} value={item}>{item}</option>)}
         </select></label>
         <label className="flex items-center gap-2 rounded-lg px-2 text-xs font-medium">
-          <input type="checkbox" checked={!follow} onChange={e=>setFollow(!e.target.checked)}/> Pause auto refresh
+          <input type="checkbox" checked={!follow} onChange={e=>{const paused=e.target.checked;setPausedLogs(paused ? (logs.data?.items || []).slice(-200) : null);setFollow(!paused);if (!paused) void logs.refetch();}}/> Pause displayed feed
         </label>
         <IconAction label="Refresh simulator logs" onClick={()=>{ void logs.refetch(); }}><RefreshCw size={16}/></IconAction>
         <IconAction label="Download simulator logs JSON" disabled={!listed.length}
@@ -137,7 +146,8 @@ export function SimulatorPage() {
         </IconAction>
         <IconAction danger label="Clear simulator logs" onClick={()=>setConfirmClear(true)}><Trash2 size={16}/></IconAction>
       </div>
-      <StatusText busy={logs.isPending} error={logs.error} empty={!listed.length && !logs.isPending && !logs.isError} />
+      {!follow && <p role="status" className="text-sm text-[var(--muted)]">Displayed feed paused; live events continue in the background.</p>}
+       <StatusText busy={logs.isPending} error={logs.error} empty={!listed.length && !logs.isPending && !logs.isError} />
       <div className="max-h-[24rem] space-y-1 overflow-auto" role="log" aria-label="Simulator activity" aria-live="off">
         {listed.slice(-200).map((item,i) => <div key={i} className="rounded-lg border-b border-[var(--border)] p-2 text-xs">
           <span className="mr-2 font-mono text-[var(--muted)]">{item.timestamp || ''}</span>

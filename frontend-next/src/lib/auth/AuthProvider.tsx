@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useQueryClient } from '@tanstack/react-query';
 import { apiRequest, setUnauthorizedHandler } from '../api/client';
 import type { LoginResult, UserSession } from '../api/types';
+import { purgeLegacyWalkHistory } from '../privacy/walk-history';
 
 const TOKEN_KEY = 'snmp_token';
 const NAME_KEY = 'snmp_username';
@@ -25,6 +26,7 @@ function persistSession(session: Session) {
   } catch { /* Auth remains usable in memory if storage is unavailable. */ }
 }
 function forgetSession() {
+  purgeLegacyWalkHistory();
   try {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(NAME_KEY);
@@ -52,6 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [expire]);
 
   useEffect(() => {
+    // Purge the old durable full-response cache on every app startup, even if Walker never opens.
+    purgeLegacyWalkHistory();
     const saved = readToken();
     if (!saved) {
       setAuth({ state: 'anonymous' });
