@@ -23,10 +23,4 @@ export function walkTsv(rows: readonly Record<string, unknown>[], columns = walk
   return [columns.map(key => tsvCell(key)).join('\t'),
     ...rows.map(row => columns.map(key => tsvCell(row[key])).join('\t'))].join('\n');
 }
-/** One-time removal of legacy full-payload localStorage history (F01). */
-export function purgeLegacyWalkHistory(storage?: Pick<Storage, 'removeItem'>): void {
-  try {
-    const target = storage ?? (typeof localStorage !== 'undefined' ? localStorage : null);
-    target?.removeItem('trishul_next_walk_history');
-  } catch { /* Storage may be blocked; do not write any new sensitive data. */ }
-}
+export { purgeLegacyWalkHistory } from '../../lib/privacy/walk-history';
