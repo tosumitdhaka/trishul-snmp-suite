@@ -78,12 +78,28 @@ try {
           report.routes.push({workspace:name,theme,width,sidebar,screenshot:namePrefix+'.png',horizontalOverflowPx:overflow,heading:await page.locator('h1').first().textContent().catch(()=>null)});
           if(collapse) await page.getByRole('button',{name:'Expand sidebar'}).click();
         }
+        if(name==='traps' && [390,1024].includes(width)){
+          const record=page.locator('.trap-history-record').first();
+          await record.waitFor({timeout:5000});
+          if(width===390){
+            const layout=await record.evaluate(node=>globalThis.getComputedStyle(node).display);
+            if(layout!=='block')report.errors.push({theme,width,problem:'Trap history did not reflow to cards',layout});
+          }
+          await page.getByRole('button',{name:'Expand trap event 42'}).click();
+          const details=page.getByRole('region',{name:'Event details 42'});
+          await details.waitFor({timeout:5000});
+          const file=theme+'-'+width+'-traps-expanded-event.png';
+          await page.screenshot({path:join(artifacts,file),fullPage:true,animations:'disabled'});
+          report.routes.push({workspace:'traps',theme,width,sidebar:'expanded',state:'event-details',screenshot:file});
+        }
         if(name==='mibs' && [390,1024,1440].includes(width)){
           const snapshot=async state=>{
             const file=theme+'-'+width+'-mibs-'+state+'.png';
             await page.screenshot({path:join(artifacts,file),fullPage:true,animations:'disabled'});
             report.routes.push({workspace:'mibs',theme,width,sidebar:'expanded',state,screenshot:file});
           };
+          const choices=await page.getByRole('combobox',{name:'Export type'}).locator('option').evaluateAll(nodes=>nodes.map(node=>node.value));
+          if(choices.join(',')!=='catalog,summary,modules,objects,notifications')report.errors.push({theme,width,problem:'Catalog export type parity',choices});
           const tableDisplay=await page.locator('.manager-inventory-table table').evaluate(el=>globalThis.getComputedStyle(el).display);
           if(width===390 && tableDisplay!=='block') report.errors.push({theme,width,problem:'Manager inventory did not reflow into cards',tableDisplay});
           await page.getByRole('button',{name:'Notifications',exact:true}).click();
@@ -102,6 +118,9 @@ try {
       await context.close();
     }
   }
+  const overflow=report.routes.filter(item=>item.horizontalOverflowPx>4);
+  if(overflow.length)report.errors.push({problem:'Document horizontal overflow',occurrences:overflow.slice(0,12)});
+  if(report.errors.length)throw Error('Synthetic browser validation found '+report.errors.length+' errors');
 } catch(error) {
   report.errors.push({fatal:String(error)});
   throw error;
