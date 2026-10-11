@@ -40,7 +40,7 @@ function fixture(path) {
   return {};
 }
 
-const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5174', '--strictPort'], {cwd:workdir,stdio:'pipe'});
+const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '5174', '--strictPort'], {cwd:workdir,stdio:'pipe'});
 let serverOutput='';
 server.stdout.on('data', data => { serverOutput+=String(data).slice(-500); });
 server.stderr.on('data', data => { serverOutput+=String(data).slice(-500); });
@@ -66,6 +66,9 @@ try {
       const page=await context.newPage();
       const browserErrors=[];
       page.on('pageerror',error=>browserErrors.push(error.message));
+      page.on('console',message=>{ if(message.type()==='error') browserErrors.push('console: '+message.text()); });
+      page.on('requestfailed',request=>browserErrors.push('network: '+request.url()+' '+request.failure()?.errorText));
+      page.on('response',response=>{ if(response.status()>=400) browserErrors.push('http '+response.status()+' '+response.url()); });
       await page.routeWebSocket('**/api/ws*',ws=>{ws.onMessage(message=>{if(message==='ping') ws.send('pong');});});
       await page.route('**/api/**',async route=>{
         const url=new URL(route.request().url());
@@ -79,7 +82,7 @@ try {
         } catch (cause) {
           const body = await page.locator('body').innerText().catch(() => 'Body unreadable');
           const tokenPresent = await page.evaluate(() => !!sessionStorage.getItem('snmp_token')).catch(() => false);
-          console.log('Browser fixture startup diagnostic:', JSON.stringify({url:page.url(),route:path,tokenPresent,body:body.slice(0,1200),browserErrors}));
+          console.log('Browser fixture startup diagnostic:', JSON.stringify({url:page.url(),route:path,tokenPresent,body:body.slice(0,1200),browserErrors,html:(await page.content()).slice(0,1400)}));
           await page.screenshot({path:join(artifacts,'browser-startup-failure.png'),fullPage:true});
           throw cause;
         }
