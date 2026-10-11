@@ -1,6 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
-import { buildCatalogEntries, filterSortCatalog, nextCatalogSort, scopedSelection, type CatalogSort, type CatalogSortKey } from './catalog-model';
+import { buildCatalogEntries, filterSortCatalog, nextCatalogSort, scopedSelection, sortCatalogNotifications, type CatalogSearchScope, type CatalogSort, type CatalogSortKey, type NotificationSortKey } from './catalog-model';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link } from 'react-router';
@@ -43,8 +43,9 @@ export function MibsPage() {
   const [query, setQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [searchScope,setSearchScope] = useState<CatalogSearchScope>('all');
   const [catalogSort, setCatalogSort] = useState<CatalogSort>({field:'name',descending:false});
-  const [notificationDescending,setNotificationDescending]=useState(false);
+  const [notificationSort,setNotificationSort]=useState<{field:NotificationSortKey;descending:boolean}>({field:'name',descending:false});
   const [page, setPage] = useState(0);
   const [inspectSource, setInspectSource] = useState<string|null>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -69,6 +70,7 @@ export function MibsPage() {
   const [fetchingOnline,setFetchingOnline]=useState(false);
   const [exportFormat, setExportFormat] = useState('json');
   const [exportType, setExportType] = useState('catalog');
+  const [exportSourceGroup,setExportSourceGroup]=useState('');
   const [diffAgainst, setDiffAgainst] = useState<number | null>(null);
   const [targetBundle, setTargetBundle] = useState<number | null>(null);
   const [diffResult, setDiffResult] = useState<unknown>(null);
@@ -88,14 +90,14 @@ export function MibsPage() {
   });
   const catalog=useMemo(()=>buildCatalogEntries(status.data?.mibs||[],status.data?.source_inventory||[]),
     [status.data?.mibs,status.data?.source_inventory]);
-  const shown=useMemo(()=>filterSortCatalog(catalog,query,groupFilter,statusFilter,catalogSort),
-    [catalog,query,groupFilter,statusFilter,catalogSort]);
+  const shown=useMemo(()=>filterSortCatalog(catalog,query,groupFilter,statusFilter,catalogSort,searchScope),
+    [catalog,query,groupFilter,statusFilter,catalogSort,searchScope]);
   const notificationModules=useMemo(() => [...new Set((traps.data?.traps||[]).map(t=>t.module).filter((name):name is string=>!!name))].sort(),[traps.data]);
-  const filteredNotifications=useMemo(()=>(traps.data?.traps||[]).filter(t=>
+  const filteredNotifications=useMemo(()=>sortCatalogNotifications((traps.data?.traps||[]).filter(t=>
     (!groupFilter || t.module===groupFilter) &&
     (!query || [t.name,t.full_name,t.module,t.oid].some(value=>value?.toLowerCase().includes(query.toLowerCase()))))
-    .sort((a,b)=>notificationDescending?b.full_name.localeCompare(a.full_name):a.full_name.localeCompare(b.full_name)),
-    [traps.data,query,groupFilter,notificationDescending]);
+    ,notificationSort.field,notificationSort.descending),
+    [traps.data,query,groupFilter,notificationSort]);
   const pageSize=75;
   const visible=shown.slice(page*pageSize,(page+1)*pageSize);
   const visibleNotifications=filteredNotifications.slice(page*pageSize,(page+1)*pageSize);
@@ -127,6 +129,15 @@ export function MibsPage() {
     return <button type="button" className="manager-sort-button"
       title={'Sort by '+label} aria-label={'Sort by '+label} onClick={()=>sortCatalog(field)}>
       {label}<Icon size={14} aria-hidden="true"/></button>;
+  }
+  function sortNotification(field:NotificationSortKey){
+    setNotificationSort(old=>({field,descending:old.field===field?!old.descending:false}));setPage(0);
+  }
+  function notificationHeader(field:NotificationSortKey,label:string){
+    const active=notificationSort.field===field;
+    const Icon=active?(notificationSort.descending?ArrowDown:ArrowUp):ArrowUpDown;
+    return <button type="button" className="manager-sort-button" aria-label={'Sort notifications by '+label}
+      onClick={()=>sortNotification(field)}>{label}<Icon size={14} aria-hidden="true"/></button>;
   }
   function makeUploadForm() {
     const form = new FormData();
@@ -254,28 +265,26 @@ export function MibsPage() {
       The active bundle was produced by an older compiler. Review the source and compile history before reloading.</p>}
     <div className="manager-layout">
       <div className="manager-catalog-column">
-      <Card title="Catalog & source inventory" description="Manage active modules and stored sources together; filter by group and select entries."
-        trailing={<div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Catalog management actions">
+      <Card title="Catalog & source inventory" description="Manage active modules and stored sources together; filter by group and select entries.">
+        <div className="manager-primary-actions" role="group" aria-label="Catalog management actions">
           <button type="button" className="btn-primary" onClick={()=>{setAddMode('online');setOnlineResult(null);setModal('add');}}><Plus size={16}/> Add / upload</button>
           <button type="button" className="btn-secondary" onClick={()=>setModal('maintenance')}><Wrench size={16}/> Reload & dependencies</button>
-        </div>}>
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div role="group" aria-label="Inventory views" className="flex flex-wrap gap-1 rounded-lg bg-[var(--surface-muted)] p-1">
             {(['modules','traps'] as const).map(tab=><button type="button" key={tab}
               aria-pressed={activeTab===tab} className={activeTab===tab?'btn-primary':'btn-secondary'}
-              onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);setQuery('');setGroupFilter('');setStatusFilter('');}}>
+              onClick={()=>{setActiveTab(tab);setPage(0);setInspectSource(null);setQuery('');setGroupFilter('');setStatusFilter('');setSearchScope('all');}}>
               {tab==='modules'?'Modules & sources':'Notifications'}
             </button>)}
           </div>
           <IconAction label="Refresh MIB inventory" onClick={()=>{void status.refetch();void bundles.refetch();}}><RefreshCw size={16}/></IconAction>
         </div>
-        <div className={'grid min-w-0 gap-3 sm:grid-cols-2 ' +
-          (activeTab==='traps'?'xl:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)]':
-            'xl:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto]')}>
-          <label className="relative min-w-0"><span className="sr-only">Search inventory</span>
-            <input className="field-input pr-9" value={query} placeholder={activeTab==='traps'?'Search notifications by name or OID':'Search module, file or status'}
+        <div className="manager-filter-grid">
+          <label className="manager-search-field min-w-0"><span className="field-label">Search inventory</span><span className="relative block">
+            <input className="field-input pr-9" value={query} placeholder={activeTab==='traps'?'Notification name or OID':'Search selected scope'}
               onChange={e=>{setQuery(e.target.value);setPage(0);}}/>
-            <Search size={15} className="pointer-events-none absolute right-3 top-3 text-[var(--muted)]"/>
+            <Search size={15} className="pointer-events-none absolute right-3 top-4 text-[var(--muted)]"/></span>
           </label>
           <label className="text-xs font-medium">{activeTab==='traps'?'Notification module':'Source group'}
             <select className="field-input mt-1" value={groupFilter} onChange={e=>{setGroupFilter(e.target.value);setPage(0);}}>
@@ -285,6 +294,12 @@ export function MibsPage() {
             </select>
           </label>
           {activeTab!=='traps' && <>
+            <label className="text-xs font-medium">Search scope
+              <select className="field-input mt-1" value={searchScope} onChange={e=>{setSearchScope(e.target.value as CatalogSearchScope);setPage(0);}}>
+                <option value="all">All fields</option><option value="module">Module</option>
+                <option value="imports">Imports</option><option value="path">Path</option>
+              </select>
+            </label>
             <label className="text-xs font-medium">Status
               <select className="field-input mt-1" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(0);}}>
                 <option value="">All statuses</option>{['active','pending','missing_deps','failed','shadowed','invalid'].map(item=><option key={item} value={item}>{item}</option>)}
@@ -305,16 +320,18 @@ export function MibsPage() {
         <StatusText busy={status.isPending} error={status.error} empty={!status.isPending && !shown.length && activeTab !== 'traps'} />
         {activeTab === 'traps' ? <><StatusText busy={traps.isPending} error={traps.error} empty={!traps.isPending && !filteredNotifications.length}/>
           <div className="manager-inventory-table overflow-auto rounded-lg border border-[var(--border)]"><table className="min-w-full text-left text-xs">
-            <thead><tr><th className="p-2">Select</th><th className="p-2" aria-sort={notificationDescending?'descending':'ascending'}>
-              <button className="manager-sort-button" aria-label="Sort by notification"
-                onClick={()=>{setNotificationDescending(value=>!value);setPage(0);}}>Notification
-                {notificationDescending?<ArrowDown size={14}/>:<ArrowUp size={14}/>}</button>
-              </th><th className="p-2">OID</th><th className="p-2">Use</th></tr></thead><tbody>
+            <thead><tr><th className="p-2">Select</th>
+              {([['name','Notification'],['oid','OID'],['module','Module'],['objects','Objects']] as [NotificationSortKey,string][]).map(([field,label])=>
+                <th className="p-2" key={field} aria-sort={notificationSort.field===field?(notificationSort.descending?'descending':'ascending'):'none'}>{notificationHeader(field,label)}</th>)}
+              <th className="p-2">Use</th></tr></thead><tbody>
               {visibleNotifications.map(t=><tr key={t.oid} className="border-t border-[var(--border)]">
-                <td className="p-2"><input type="checkbox" aria-label={'Select notification '+t.full_name}
+                <td data-label="Select" className="p-2"><input type="checkbox" aria-label={'Select notification '+t.full_name}
                   checked={selectedNotifications.includes(t.full_name)} onChange={e=>updateSelection(t.full_name,e.target.checked)}/></td>
-                <td className="p-2">{t.full_name}</td><td className="break-all p-2 font-mono">{t.oid}</td>
-                <td className="p-2"><div className="flex flex-wrap gap-2">
+                <td data-label="Notification" className="break-words p-2">{t.full_name}</td>
+                <td data-label="OID" className="break-all p-2 font-mono">{t.oid}</td>
+                <td data-label="Module" className="p-2">{t.module||'—'}</td>
+                <td data-label="Objects" className="p-2">{t.objects?.length??0}</td>
+                <td data-label="Use" className="p-2"><div className="flex flex-wrap gap-2">
                   <Link to="/traps" className="btn-secondary" onClick={() => sendToTraps(t)}>
                     <Send size={15}/> Send
                   </Link>
@@ -330,10 +347,10 @@ export function MibsPage() {
                   {sortHeader(field,label)}</th>)}</tr></thead>
             <tbody>{visible.map(item=>{const path=item.sourcePath || '';const open=inspectSource===item.key;return <tr key={item.key}
               className="border-t border-[var(--border)] hover:bg-[var(--surface-muted)]">
-              <td className="p-2"><input type="checkbox" aria-label={'Select '+(item.active?item.name:path||item.name)}
+              <td data-label="Select" className="p-2"><input type="checkbox" aria-label={'Select '+(item.active?item.name:path||item.name)}
                 checked={selectedCatalog.includes(item.key)}
                 onChange={e=>updateSelection(item.key,e.target.checked)}/></td>
-              <td className="max-w-64 break-words p-2"><span className="font-semibold">{item.name}</span>
+              <td data-label="Module / source" className="max-w-64 break-words p-2"><span className="font-semibold">{item.name}</span>
                 <span className="block break-all font-mono text-[var(--muted)]">{path}</span>
                 {item.source_group && <span className="block text-[var(--muted)]">{item.source_group}</span>}
                 {item.error && <span className="block text-[var(--danger)]">{item.error}</span>}
@@ -352,9 +369,9 @@ export function MibsPage() {
                   to="/browser" onClick={() => sendToBrowser({ module: item.name })}>
                   <BookOpen size={13}/> Browse module
                 </Link>}</td>
-              <td className="p-2 text-xs">{item.source_group||'Built-in / compiled'}</td>
-              <td className="p-2"><span className={'manager-status manager-status-'+(item.status||'active').toLowerCase()}>
-                {item.status||'active'}</span></td><td className="p-2">{item.objects??'—'}</td><td className="p-2">{item.traps??'—'}</td>
+              <td data-label="Source group" className="p-2 text-xs">{item.source_group||'Built-in / compiled'}</td>
+              <td data-label="Status" className="p-2"><span className={'manager-status manager-status-'+(item.status||'active').toLowerCase()}>
+                {item.status||'active'}</span></td><td data-label="Objects" className="p-2">{item.objects??'—'}</td><td data-label="Traps" className="p-2">{item.traps??'—'}</td>
             </tr>})}</tbody></table></div>}
         {totalVisible>pageSize && <div className="flex items-center justify-end gap-2 text-xs">
           <span>Page {page+1} of {Math.ceil(totalVisible/pageSize)}</span>
@@ -384,10 +401,13 @@ export function MibsPage() {
         <div className="grid grid-cols-2 gap-2">
             <Field label="Format"><select className="field-input" value={exportFormat} onChange={e=>setExportFormat(e.target.value)}><option value="json">JSON</option><option value="csv">CSV</option></select></Field>
             <Field label="Export type"><select className="field-input" value={exportType} onChange={e=>setExportType(e.target.value)}>
-              <option value="catalog">Catalog</option><option value="notifications">Notifications</option></select></Field>
+              <option value="catalog">Full catalog</option><option value="summary">Summary</option><option value="modules">Modules</option><option value="objects">Objects</option><option value="notifications">Notifications</option></select></Field>
           </div>
+          <Field label="Export source group"><select className="field-input" value={exportSourceGroup} onChange={e=>setExportSourceGroup(e.target.value)}>
+            <option value="">All active groups</option>{status.data?.source_groups?.map(g=><option key={g.name} value={g.name}>{g.name}</option>)}
+          </select></Field>
           <button className="btn-secondary" disabled={downloading} onClick={()=>void download('/api/mibs/export',
-            {format:exportFormat,export_type:exportType,modules:selectedModules,notifications:selectedNotifications,source_groups:groupFilter?[groupFilter]:[]},
+            {format:exportFormat,export_type:exportType,modules:selectedModules,notifications:selectedNotifications,source_groups:exportSourceGroup?[exportSourceGroup]:[]},
             'trishul-mib-catalog.'+exportFormat)}><Download size={16}/> Export catalog</button>
         </Card>
 <Card title="Compiled bundle history" description="Compare revisions before activating a different compiled bundle.">
