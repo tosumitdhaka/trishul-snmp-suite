@@ -337,7 +337,7 @@ export function BrowserPage() {
                   onClick={() => { setExpanded(new Set()); setCollapsed(new Set()); setAutoDepth(0); }}>Collapse all</button>
               </>}
             </div>
-            <div className="flex flex-wrap items-center gap-2"  aria-label="Refresh and export">
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Refresh and export">
               <IconAction label="Refresh MIB tree" onClick={() => { void refresh(); }} disabled={refreshing}>
                 <RefreshCw size={16}/>
               </IconAction>
