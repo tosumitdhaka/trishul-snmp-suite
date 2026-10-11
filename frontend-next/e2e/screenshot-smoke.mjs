@@ -74,7 +74,15 @@ try {
       });
       for(const [name,path] of routes){
         await page.goto(baseUrl+path,{waitUntil:'domcontentloaded'});
-        await page.locator('#main-content').waitFor({timeout:12000});
+        try {
+          await page.locator('#main-content').waitFor({timeout:7000});
+        } catch (cause) {
+          const body = await page.locator('body').innerText().catch(() => 'Body unreadable');
+          const tokenPresent = await page.evaluate(() => !!sessionStorage.getItem('snmp_token')).catch(() => false);
+          console.log('Browser fixture startup diagnostic:', JSON.stringify({url:page.url(),route:path,tokenPresent,body:body.slice(0,1200),browserErrors}));
+          await page.screenshot({path:join(artifacts,'browser-startup-failure.png'),fullPage:true});
+          throw cause;
+        }
         await page.waitForTimeout(250);
         if(width>=1024){
           const expand=page.getByRole('button',{name:'Expand sidebar'});
