@@ -134,7 +134,7 @@ describe('remaining five React workspaces', () => {
     expect(within(dialog).getByText('IF-MIB::linkDown')).toBeInTheDocument();
   });
   it('expands a received trap row with resolved varbind names and applies MIB names immediately', async () => {
-    const {calls}=mockApi(); setup(<TrapsPage />);
+    mockApi(); setup(<TrapsPage />);
     const history=screen.getByRole('region',{name:'Received trap history'});
     const toggle=await within(history).findByRole('button',{name:'Expand trap event 42'});
     fireEvent.click(toggle);
@@ -197,7 +197,7 @@ describe('remaining five React workspaces', () => {
       <Route path="/" element={<MibsPage />} />
       <Route path="/traps" element={<TrapsPage />} />
     </Routes>);
-    fireEvent.click(screen.getByRole('button', { name: 'traps' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
     expect(await screen.findByText('IF-MIB::linkDown')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: 'Send' }));
     const sender = screen.getByRole('region', { name: 'Notification sender' });
@@ -210,7 +210,7 @@ describe('remaining five React workspaces', () => {
       <Route path="/" element={<MibsPage />} />
       <Route path="/browser" element={<BrowserPage />} />
     </Routes>);
-    fireEvent.click(screen.getByRole('button', { name: 'modules' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Modules' }));
     const browse = await screen.findByRole('link', { name: 'Browse module' });
     fireEvent.click(browse);
     await waitFor(() => expect(calls.some(c => c.path.includes('/api/mibs/browse/tree/module?module=IF-MIB'))).toBe(true));
