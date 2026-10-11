@@ -16,7 +16,7 @@ let browser;
 try{
  let ready=false;
  for(let i=0;i<80;i++){
-   try {const r=await fetch('http://127.0.0.1:5175/');if(r.ok){ready=true;break;}}catch{}
+   try {const r=await fetch('http://127.0.0.1:5175/');if(r.ok){ready=true;break;}}catch{ /* static fixture server is starting */ }
    await new Promise(ok=>setTimeout(ok,250));
  }
  if(!ready)throw Error('Legacy static fixture server did not start');
