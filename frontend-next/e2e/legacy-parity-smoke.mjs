@@ -1,3 +1,4 @@
+/* global fetch, setTimeout, sessionStorage, localStorage, location, URL, console */
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
