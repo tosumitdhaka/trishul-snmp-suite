@@ -335,6 +335,47 @@ describe('remaining five React workspaces', () => {
       format:'json', export_type:'catalog', modules:['IF-MIB'], notifications:['IF-MIB::linkDown'],
     });
   });
+  it('restores legacy Manager catalog export formats and independent source group selection', async () => {
+    mockApi(); setup(<MibsPage />);
+    const exportPanel=screen.getByRole('region',{name:'Catalog export'});
+    const type=within(exportPanel).getByRole('combobox',{name:'Export type'});
+    expect(Array.from((type as HTMLSelectElement).options).map(option=>option.value)).toEqual(
+      ['catalog','summary','modules','objects','notifications']);
+    fireEvent.change(type,{target:{value:'objects'}});
+    fireEvent.change(within(exportPanel).getByRole('combobox',{name:'Export source group'}),{target:{value:'uploaded'}});
+    vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:vi.fn(()=> 'blob:export-test'),revokeObjectURL:vi.fn()}));
+    vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
+    fireEvent.click(within(exportPanel).getByRole('button',{name:'Export catalog'}));
+    await waitFor(()=>expect(calls.some(call=>call.path==='/api/mibs/export'&&call.method==='POST')).toBe(true));
+    const request=calls.find(call=>call.path==='/api/mibs/export');
+    expect(JSON.parse(String(request?.init.body))).toMatchObject({format:'json',export_type:'objects',source_groups:['uploaded']});
+  });
+  it('has scope-aware inventory search and sortable notification metadata',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    const scope=within(inventory).getByRole('combobox',{name:'Search scope'});
+    fireEvent.change(scope,{target:{value:'path'}});
+    expect(scope).toHaveValue('path');
+    fireEvent.click(within(inventory).getByRole('button',{name:'Notifications'}));
+    expect(within(inventory).getByRole('columnheader',{name:/Module/})).toBeInTheDocument();
+    const oid=within(inventory).getByRole('columnheader',{name:/OID/});
+    fireEvent.click(within(oid).getByRole('button',{name:'Sort notifications by OID'}));
+    expect(oid).toHaveAttribute('aria-sort','ascending');
+    expect(within(inventory).getByText('IF-MIB',{exact:true})).toBeInTheDocument();
+  });
+  it('accepts MIB files by drag and drop while retaining file input for keyboard users',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    fireEvent.click(within(inventory).getByRole('button',{name:'Add / upload'}));
+    const dialog=await screen.findByRole('dialog',{name:'Add MIB sources'});
+    fireEvent.click(within(dialog).getByRole('button',{name:'Upload files'}));
+    const zone=within(dialog).getByText('Drop MIB files here').closest('.manager-dropzone');
+    expect(zone).not.toBeNull();
+    fireEvent.drop(zone!,{dataTransfer:{files:[new File(['TEST-MIB DEFINITIONS ::= BEGIN END'],'TEST-MIB.mib')]}});
+    expect(within(dialog).getByText(/1 files selected/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button',{name:'Validate'})).toBeEnabled();
+    expect(within(dialog).getByLabelText('Source files')).toBeInTheDocument();
+  });
   it('opens catalog header Add/Upload and fetches online by module name through the existing API', async () => {
     mockApi(); setup(<MibsPage />);
     const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
