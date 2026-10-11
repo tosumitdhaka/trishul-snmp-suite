@@ -357,13 +357,13 @@ export function MibsPage() {
                 <th className="p-2" key={field} aria-sort={notificationSort.field===field?(notificationSort.descending?'descending':'ascending'):'none'}>{notificationHeader(field,label)}</th>)}
               <th className="p-2">Use</th></tr></thead><tbody>
               {visibleNotifications.map(t=><tr key={t.oid} className="border-t border-[var(--border)]">
-                <td data-label="Select" className="p-2"><input type="checkbox" aria-label={'Select notification '+t.full_name}
+                <td data-label="Select" className="p-2"><span className="manager-mobile-cell-label">Select</span><input type="checkbox" aria-label={'Select notification '+t.full_name}
                   checked={selectedNotifications.includes(t.full_name)} onChange={e=>updateSelection(t.full_name,e.target.checked)}/></td>
-                <td data-label="Notification" className="break-words p-2">{t.full_name}</td>
-                <td data-label="OID" className="break-all p-2 font-mono">{t.oid}</td>
-                <td data-label="Module" className="p-2">{t.module||'—'}</td>
-                <td data-label="Objects" className="p-2">{t.objects?.length??0}</td>
-                <td data-label="Use" className="p-2"><div className="flex flex-wrap gap-2">
+                <td data-label="Notification" className="break-words p-2"><span className="manager-mobile-cell-label">Notification</span>{t.full_name}</td>
+                <td data-label="OID" className="break-all p-2 font-mono"><span className="manager-mobile-cell-label">OID</span>{t.oid}</td>
+                <td data-label="Module" className="p-2"><span className="manager-mobile-cell-label">Module</span>{t.module||'—'}</td>
+                <td data-label="Objects" className="p-2"><span className="manager-mobile-cell-label">Objects</span>{t.objects?.length??0}</td>
+                <td data-label="Use" className="p-2"><span className="manager-mobile-cell-label">Use</span><div className="flex flex-wrap gap-2">
                   <Link to="/traps" className="btn-secondary" onClick={() => sendToTraps(t)}>
                     <Send size={15}/> Send
                   </Link>
@@ -379,10 +379,10 @@ export function MibsPage() {
                   {sortHeader(field,label)}</th>)}</tr></thead>
             <tbody>{visible.map(item=>{const path=item.sourcePath || '';const open=inspectSource===item.key;return <tr key={item.key}
               className="border-t border-[var(--border)] hover:bg-[var(--surface-muted)]">
-              <td data-label="Select" className="p-2"><input type="checkbox" aria-label={'Select '+(item.active?item.name:path||item.name)}
+              <td data-label="Select" className="p-2"><span className="manager-mobile-cell-label">Select</span><input type="checkbox" aria-label={'Select '+(item.active?item.name:path||item.name)}
                 checked={selectedCatalog.includes(item.key)}
                 onChange={e=>updateSelection(item.key,e.target.checked)}/></td>
-              <td data-label="Module / source" className="max-w-64 break-words p-2"><span className="font-semibold">{item.name}</span>
+              <td data-label="Module / source" className="max-w-64 break-words p-2"><span className="manager-mobile-cell-label">Module / source</span><span className="font-semibold">{item.name}</span>
                 <span className="block break-all font-mono text-[var(--muted)]">{path}</span>
                 {item.source_group && <span className="block text-[var(--muted)]">{item.source_group}</span>}
                 {item.error && <span className="block text-[var(--danger)]">{item.error}</span>}
@@ -401,9 +401,9 @@ export function MibsPage() {
                   to="/browser" onClick={() => sendToBrowser({ module: item.name })}>
                   <BookOpen size={13}/> Browse module
                 </Link>}</td>
-              <td data-label="Source group" className="p-2 text-xs">{item.source_group||'Built-in / compiled'}</td>
-              <td data-label="Status" className="p-2"><span className={'manager-status manager-status-'+(item.status||'active').toLowerCase()}>
-                {sourceStatusLabel(item.status)}</span></td><td data-label="Objects" className="p-2">{item.objects??'—'}</td><td data-label="Traps" className="p-2">{item.traps??'—'}</td>
+              <td data-label="Source group" className="p-2 text-xs"><span className="manager-mobile-cell-label">Source group</span>{item.source_group||'Built-in / compiled'}</td>
+              <td data-label="Status" className="p-2"><span className="manager-mobile-cell-label">Status</span><span className={'manager-status manager-status-'+(item.status||'active').toLowerCase()}>
+                {sourceStatusLabel(item.status)}</span></td><td data-label="Objects" className="p-2"><span className="manager-mobile-cell-label">Objects</span>{item.objects??'—'}</td><td data-label="Traps" className="p-2"><span className="manager-mobile-cell-label">Traps</span>{item.traps??'—'}</td>
             </tr>})}</tbody></table></div>}
         {totalVisible>pageSize && <div className="flex items-center justify-end gap-2 text-xs">
           <span>Page {page+1} of {Math.ceil(totalVisible/pageSize)}</span>
