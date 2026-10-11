@@ -383,3 +383,18 @@ select.field-input { padding-right: 2rem; }
  .manager-inventory-table td[data-label="Module / source"]::before { display:block; margin-bottom:.35rem; }
  .manager-inventory-table td > * { min-width:0; }
 }
+
+/* Shared mobile toolbar priorities: search first, then compact controls. */
+@media (max-width:639px) {
+ .browser-tree-viewport { min-height:11rem; }
+ .browser-detail-empty { min-height:10rem; }
+ .simulator-log-toolbar, .traps-history-toolbar {
+   display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.65rem; align-items:center;
+ }
+ .simulator-log-toolbar > :first-child, .traps-history-toolbar > :first-child {
+   grid-column:1 / -1; width:100%; min-width:0;
+ }
+ .simulator-log-toolbar > :first-child input, .traps-history-toolbar > :first-child input { width:100%; }
+ .browser-tree-toolbar { align-items:stretch; }
+ .browser-tree-toolbar > div { flex-wrap:wrap; }
+}
