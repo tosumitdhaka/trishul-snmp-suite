@@ -48,6 +48,8 @@ try{
    await context.close();
   }
  }
+ if(report.images.length!==56)throw Error('Expected 56 legacy screenshots, got '+report.images.length);
+ if(report.errors.length)throw Error('Legacy browser fixture captured '+report.errors.length+' exceptions');
 }finally{
  writeFileSync(join(artifacts,'legacy-manifest.json'),JSON.stringify(report,null,2));
  if(browser)await browser.close();
