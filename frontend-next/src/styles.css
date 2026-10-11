@@ -295,3 +295,16 @@ select.field-input { padding-right: 2rem; }
 .dashboard-activity-cell dd { color: var(--text); }
 .dashboard-activity-cell:nth-child(4n + 1) { background: color-mix(in srgb,var(--accent) 4%,var(--surface)); }
 .dashboard-activity-cell:nth-child(4n + 3) { background: color-mix(in srgb,var(--success) 4%,var(--surface)); }
+
+/* Catalog-first MIB manager: 67% inventory, 33% export/history at wide widths. */
+.manager-layout { display: grid; grid-template-columns: minmax(0,1fr); gap: 1rem; align-items: start; }
+.manager-catalog-column, .manager-sidebar { display: grid; min-width: 0; align-content: start; gap: 1rem; }
+.manager-catalog-column > .panel, .manager-sidebar > .panel { height: auto; min-height: 0; }
+.manager-catalog-column .panel-heading { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.manager-catalog-column .panel-body { min-width: 0; }
+.manager-modal { max-height: calc(100dvh - 2.5rem); }
+.manager-modal textarea { width: 100%; min-width: 0; }
+.manager-bundle-list { max-height: min(46vh, 31rem); }
+@media (min-width: 1100px) {
+  .manager-layout { grid-template-columns: minmax(0,2fr) minmax(19rem,1fr); }
+}
