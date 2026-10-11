@@ -81,7 +81,7 @@ describe('remaining five React workspaces', () => {
     const { cache } = setup(<SimulatorPage />);
     const panel=screen.getByRole('region',{name:'Runtime'});
     const port=within(panel).getByRole('spinbutton',{name:'UDP port'});
-    const community=within(panel).getByLabelText('Community');
+    const community=within(panel).getByLabelText(/Community/);
     await waitFor(()=>expect(port).toBeEnabled());
     fireEvent.change(port,{target:{value:'2061'}});
     fireEvent.change(community,{target:{value:'private-draft'}});
