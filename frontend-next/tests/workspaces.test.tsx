@@ -39,6 +39,7 @@ function fixture(path: string, method: string, simulatorRunning = false, receive
   if (path === '/api/bundles') return { bundles: [{ id: 1, label: 'bundle-1' }, { id: 2, label: 'older' }], active_bundle_id: 1 };
   if (path === '/api/mibs/fetch-dependencies' && method === 'POST') return {
     attempted: ['IF-MIB'], resolved: ['IF-MIB'], cached: [], failed: [],
+    auto_enabled:true,using_default_sources:true,
   };
   if (path === '/api/walk/execute' && method === 'POST') return { mode: 'parsed', count: 1,
     json_format: 'grouped', rawLines: ['1.3.6.1 = INTEGER: 17'],
@@ -51,7 +52,10 @@ function mockApi(simulatorRunning = false, receiverRunning = false) {
   vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
     const path = String(input), method = init.method || 'GET';
     calls.push({ path, method, init });
-    return new Response(JSON.stringify(fixture(path, method, simulatorRunning, receiverRunning)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const response=path==='/api/mibs/fetch-dependencies'&&String(init.body||'').includes('CERAGON-MIB')
+      ? {attempted:['CERAGON-MIB'],resolved:[],cached:[],failed:['CERAGON-MIB'],auto_enabled:true,using_default_sources:true}
+      : fixture(path, method, simulatorRunning, receiverRunning);
+    return new Response(JSON.stringify(response), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }));
 }
 function setup(component: React.ReactNode) {
@@ -299,6 +303,19 @@ describe('remaining five React workspaces', () => {
     expect(within(dialog).getByLabelText('Source files')).toBeInTheDocument();
     expect(within(dialog).getByRole('button',{name:'Validate'})).toBeDisabled();
     expect(calls.some(c=>c.path==='/api/mibs/upload')).toBe(false);
+  });
+  it('diagnoses an unresolved CERAGON-MIB without reporting a false fetch success',async()=>{
+    mockApi();setup(<MibsPage/>);
+    const inventory=screen.getByRole('region',{name:'Catalog & source inventory'});
+    fireEvent.click(within(inventory).getByRole('button',{name:'Add / upload'}));
+    const dialog=await screen.findByRole('dialog',{name:'Add MIB sources'});
+    fireEvent.change(within(dialog).getByRole('textbox',{name:'MIB module names'}),{target:{value:'CERAGON-MIB'}});
+    fireEvent.click(within(dialog).getByRole('button',{name:'Fetch MIBs by name'}));
+    const report=await within(dialog).findByRole('region',{name:'Online MIB fetch results'});
+    expect(report).toHaveTextContent('Unresolved: CERAGON-MIB');
+    expect(report).toHaveTextContent('default fetch sources did not return');
+    expect(within(report).getByRole('button',{name:'Upload a local MIB file instead'})).toBeInTheDocument();
+    expect(screen.queryByText('Action failed')).not.toBeInTheDocument();
   });
   it('opens Reload and dependencies in a modal without triggering a compile before confirmation', async () => {
     mockApi(); setup(<MibsPage />);

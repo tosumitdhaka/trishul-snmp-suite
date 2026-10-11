@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { ArrowRight, BookOpen } from 'lucide-react';
 import { sendToBrowser, sendToWalker } from '../../lib/navigation/handoff';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, Save, Trash2, Download, Search, WandSparkles } from 'lucide-react';
+import { RefreshCw, RotateCcw, Save, Trash2, Download, Search, WandSparkles } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client';
 import { useRealtime } from '../../lib/realtime/RealtimeProvider';
 import { Card, ConfirmDialog, Field, IconAction, JsonView, ServiceToggle, StatusText, displayValue, jsonPost, positivePort, saveLocalFile, useOperatorApi } from '../shared/operator-ui';
@@ -95,7 +95,7 @@ export function SimulatorPage() {
           <ServiceToggle noun="simulator" running={!!status.data?.running} busy={pending}
             disabled={status.isError || status.isPending || !status.data}
             onToggle={() => void run(status.data?.running ? 'stop' : 'start')} />
-          <button className="btn-secondary" disabled={pending || !status.data?.running || status.isError} onClick={() => void run('restart')}><RefreshCw size={16} /> Restart</button>
+          <button className="btn-secondary" disabled={pending || !status.data?.running || status.isError} onClick={() => void run('restart')}><RotateCcw size={16} /> Restart</button>
           <IconAction label="Refresh simulator status" onClick={() => { void status.refetch(); }}><RefreshCw size={16}/></IconAction>
           <Link className="btn-secondary" to="/walker" onClick={() => sendToWalker({ target: '127.0.0.1', port: status.data?.port || positivePort(port) || 1061 })}>
             Walk simulator <ArrowRight size={15} />

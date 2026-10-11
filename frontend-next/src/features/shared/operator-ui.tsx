@@ -56,7 +56,7 @@ export function ConfirmDialog({ title, message, open, danger = false, busy = fal
     <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/60" />
       <Dialog.Content className="fixed left-1/2 top-1/2 z-70 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--text)] shadow-2xl">
         <div className="flex items-center justify-between gap-3"><AlertTriangle size={22} className="text-[var(--warning)]" aria-hidden="true" />
-          <Dialog.Close className="btn-secondary p-2" disabled={busy} aria-label="Close confirmation"><X size={16} /></Dialog.Close>
+          <Dialog.Close className="btn-secondary btn-icon-action" disabled={busy} aria-label="Close confirmation"><X size={16} /></Dialog.Close>
         </div>
         <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
         <Dialog.Description className="text-sm leading-relaxed text-[var(--muted)]">{message}</Dialog.Description>
@@ -150,8 +150,8 @@ export function saveLocalFile(content: string, filename: string, mime = 'applica
   } finally { URL.revokeObjectURL(url); }
 }
 export function SaveDataButton({ value, filename }: { value: unknown; filename: string }) {
-  return <button type="button" className="btn-secondary" onClick={() => saveLocalFile(JSON.stringify(value, null, 2), filename)}>
-    <Download size={16} /> Export JSON
+  return <button type="button" className="btn-secondary" title="Export results as JSON" onClick={() => saveLocalFile(JSON.stringify(value, null, 2), filename)}>
+    <Download size={16} /> JSON
   </button>;
 }
 export function positivePort(value: string): number | null {

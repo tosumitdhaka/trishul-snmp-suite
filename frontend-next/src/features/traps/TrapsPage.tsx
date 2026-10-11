@@ -229,7 +229,7 @@ export function TrapsPage() {
               {!varTypes.includes(row.type) && <option value={row.type}>{row.type}</option>}
               {varTypes.map(t=><option key={t}>{t}</option>)}</select></label>
             <label className="text-xs">Value<input aria-label={'Varbind '+(i+1)+' value'} className="field-input" value={row.value} onChange={e => changeVarbind(i,{value:e.target.value})}/></label>
-            <button className="btn-secondary mt-4 px-2" aria-label={'Remove varbind '+(i+1)} onClick={() => setVarbinds(old => old.filter((_,j)=>i!==j))}><X size={16} /></button>
+            <IconAction danger label={'Remove varbind '+(i+1)} onClick={() => setVarbinds(old => old.filter((_,j)=>i!==j))}><X size={16}/></IconAction>
           </div>)}
           <label className="block text-xs"><span>Find varbind OID (server-ranked, max 40)</span>
             <input className="field-input mt-1" value={picker} placeholder="Search objects" onChange={e => setPicker(e.target.value)} /></label>
@@ -262,7 +262,7 @@ export function TrapsPage() {
             disabled={status.isError || status.isPending || !status.data}
             onToggle={() => void listener(status.data?.running ? 'stop' : 'start')} />
 
-          <button className="btn-secondary" onClick={() => void status.refetch()}><RefreshCw size={16}/> Refresh</button>
+          <IconAction label="Refresh trap receiver status" onClick={()=>{void status.refetch();}}><RefreshCw size={16}/></IconAction>
         </div>
         <div className="border-t border-[var(--border)] pt-4">
           <h3 className="mb-2 font-semibold">Offline PDU decode</h3>
