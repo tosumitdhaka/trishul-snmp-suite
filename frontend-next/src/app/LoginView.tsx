@@ -57,6 +57,17 @@ export function LoginView() {
             <button className="btn-primary w-full justify-center" type="submit" disabled={submitting}>
               {submitting ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} aria-hidden="true" />
             </button>
+            <button
+              type="button"
+              className="btn-secondary w-full justify-center"
+              onClick={() => {
+                sessionStorage.setItem('snmp_token', 'offline-demo-token');
+                sessionStorage.setItem('snmp_username', 'Operator (Demo)');
+                window.location.reload();
+              }}
+            >
+              Explore 7 Workspaces (Preview Mode)
+            </button>
           </form>
           <p className="mt-6 text-xs leading-relaxed text-[var(--muted)]">
             Modern UI preview. Operational workflows remain available in the <a className="link" href="/">legacy console</a>.

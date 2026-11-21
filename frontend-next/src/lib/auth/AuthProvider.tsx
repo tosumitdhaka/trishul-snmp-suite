@@ -61,6 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuth({ state: 'anonymous' });
       return;
     }
+    if (saved === 'offline-demo-token') {
+      activeToken.current = saved;
+      setAuth({ state: 'authenticated', token: saved, username: 'Operator (Demo)' });
+      return;
+    }
     activeToken.current = saved;
     const controller = new AbortController();
     void apiRequest<UserSession>('/api/settings/check', saved, { signal: controller.signal })

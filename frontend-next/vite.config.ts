@@ -8,15 +8,14 @@ import { getSafeDirectWsOrigin } from './src/lib/realtime/dev-ws-origin';
 const directWebSocketMode = getSafeDirectWsOrigin(process.env.VITE_TRISHUL_WS_ORIGIN) !== null;
 
 export default defineConfig({
-  base: '/next/',
+  base: '/',
   plugins: [react(), tailwindcss()],
   server: {
-    port: 5173,
-    strictPort: true,
-    open: '/next/',
+    port: 3000,
+    host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: process.env.TRISHUL_API_ORIGIN || 'http://127.0.0.1:8980',
+        target: process.env.TRISHUL_API_ORIGIN || 'http://127.0.0.1:8000',
         changeOrigin: true,
         ws: !directWebSocketMode,
       },

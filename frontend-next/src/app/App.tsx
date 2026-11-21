@@ -54,7 +54,7 @@ export function App() {
       <QueryClientProvider client={client}>
         <ThemeProvider>
           <AuthProvider>
-            <BrowserRouter basename="/next"><AuthenticatedApp /></BrowserRouter>
+            <BrowserRouter basename={import.meta.env.BASE_URL || '/'}><AuthenticatedApp /></BrowserRouter>
           </AuthProvider>
         </ThemeProvider>
       </QueryClientProvider>
