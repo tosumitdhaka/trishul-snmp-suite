@@ -1,5 +1,7 @@
 # MIB Manager catalog redesign — preview only
 
+> **Historical UI-modernization record — not current operating instructions.** The React 19 / TypeScript operator workbench shipped as the default `frontend/` in [v2.3.0](../changelog.md) on 2026-11-22. Mentions below of `frontend-next/`, the legacy UI as default, preview branches, or future cutover gates refer to the **pre-release** process. Use the [current architecture](../architecture_overview.md) and [workspaces guide](../workspaces.md) for the shipped product. Historical test checklists do not establish post-release acceptance; see [Issue #39](https://github.com/tosumitdhaka/trishul-snmp-suite/issues/39).
+
 ## Layout
 
 The MIB Manager uses a catalog-first layout. At desktop widths (at least 1100px), the **Catalog & source inventory** occupies approximately two-thirds of the available content width. The right third contains **Catalog export** and **Compiled bundle history** as vertically stacked panels. Narrow layouts stack all sections. Summary metrics remain compact across the top.
