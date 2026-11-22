@@ -1,9 +1,9 @@
 # Development Setup
 
-This repo targets the `2.2.4` runtime built from:
+This repo targets the `2.3.0` runtime built from:
 
 - `backend/app` — FastAPI application with flat service architecture
-- `frontend/` — static operator shell built into `frontend/dist`
+- `frontend/` — React 19, TypeScript, Vite, and Tailwind CSS v4 operator workbench built into `frontend/dist`
 - SQLite-backed product state via Alembic
 - compiled bundle artifacts via `trishul-smi`
 - in-process SNMP runtime via `trishul-snmp`
@@ -12,9 +12,9 @@ This repo targets the `2.2.4` runtime built from:
 
 - Docker for containerized verification
 - Python `3.12` or newer for native backend work
-- Node `20` or newer for frontend builds
+- Node `22.12` or newer for frontend builds and Vitest/ESLint checks
 
-Net-SNMP CLI tools are not required. The `2.2.4` runtime uses an in-process
+Net-SNMP CLI tools are not required. The `2.3.0` runtime uses an in-process
 SNMP stack.
 
 ## Recommended Daily Workflow

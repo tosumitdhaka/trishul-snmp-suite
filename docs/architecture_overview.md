@@ -1,20 +1,18 @@
 # Architecture Overview
 
-Trishul SNMP Suite `2.2.4` is a bundle-first SNMP lab and operations platform. The
+Trishul SNMP Suite `2.3.0` is a bundle-first SNMP lab and operations platform. The
 runtime is centered on:
 
 - one FastAPI application
-- one built operator frontend artifact served by that application
+- one React 19 / TypeScript operator SPA (`frontend/dist`) served by that application
 - one SQLite database for durable product state
 - one in-process SNMP runtime built on `trishul-snmp`
 - one compiled-bundle pipeline built on `trishul-smi`
 
-> **Future UI plan (not part of the shipped 2.2.4 runtime):** A separate React/TypeScript
-> operator frontend is proposed alongside the current release UI. See the
-> [Modern UI Architecture Decision](ui-modernization/architecture.md) and
-> [Migration Plan](ui-modernization/migration-plan.md). Until separately approved
-> and implemented, the current single-frontend runtime described below remains
-> authoritative.
+> **UI Overhaul Shipped in `2.3.0`:** The React 19 + TypeScript + Tailwind CSS v4
+> operator workbench (originally drafted under the UI modernization specs in
+> [Modern UI Architecture Decision](ui-modernization/architecture.md)) now replaces
+> the legacy vanilla HTML/JS pages and ships directly in `frontend/dist`.
 
 ## High-Level Shape
 

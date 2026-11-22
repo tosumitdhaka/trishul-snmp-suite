@@ -6,39 +6,23 @@
 [![License](https://img.shields.io/github/license/tosumitdhaka/trishul-snmp-suite?style=for-the-badge)](LICENSE)
 [![GHCR](https://img.shields.io/badge/GHCR-Packages-blue?style=for-the-badge&logo=github)](https://github.com/tosumitdhaka?tab=packages&repo_name=trishul-snmp-suite)
 
-Trishul SNMP Suite is a bundle-first SNMP lab and operations shell. The current
-`2.2.4` line keeps the FastAPI plus SQLite platform introduced in `2.0.0`, the
-`2.1.0` MIB schema integration (enum labels, units, and constraints surfaced
-end-to-end), and closes the full 151-finding end-to-end review: bundle
-lifecycle management, trap inform/replay/decode, walker controls, receiver
-pagination, community redaction, and broad performance and consistency
-polish. The
-SNMP/SMI engine runs entirely on the pure-Python `trishul-smi` + `trishul-snmp`
-stack — no pysnmp, net-snmp, or other third-party SNMP dependency remains.
+Trishul SNMP Suite is a bundle-first SNMP lab and operations shell. The
+`2.3.0` release introduces a complete **UI Overhaul & Frontend Migration** — replacing the legacy vanilla HTML/JS pages in `frontend/` with a React 19, TypeScript, and Tailwind CSS v4 workbench aligned to the `@trishul-developers/tokens` light/dark design system, while keeping the FastAPI + SQLite + pure-Python `trishul-smi` / `trishul-snmp` runtime unchanged.
 
 ![Trishul SNMP Suite Demo](./assets/trishul_snmp_demo.gif)
 
-## 2.2.4 Highlights
+## 2.3.0 Highlights
 
-- simulator index defaults obey declared ranges and SNMP types; validated against the local vendor MIB corpus with live startup, custom updates, and restart
-
-- simulator startup and custom updates accept valid empty hex/base64 byte values, including physical addresses with `SIZE (0 | 6)`; MIB size validation is preserved
-
-- production patch over 2.2.0: MIB catalog search at scale (the varbind picker and browser search now query a ranked, capped server-side search instead of downloading the full catalog), trap library datalist and default-varbind loading at catalog scale, received-traps header and row action layout, and the notifications handoff from the traps page — plus the earlier 2.2.1 fixes: simulator starts on MIBs with byte-sized PhysAddress/MacAddress objects; the trap sender accepts symbolic OID values and enum labels; numeric-root walks resolve the table name; TimeTicks metrics carry the raw wire integer; simulated counters stay non-negative; dashboard walk stats update live; TC constraints (range/size) render in the browser detail; walker table column alignment, form persistence, browser selection highlight, and modal Escape behavior fixed
-- one FastAPI application in `backend/app`
-- release UI in `frontend/` with `Dashboard`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`, `MIB Manager`, and `Settings`
-- bundle lifecycle management in `MIB Manager`: list, inspect, content-hash diff, and rollback, with live-session broadcasts on activation
-- trap sender supports SNMP informs (with acknowledgement), replay of any received trap (recorded community applied server-side unless overridden), offline payload decoding, Counter64 varbinds, and CSV export
-- receiver history is paginated with per-trap delete, full timestamps, and a pause control for live updates
-- walker gained timeout/retry controls, walk cancellation, sortable columns, Enter-to-run, and copy-as-table TSV export
-- MIB browser shows range/size/enum/bits constraint badges, inline recompile notices for pre-enum bundles, an ETag-cached OID index, and always-visible detail actions
-- simulator: BITS-typed object defaults, log follow/pause with level chips, and a live/polling source indicator
-- SNMP community strings are redacted from API list payloads and exports
-- performance: single-scan MIB status inventory, compile lock without held DB sessions, change-only table re-rendering, and WS-aware polling fallbacks
-- WCAG 2.1 AA accessibility pass: visible keyboard focus, complete form labeling, landmarks and clean heading structure, AA contrast in both themes, live regions for async updates, and reduced-motion support
-- masked SNMP community inputs and bounded port fields
-- one unified `/api/...` surface with SQLite-backed state for settings, sessions, bundles, and notification history
-- installer defaults to `8980` with optional `BACKEND_PORT` compatibility alias
+- **Modern React 19 + TypeScript UI Migration (`frontend/`)**: replaced the legacy vanilla HTML/JS UI and removed the split `frontend-next/` staging tree, making the modern 7-workspace workbench (`Overview`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`, `MIB Manager`, `Settings`) the single default operator interface built into `frontend/dist`.
+- **Trishul Design System & WCAG Contrast**: warm paper (`#fbfaf7`) light theme and ink-navy (`#0b0d12`) dark theme with Trident amber gradient primary CTAs, accessible form control outlines, keyboard focus rings, Radix UI focus-trapped dialogs/drawers, and an expandable sidebar with topbar theme switch, `⌘K` / `Ctrl+K` Command Palette, and account menu.
+- **Full Backend Contract & Classic Feature Parity**:
+  - **Overview**: live runtime status pills, start/stop toggles, 8-counter activity telemetry, recent live stream, and workspace shortcuts.
+  - **Simulator**: UDP responder lifecycle on port `1061`, JSON custom OID override editor with MIB OID insertion drawer, startup custom-data warnings banner, restart-required indicator, and live traffic log stream with `.txt`/`.json` export.
+  - **Walk & Parse**: live Root OID / Symbol typeahead suggestions, flat/grouped/raw result tables, column sorting, inline search filter across table/JSON/raw modes, CSV/JSON/TSV export, walk cancellation, and persistent walk history.
+  - **Traps**: live catalog template filter with instant match list, varbind builder with MIB object picker and smart validation/defaults, Trap/Inform sending with ACK error verification, server-paginated receiver table with 4-metric strip, detail drawer with expandable raw trap JSON, replay overrides, and offline BER payload decoder.
+  - **MIB Browser & MIB Manager**: dual By-Module / By-OID trees with depth `1..5` expansion, formatted SMI constraint badges (`range`, `size`, `enums`, `bits`), drag-and-drop MIB upload strip, batch validation with shadowing checks, content-hash bundle diffing, and one-click rollback.
+  - **Settings**: credential rotation (`readOnly` username, password strength meter), persisted app defaults, stats reset/export, and `@mib@` remote source validation.
+- **Retained 2.2.x Platform Foundations**: single FastAPI application in `backend/app`, SQLite state + bundle lifecycle management, `/api/ws` real-time push with reconnect watchdog, masked community inputs, and pure-Python `trishul-smi` + `trishul-snmp` execution.
 
 ## Quick Start
 
@@ -51,7 +35,7 @@ curl -LfsS -o install-trishul-snmp-suite.sh \
 ```
 
 If you want to pin the installer to a specific release, replace `main` in the
-URL with a release tag such as `v2.2.4`.
+URL with a release tag such as `v2.3.0`.
 
 From a local checkout, start the published image with:
 
@@ -102,7 +86,7 @@ Examples:
 If you need the pinned merged runtime from the old line:
 
 This section is intentional compatibility guidance for coexistence or rollback,
-not the normal `2.2.4` runtime path.
+not the normal `2.3.0` runtime path.
 
 ```bash
 ./install-trishul-snmp-suite-v1.4.1.sh up
@@ -118,20 +102,20 @@ It also accepts the same `--platform` and `--image` overrides.
 
 ## UI Map
 
-- `Dashboard`: runtime status, counters, and shortcuts
-- `Simulator`: responder lifecycle, custom OID data, and activity log
-- `Walk & Parse`: SNMP walk execution, parsing, filtering, and export
-- `Traps`: listener control, trap send, varbind editing, and received-event history
-- `MIB Browser`: module or OID tree, search, resolve, and detail inspection
-- `MIB Manager`: loaded MIB status, upload, reload, dependency fetch, and trap catalog
-- `Settings`: auth rotation, app settings, stats reset or export, and product metadata
+- `Overview`: runtime status pills, start/stop controls, 8-counter activity telemetry, recent live stream, and quick links
+- `Simulator`: responder lifecycle (`1061/udp`), custom OID JSON editor, OID picker, and filterable activity log
+- `Walk & Parse`: SNMP walk execution, Root OID/Symbol typeahead, flat/grouped/raw tables, filtering, and JSON/CSV/TSV export
+- `Traps`: listener control (`1162/udp`), live-filtered trap catalog templates, varbind composer, inform ACK, paginated stream, expandable trap JSON inspector, replay, and BER decoder
+- `MIB Browser`: module or OID tree with depth `1..5` expansion, search, resolve, formatted constraint badges, and detail inspection
+- `MIB Manager`: drag-and-drop MIB upload with inline Upload CTA, compile validation, dependency fetch, trap catalog, bundle diffing, and rollback
+- `Settings`: credential rotation, app settings, stats reset or JSON export, and product metadata
 
 ## Runtime Model
 
-The current `2.2.4` path is built around:
+The current `2.3.0` path is built around:
 
 - `backend/app` as the live FastAPI runtime
-- `frontend/` as the authored release shell copied into `frontend/dist`
+- `frontend/` (React 19, Vite, TypeScript, Tailwind CSS v4) built into `frontend/dist`
 - `backend/data/trishul_v2.sqlite3` as the main durable data store
 - `backend/data/bundles/sets/` and `backend/data/bundles/cache/tsmi/` for bundle artifacts
 - `backend/data/mibs/` and `backend/data/configs/custom_data.json` for operator-shell runtime state
@@ -173,6 +157,9 @@ Development and release:
 Typical verification commands from the repo root:
 
 ```bash
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+npm --prefix frontend test
 npm --prefix frontend run build
 .venv/bin/python -m pytest backend/ -q
 .venv/bin/python scripts/check_backend_coverage.py
@@ -189,9 +176,9 @@ For Docker-backed local validation:
 
 ## Roadmap
 
-The current `2.2.4` line delivers the rewritten backend platform, SQLite
-persistence, the bundle-first MIB pipeline with lifecycle management, and the
-operator UI closed against the full 151-finding end-to-end review.
+The `2.3.0` release completes the React 19 / TypeScript UI overhaul and
+replaces the legacy vanilla HTML/JS shell in `frontend/` on top of the FastAPI
++ SQLite + `trishul-smi`/`trishul-snmp` platform.
 
 The next planned follow-up keeps the current operator shell and adds schema
 depth and protocol reach: display hints, SMIv1 generic-trap decoding, a

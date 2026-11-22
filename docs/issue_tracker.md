@@ -14,6 +14,10 @@ Use `POST-200-*` IDs for explicitly deferred work beyond `2.0.0`.
 
 Use `POST-210-*` IDs for planned `2.2.2` backend/frontend parity work.
 
+## 2.3.0 Release Status
+
+- `REL-230-001` `Done` Complete React 19 + TypeScript + Tailwind CSS v4 UI overhaul replacing legacy `frontend/`, aligned to `@trishul-developers/tokens`, full FastAPI backend contracts, and classic UI parity across all 7 workspaces.
+
 ## 2.2.4 Patch Status
 
 - `PATCH-224-001` `Done` Generate index defaults within their declared ranges and preserve SNMP types and textual-convention aliases; validate the local vendor corpus and live updates/restart against the CIENA MIB.

@@ -4,13 +4,43 @@ All notable changes to Trishul SNMP Suite will be documented in this file.
 
 This file intentionally retains historical `1.x` release entries. Those
 sections are release history, not the operator source of truth for the shipped
-`2.2.4` UI or runtime behavior.
+`2.3.0` UI or runtime behavior.
 
-The current stable release line is `2.2.4`. The entries below `2.2.4` are
+The current stable release line is `2.3.0`. The entries below `2.3.0` are
 historical releases retained for release history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.3.0] - 2026-11-22
+
+Major UI overhaul and frontend migration to a React 19 + TypeScript + Tailwind CSS v4 operator workbench (`frontend/`).
+
+### Added
+- **Overhauled 7-Workspace Workbench (`frontend/`)**: Replaced the legacy vanilla HTML/JS pages and `frontend-next/` staging directory with a unified React 19 + TypeScript + Vite SPA covering `Overview`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`, `MIB Manager`, and `Settings`.
+- **`trishul-ui` Design Tokens & Accessibility**: Implemented warm-paper (`#fbfaf7`) light and ink-navy (`#0b0d12`) dark themes with `[data-theme]` + `.dark` sync, Trident amber-gradient CTAs (`#f59e0b -> #d97706`), accessible form control borders (`--tui-border-control`), system font stacks, focus-trapped Radix UI dialogs/drawers, keyboard `⌘K` / `Ctrl+K` Command Palette, and `[` sidebar collapse/expand toggle.
+- **New Operator Enhancements**:
+  - Live `Root OID / Symbol` typeahead suggestions and flat/grouped/raw table normalization in `Walk & Parse`.
+  - Live-filtered Trap Catalog match list, Inform ACK `error_status_code` check, 4-metric receiver telemetry strip, server-side receiver pagination, replay overrides (`host`, `port`, `community`, `timeout`, `retries`), BER decode host/port inputs, and expandable `Raw Trap JSON` view in `Traps`.
+  - Depth `1..5` expansion, formatted SMI constraint badges, and `sessionStorage` tree persistence in `MIB Browser`.
+  - Inline Upload CTA in the drag-and-drop zone, HTTP-200 compile/dependency failure surfacing, shadowing warnings, and `modules_changed` bundle diffing in `MIB Manager`.
+  - Top-bar account menu (`Settings & Auth`, `Sign out`) and single top-bar theme toggle.
+
+### Changed
+- Aligned all frontend API types and request/response handlers (`src/lib/api.ts`, `src/types/api.ts`, `src/context/WorkbenchContext.tsx`) strictly to the FastAPI backend contracts (`/api/settings/check`, `/api/settings/app`, `/api/simulator/*`, `/api/walk/execute`, `/api/traps/*`, `/api/mibs/*`, `/api/bundles/*`, `/api/ws`).
+- Updated `Dockerfile` build stage from `node:20-slim` to `node:22-slim` to match Vite 7 / React 19 engine requirements.
+- Replaced `assets/trishul_snmp_demo.gif` and `assets/snips/*.png` with captures from the `2.3.0` UI.
+
+### Validation
+- `npm --prefix frontend run typecheck` (`tsc --noEmit`): passed.
+- `npm --prefix frontend run lint` (`eslint .`): passed.
+- `npm --prefix frontend test` (`vitest run`): 2 test files, 16 unit and jsdom UI primitive tests passed.
+- `npm --prefix frontend run build`: passed; verified FastAPI serving `frontend/dist` live on `127.0.0.1:8000` with live simulator walk on `127.0.0.1:1061` and trap listener/sender on `127.0.0.1:1162`.
+
+### Migration
+- Pull or rebuild `2.3.0` and restart the suite. Existing SQLite state, MIB bundles, and custom SNMP data overrides remain compatible; no database migration is required.
 
 ---
 
@@ -545,6 +575,7 @@ Closes the full 151-finding end-to-end review (backend-to-frontend, code-to-UI/U
 
 ---
 
+[2.3.0]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v2.2.4...v2.3.0
 [2.2.4]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v2.2.3...v2.2.4
 [2.2.3]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v2.2.2...v2.2.3
 [1.4.1]: https://github.com/tosumitdhaka/trishul-snmp-suite/compare/v1.4.0...v1.4.1

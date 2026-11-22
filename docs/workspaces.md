@@ -1,10 +1,11 @@
 # UI Pages
 
-This file keeps its old name for link compatibility. The current `2.2.4`
-release UI is the restored page-based shell.
+This file keeps its old name for link compatibility. The `2.3.0`
+release UI is the React 19 + TypeScript 7-workspace workbench in `frontend/`
+(`Overview`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`, `MIB Manager`, and `Settings`).
 
-The current shell uses the unified REST API under `/api/...` plus `/api/ws`
-for live status and event updates on the pages that need them.
+The shell uses the unified REST API under `/api/...` plus `/api/ws`
+for live status, telemetry, traps, and simulator log updates.
 
 ## Page Map
 
@@ -18,9 +19,9 @@ for live status and event updates on the pages that need them.
 | `MIB Manager` | loaded MIB status, upload, reload, dependency fetch, export, trap catalog | `/api/mibs/status`, `/api/mibs/upload`, `/api/mibs/reload`, `/api/mibs/fetch-dependencies`, `/api/mibs/export`, `/api/mibs/traps` |
 | `Settings` | credentials, app settings, stats actions, product metadata | `/api/settings/*`, `/api/stats/`, `/api/meta` |
 
-## Dashboard
+## Overview
 
-Use `Dashboard` as the operator landing page for:
+Use `Overview` (also mounted at `/` and `/overview`) as the operator landing page for:
 
 - simulator and trap-listener runtime status
 - activity counters and live changes

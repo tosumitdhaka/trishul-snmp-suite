@@ -1,6 +1,6 @@
 # Roadmap
 
-This file tracks the shipped `2.0.x`, `2.1.0`, and `2.2.0` release lines and
+This file tracks the shipped `2.0.x`, `2.1.0`, `2.2.x`, and `2.3.0` release lines and
 the follow-up queue.
 
 The temporary `2.0.0` and `2.1.0` planning workspaces were removed from the
@@ -9,7 +9,7 @@ status and [issue_tracker.md](issue_tracker.md) for slice and backlog tracking.
 
 ## Current Delivery State
 
-`2.2.4` is the current shipped release. The initial `2.0.0` implementation
+`2.3.0` is the current shipped release. The initial `2.0.0` implementation
 slices `S0` through `S13` remain `Done`.
 
 ## Delivered In The 2.0.x Line
@@ -52,6 +52,11 @@ slices `S0` through `S13` remain `Done`.
 - Community-string redaction across list payloads, the live WS push, and exports
 - Performance: single-scan MIB status inventory, compile lock without held DB sessions, change-only table re-rendering, WS-aware polling
 
+## Delivered In 2.3.0
+
+- Complete React 19 + TypeScript + Tailwind CSS v4 UI overhaul and migration replacing the legacy vanilla HTML/JS pages in `frontend/` and retiring the staging `frontend-next/` directory.
+- Alignment with the `@trishul-developers/tokens` warm-paper light / ink-navy dark theme, accessible focus-trapped Radix dialogs/drawers, `⌘K` Command Palette, and full backend contract & classic UI parity across all 7 workspaces (`Overview`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`, `MIB Manager`, `Settings`).
+
 ## Delivered In 2.2.4
 
 - `PATCH-224-001`: constrained index defaults and textual-convention wire types, verified against the local vendor corpus and live UDP simulator startup, updates, and restart.
@@ -79,15 +84,12 @@ Initial targets:
 - schema depth and protocol reach: display hints, SMIv1 generic-trap decoding, a compile-time lint gate, v1 walker support, and SNMPv3 exposure
 - API and page refinements on the existing unified `/api/...` surface where they simplify the current UI
 
-## Parallel Modern Operator UI Initiative (planning)
+## Modern Operator UI Initiative (Delivered in 2.3.0)
 
-The [Modern UI Architecture](ui-modernization/architecture.md),
+The React 19 + TypeScript frontend specified in [Modern UI Architecture](ui-modernization/architecture.md),
 [Migration Plan](ui-modernization/migration-plan.md), and
-[Design System](ui-modernization/design-system.md) specify a React/TypeScript
-frontend built alongside the existing operator shell. This is a separate,
-review-gated initiative—not an immediate replacement of the current UI or
-an assumed part of the 2.2.4 release line. Existing UI/runtime work can
-continue while the new interface is developed and validated.
+[Design System](ui-modernization/design-system.md) shipped in `2.3.0` as the
+default UI in `frontend/`, replacing the legacy vanilla HTML/JS shell.
 
 ## Deferred Beyond 2.0.x
 

@@ -1,190 +1,44 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light dark">
-    <title>Trishul SNMP Suite</title>
-
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Overview · Trishul SNMP Suite</title>
+    <meta
+      name="description"
+      content="Precision Command Workbench for Trishul SNMP Suite — simulator, walker, trap console, MIB browser, and bundle manager."
+    />
+    <meta property="og:title" content="Trishul SNMP Suite · Workbench" />
+    <meta
+      property="og:description"
+      content="Precision Command Workbench for Trishul SNMP Suite — simulator, walker, trap console, MIB browser, and bundle manager."
+    />
+    <link rel="icon" type="image/svg+xml" href="/img/trishul-icon.svg" />
     <script>
-    (function() {
+      (function () {
         var theme = 'light';
         try {
-            theme = localStorage.getItem('trishul_theme') === 'dark' ? 'dark' : 'light';
+          var saved = localStorage.getItem('trishul_theme');
+          if (saved === 'dark' || saved === 'light') {
+            theme = saved;
+          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            theme = 'dark';
+          }
         } catch (_) {}
-        document.documentElement.setAttribute('data-bs-theme', theme);
-        document.documentElement.style.colorScheme = theme;
-    })();
+        var root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        if (theme === 'dark') {
+          root.classList.add('dark');
+        } else {
+          root.classList.remove('dark');
+        }
+        root.style.colorScheme = theme;
+      })();
     </script>
-
-    <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="img/trishul-icon.svg">
-    <link rel="alternate icon" href="favicon.ico">
-
-    <!-- Stylesheets -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css">
-
-</head>
-<body class="app-body">
-
-<!-- Auth Loading State (shown while token is being validated, hides flash) -->
-<div id="auth-loading" class="auth-shell auth-loading-shell position-fixed top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center">
-    <div class="spinner-border app-tone-primary mb-3" role="status" aria-label="Authenticating">
-        <span class="visually-hidden">Loading...</span>
-    </div>
-    <span class="auth-loading-label small">Authenticating...</span>
-</div>
-
-<!-- Login Screen -->
-<main id="login-screen" class="auth-shell login-shell position-fixed top-0 start-0 w-100 h-100 d-none flex-column justify-content-center align-items-center">
-    <div class="card auth-card shadow-lg border-0">
-        <div class="card-body p-4 text-center">
-            <div class="auth-card-controls">
-                <button type="button" class="btn btn-sm btn-app-secondary theme-toggle theme-toggle-auth"
-                        data-theme-toggle onclick="TrishulUtils.toggleTheme()"
-                        title="Switch to dark mode" aria-label="Switch to dark mode" aria-pressed="false">
-                    <i class="fas fa-moon" aria-hidden="true"></i>
-                    <span class="theme-toggle-label" data-theme-label>Dark</span>
-                </button>
-            </div>
-            <!-- Trishul Icon -->
-            <div class="mb-3">
-                <img src="img/trishul-icon.svg" alt="Trishul" class="auth-mark">
-            </div>
-            <h1 class="h4 mb-1 fw-bold auth-title" aria-label="Trishul SNMP Suite">
-                <span class="app-brand-name">Trishul</span>
-                <span class="app-brand-sub">SNMP Suite</span>
-            </h1>
-            <p class="auth-subtitle small mb-4">SNMP Operations Console</p>
-
-            <form id="login-form" onsubmit="handleLogin(event)">
-                <div class="mb-3 text-start">
-                    <label class="form-label small fw-bold" for="login-user">Username</label>
-                    <input type="text" id="login-user" class="form-control form-control-sm" placeholder="admin" required autocomplete="username">
-                </div>
-                <div class="mb-3 text-start">
-                    <label class="form-label small fw-bold" for="login-pass">Password</label>
-                    <input type="password" id="login-pass" class="form-control form-control-sm" placeholder="••••••" required autocomplete="current-password">
-                </div>
-                <div id="login-error" class="alert alert-danger py-2 small d-none" role="alert"></div>
-                <button type="submit" class="btn btn-app-primary btn-sm w-100" id="login-btn">
-                    <i class="fas fa-sign-in-alt me-2"></i> Log In
-                </button>
-            </form>
-        </div>
-    </div>
-</main>
-
-<!-- Main Application Wrapper -->
-<div id="wrapper" class="app-shell d-none">
-    <a class="app-skip-link" href="#main-content">Skip to main content</a>
-    <!-- Sidebar -->
-    <aside class="border-end" id="sidebar-wrapper">
-        <div class="sidebar-heading border-bottom fw-bold" title="Trishul SNMP Suite">
-            <img src="img/trishul-icon.svg" alt="" aria-hidden="true" class="app-mark-sm">
-            <span class="sidebar-brand-lockup" aria-hidden="true">
-                <span class="app-brand-name">Trishul</span>
-                <span class="app-brand-sub">SNMP Suite</span>
-            </span>
-            <span class="visually-hidden">Trishul SNMP Suite</span>
-        </div>
-
-        <nav class="list-group list-group-flush flex-grow-1" aria-label="Primary">
-            <a class="list-group-item list-group-item-action" href="#dashboard">
-                <i class="fas fa-tachometer-alt"></i> <span class="ms-2">Dashboard</span>
-            </a>
-            <a class="list-group-item list-group-item-action" href="#simulator">
-                <i class="fas fa-server"></i> <span class="ms-2">Simulator</span>
-            </a>
-            <a class="list-group-item list-group-item-action" href="#walker">
-                <i class="fas fa-walking"></i> <span class="ms-2">Walk &amp; Parse</span>
-            </a>
-            <a class="list-group-item list-group-item-action" href="#traps">
-                <i class="fas fa-bell"></i> <span class="ms-2">Traps</span>
-            </a>
-            <a class="list-group-item list-group-item-action" href="#browser">
-                <i class="fas fa-sitemap"></i> <span class="ms-2">MIB Browser</span>
-            </a>
-            <a class="list-group-item list-group-item-action" href="#mibs">
-                <i class="fas fa-database"></i> <span class="ms-2">MIB Manager</span>
-            </a>
-            <a class="list-group-item list-group-item-action" href="#settings">
-                <i class="fas fa-cog"></i> <span class="ms-2">Settings</span>
-            </a>
-        </nav>
-
-        <div class="app-sidebar-version p-2 text-center small border-top">
-            <span id="app-version">Loading...</span>
-        </div>
-    </aside>
-
-    <!-- Page Content -->
-    <div id="page-content-wrapper" class="w-100">
-        <nav class="navbar navbar-expand-lg app-navbar border-bottom px-3 py-2">
-            <button class="btn btn-app-secondary btn-sm btn-icon" id="sidebarToggle" aria-label="Toggle Sidebar">
-                <i class="fas fa-bars"></i>
-            </button>
-            <div class="navbar-brand ms-3 fw-semibold app-navbar-brand">
-                <div class="app-navbar-brand-group">
-                    <h1 id="page-title" class="app-navbar-title h6 mb-0">Dashboard</h1>
-                    <span id="page-subtitle" class="app-navbar-subtitle">Status, counters, and shortcuts</span>
-                </div>
-            </div>
-
-            <div class="app-navbar-actions ms-auto d-flex align-items-center gap-3">
-                <span class="badge app-status-badge is-pending status-badge" id="backend-status">Connecting...</span>
-                <span id="ws-status-dot" class="ws-dot ws-dot-connecting" title="WS: Connecting...">
-                    <span class="visually-hidden" id="ws-status-text">WebSocket connecting</span>
-                </span>
-
-                <button type="button" class="btn btn-sm btn-app-secondary theme-toggle" id="theme-toggle"
-                        data-theme-toggle onclick="TrishulUtils.toggleTheme()"
-                        title="Switch to dark mode" aria-label="Switch to dark mode" aria-pressed="false">
-                    <i class="fas fa-moon" aria-hidden="true"></i>
-                    <span class="theme-toggle-label" data-theme-label>Dark</span>
-                </button>
-
-                <div class="dropdown">
-                    <a class="nav-link dropdown-toggle user-menu-toggle fw-semibold" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="fas fa-user-circle app-header-icon is-primary me-1"></i>
-                        <span id="nav-user-name">User</span>
-                    </a>
-                    <ul class="dropdown-menu dropdown-menu-end shadow-sm mt-2 app-dropdown-menu">
-                        <li>
-                            <a class="dropdown-item" href="#settings">
-                                <i class="fas fa-cog me-2 text-muted"></i> Settings
-                            </a>
-                        </li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li>
-                            <a class="dropdown-item" href="#" onclick="logout()">
-                                <i class="fas fa-sign-out-alt me-2 app-header-icon is-danger"></i> Logout
-                            </a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </nav>
-
-        <main class="container-fluid p-3 p-lg-4" id="main-content" tabindex="-1">
-            <!-- Dynamic Content -->
-        </main>
-    </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<!-- utils.js MUST be first — provides TrishulUtils used by all modules -->
-<script src="js/modules/utils.js"></script>
-<script src="js/modules/ws-client.js"></script>
-<script src="js/app.js"></script>
-<script src="js/modules/dashboard.js"></script>
-<script src="js/modules/simulator.js"></script>
-<script src="js/modules/walker.js"></script>
-<script src="js/modules/traps.js"></script>
-<script src="js/modules/browser.js"></script>
-<script src="js/modules/mibs.js"></script>
-<script src="js/modules/settings.js"></script>
-</body>
+  </head>
+  <body class="bg-[var(--tui-bg-canvas)] text-[var(--tui-ink-primary)] antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

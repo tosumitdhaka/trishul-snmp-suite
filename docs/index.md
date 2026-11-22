@@ -1,8 +1,8 @@
 # Documentation
 
-This directory is the canonical documentation set for Trishul SNMP Suite `2.2.4`.
-The shipped operator surface is the restored page-based shell in `frontend/`:
-`Dashboard`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`,
+This directory is the canonical documentation set for Trishul SNMP Suite `2.3.0`.
+The shipped operator surface is the React 19 / TypeScript workbench in `frontend/`:
+`Overview`, `Simulator`, `Walk & Parse`, `Traps`, `MIB Browser`,
 `MIB Manager`, and `Settings`.
 
 ## Start Here
@@ -27,9 +27,9 @@ active repo tree during the release cleanup. Use
 [Issue Tracker](issue_tracker.md) for the maintained architecture and release
 status references.
 
-## Operator Guides
+## Operator And Platform Guides
 
-These topic guides describe the current `2.2.4` release UI.
+These topic guides describe the `2.3.0` runtime and operator workflows.
 
 - [MIB Manager Guide](mib_manager_guide.md)
 - [MIB Browser Guide](mib_browser_guide.md)
@@ -37,11 +37,10 @@ These topic guides describe the current `2.2.4` release UI.
 - [Walk & Parse Guide](walker_guide.md)
 - [Traps Guide](trap_manager_guide.md)
 
-## Planned UI Modernization (proposal, not shipped)
+## UI Modernization Record (Shipped in `2.3.0`)
 
-The next-generation operator console is being designed **in parallel** with the
-existing Bootstrap UI. The current release interface remains the default until
-functional and operational parity is validated.
+The React 19 / TypeScript UI overhaul specified in these documents replaced the
+legacy shell and shipped in `2.3.0`:
 
 - [Modern UI Architecture Decision](ui-modernization/architecture.md)
 - [Migration and Validation Plan](ui-modernization/migration-plan.md)
@@ -70,9 +69,9 @@ the `2.0.0` cleanup. Use [Architecture Overview](architecture_overview.md),
 [Roadmap](roadmap.md), [Issue Tracker](issue_tracker.md), and
 [Changelog](changelog.md) for the maintained release record.
 
-## 2.1 Follow-Up Planning
+## Follow-Up Planning
 
-`2.2.4` follow-up planning is tracked directly in [Roadmap](roadmap.md) and
+Post-`2.3.0` follow-up planning is tracked directly in [Roadmap](roadmap.md) and
 [Issue Tracker](issue_tracker.md). No separate follow-up planning directory is
 kept in the live docs tree.
 
