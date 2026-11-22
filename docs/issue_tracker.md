@@ -18,6 +18,9 @@ Use `POST-210-*` IDs for planned `2.2.2` backend/frontend parity work.
 
 - `REL-230-001` `Done` Complete React 19 + TypeScript + Tailwind CSS v4 UI overhaul replacing legacy `frontend/`, aligned to `@trishul-developers/tokens`, full FastAPI backend contracts, and classic UI parity across all 7 workspaces.
 
+- **Post-release QA:** [Issue #39](https://github.com/tosumitdhaka/trishul-snmp-suite/issues/39) remains open for any outstanding operator / assistive-technology / real-backend acceptance checks from the historical 19-point UI review. Release shipment and automated/smoke validation do not automatically close every manual gate.
+- **Separate feature request:** [Issue #44](https://github.com/tosumitdhaka/trishul-snmp-suite/issues/44) requests optional permissive parsing of nonstandard vendor MIB enumerations.
+
 ## 2.2.4 Patch Status
 
 - `PATCH-224-001` `Done` Generate index defaults within their declared ranges and preserve SNMP types and textual-convention aliases; validate the local vendor corpus and live updates/restart against the CIENA MIB.
