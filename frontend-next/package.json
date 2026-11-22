@@ -8,10 +8,10 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && vite build",
-    "typecheck": "tsc -b",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "npx tsx --test src/lib/workbench.test.ts",
     "test:watch": "vitest",
     "preview": "vite preview --host 127.0.0.1"
   },

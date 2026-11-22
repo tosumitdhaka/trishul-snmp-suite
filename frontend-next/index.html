@@ -4,20 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#f6f8fc" />
-    <title>Trishul SNMP Suite · Modern Preview</title>
+    <title>Trishul SNMP Suite · Workbench</title>
+    <meta
+      name="description"
+      content="Precision Command Workbench for Trishul SNMP Suite — simulator, walker, trap console, MIB browser, and bundle manager."
+    />
+    <meta property="og:title" content="Trishul SNMP Suite · Workbench" />
+    <meta
+      property="og:description"
+      content="Precision Command Workbench for Trishul SNMP Suite — simulator, walker, trap console, MIB browser, and bundle manager."
+    />
+    <link rel="icon" type="image/svg+xml" href="/img/trishul-icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <script>
       (function () {
+        var theme = 'light';
         try {
-          document.documentElement.dataset.theme =
-            localStorage.getItem('trishul_theme') === 'dark' ? 'dark' : 'light';
-        } catch (_) {
-          document.documentElement.dataset.theme = 'light';
+          theme = localStorage.getItem('trishul_theme') === 'dark' ? 'dark' : 'light';
+        } catch (_) {}
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
         }
+        document.documentElement.style.colorScheme = theme;
       })();
     </script>
   </head>
-  <body>
+  <body class="bg-[var(--tui-bg-canvas)] text-[var(--tui-ink-primary)] antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

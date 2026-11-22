@@ -1,0 +1,250 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================================
+ * Trishul UI Design Tokens (trishul-ui 3-layer token sheet)
+ * Swapping in an external trishul-ui token file only requires overriding
+ * the Layer 1 & Layer 2 --tui-* tokens below.
+ * ============================================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* Layer 1: Primitives */
+  --tui-slate-0: #ffffff;
+  --tui-slate-50: #f7f8fa;
+  --tui-slate-100: #f0f2f6;
+  --tui-slate-200: #e2e6ee;
+  --tui-slate-300: #cbd2df;
+  --tui-slate-400: #8f9bb0;
+  --tui-slate-500: #637087;
+  --tui-slate-600: #465268;
+  --tui-slate-700: #2e384b;
+  --tui-slate-800: #162033;
+  --tui-slate-900: #0d1628;
+  --tui-slate-950: #080d18;
+
+  --tui-amber-50: #fffbeb;
+  --tui-amber-100: #fef3c7;
+  --tui-amber-300: #fcd34d;
+  --tui-amber-400: #ffb84d;
+  --tui-amber-500: #f59e0b;
+  --tui-amber-600: #d97706;
+  --tui-amber-700: #b45309;
+
+  --tui-emerald-400: #34d399;
+  --tui-emerald-500: #059669;
+  --tui-emerald-700: #047857;
+  --tui-crimson-400: #f87171;
+  --tui-crimson-500: #dc2626;
+  --tui-crimson-600: #b91c1c;
+  --tui-crimson-700: #991b1b;
+  --tui-sky-400: #38bdf8;
+  --tui-sky-500: #0284c7;
+  --tui-sky-700: #0369a1;
+  --tui-violet-400: #a78bfa;
+  --tui-violet-600: #6d28d9;
+
+  /* Layer 2: Semantic Tokens (Light Mode) */
+  --tui-bg-canvas: var(--tui-slate-50);
+  --tui-bg-surface: var(--tui-slate-0);
+  --tui-bg-subtle: #f4f6f9;
+  --tui-bg-muted: var(--tui-slate-100);
+  --tui-bg-hover: #edf0f5;
+  --tui-bg-terminal: #09101d;
+
+  --tui-rail-bg: var(--tui-slate-0);
+  --tui-rail-border: var(--tui-slate-200);
+  --tui-rail-hover: var(--tui-slate-100);
+  --tui-rail-ink: var(--tui-slate-600);
+  --tui-rail-ink-strong: var(--tui-slate-900);
+  --tui-rail-active-bg: rgba(217, 119, 6, 0.11);
+  --tui-rail-active-ink: var(--tui-amber-700);
+
+  --tui-ink-primary: var(--tui-slate-900);
+  --tui-ink-secondary: var(--tui-slate-600);
+  --tui-ink-muted: var(--tui-slate-500);
+  --tui-ink-soft: var(--tui-slate-400);
+
+  --tui-border-subtle: #eceff5;
+  --tui-border-default: var(--tui-slate-200);
+  --tui-border-strong: var(--tui-slate-300);
+
+  --tui-brand: var(--tui-amber-600);
+  --tui-brand-strong: var(--tui-amber-700);
+  --tui-brand-ink: var(--tui-amber-700);
+  --tui-brand-soft: rgba(217, 119, 6, 0.1);
+  --tui-brand-border: rgba(217, 119, 6, 0.28);
+
+  --tui-action-bg: #0f172a;
+  --tui-action-hover: #1e293b;
+  --tui-action-ink: #ffffff;
+
+  --tui-danger-btn-bg: var(--tui-crimson-500);
+  --tui-danger-btn-hover: var(--tui-crimson-600);
+  --tui-danger-btn-ink: #ffffff;
+
+  --tui-success: var(--tui-emerald-500);
+  --tui-success-ink: var(--tui-emerald-700);
+  --tui-success-soft: rgba(5, 150, 105, 0.09);
+  --tui-success-border: rgba(5, 150, 105, 0.25);
+
+  --tui-warning: var(--tui-amber-600);
+  --tui-warning-ink: var(--tui-amber-700);
+  --tui-warning-soft: rgba(217, 119, 6, 0.1);
+  --tui-warning-border: rgba(217, 119, 6, 0.28);
+
+  --tui-danger: var(--tui-crimson-500);
+  --tui-danger-ink: var(--tui-crimson-600);
+  --tui-danger-soft: rgba(220, 38, 38, 0.09);
+  --tui-danger-border: rgba(220, 38, 38, 0.25);
+
+  --tui-info: var(--tui-sky-500);
+  --tui-info-ink: var(--tui-sky-700);
+  --tui-info-soft: rgba(2, 132, 199, 0.09);
+  --tui-info-border: rgba(2, 132, 199, 0.25);
+
+  --tui-table-ink: #5b21b6;
+  --tui-table-soft: rgba(109, 40, 217, 0.09);
+  --tui-table-border: rgba(109, 40, 217, 0.24);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --tui-bg-canvas: #080d18;
+  --tui-bg-surface: #0e1626;
+  --tui-bg-subtle: #121c30;
+  --tui-bg-muted: #16223a;
+  --tui-bg-hover: #1b2a46;
+  --tui-bg-terminal: #050912;
+
+  --tui-rail-bg: #050912;
+  --tui-rail-border: rgba(148, 163, 184, 0.14);
+  --tui-rail-hover: rgba(255, 255, 255, 0.06);
+  --tui-rail-ink: #8b9bb4;
+  --tui-rail-ink-strong: #f8fafc;
+  --tui-rail-active-bg: rgba(245, 158, 11, 0.16);
+  --tui-rail-active-ink: #fde68a;
+
+  --tui-ink-primary: #eef2f8;
+  --tui-ink-secondary: #b8c5da;
+  --tui-ink-muted: #8b9bb4;
+  --tui-ink-soft: #64748b;
+
+  --tui-border-subtle: rgba(148, 163, 184, 0.1);
+  --tui-border-default: rgba(148, 163, 184, 0.18);
+  --tui-border-strong: rgba(148, 163, 184, 0.3);
+
+  --tui-brand: var(--tui-amber-400);
+  --tui-brand-strong: var(--tui-amber-300);
+  --tui-brand-ink: #fde68a;
+  --tui-brand-soft: rgba(245, 158, 11, 0.15);
+  --tui-brand-border: rgba(245, 158, 11, 0.34);
+
+  --tui-action-bg: var(--tui-amber-500);
+  --tui-action-hover: var(--tui-amber-400);
+  --tui-action-ink: #080d18;
+
+  --tui-danger-btn-bg: var(--tui-crimson-500);
+  --tui-danger-btn-hover: var(--tui-crimson-400);
+  --tui-danger-btn-ink: #ffffff;
+
+  --tui-success: var(--tui-emerald-400);
+  --tui-success-ink: #6ee7b7;
+  --tui-success-soft: rgba(52, 211, 153, 0.14);
+  --tui-success-border: rgba(52, 211, 153, 0.28);
+
+  --tui-warning: var(--tui-amber-400);
+  --tui-warning-ink: #fde68a;
+  --tui-warning-soft: rgba(245, 158, 11, 0.15);
+  --tui-warning-border: rgba(245, 158, 11, 0.3);
+
+  --tui-danger: var(--tui-crimson-400);
+  --tui-danger-ink: #fca5a5;
+  --tui-danger-soft: rgba(248, 113, 113, 0.14);
+  --tui-danger-border: rgba(248, 113, 113, 0.28);
+
+  --tui-info: var(--tui-sky-400);
+  --tui-info-ink: #7dd3fc;
+  --tui-info-soft: rgba(56, 189, 248, 0.14);
+  --tui-info-border: rgba(56, 189, 248, 0.28);
+
+  --tui-table-ink: #c4b5fd;
+  --tui-table-soft: rgba(167, 139, 250, 0.14);
+  --tui-table-border: rgba(167, 139, 250, 0.28);
+}
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    font-family: var(--font-sans);
+    background-color: var(--tui-bg-canvas);
+    color: var(--tui-ink-primary);
+  }
+
+  input,
+  select,
+  textarea {
+    color: var(--tui-ink-primary);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--tui-ink-soft);
+  }
+
+  select option,
+  select optgroup {
+    background-color: var(--tui-bg-surface);
+    color: var(--tui-ink-primary);
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--tui-brand);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.3);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
