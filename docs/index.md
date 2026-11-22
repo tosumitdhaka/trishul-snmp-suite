@@ -37,16 +37,16 @@ These topic guides describe the `2.3.0` runtime and operator workflows.
 - [Walk & Parse Guide](walker_guide.md)
 - [Traps Guide](trap_manager_guide.md)
 
-## UI Modernization Record (Shipped in `2.3.0`)
+## UI Modernization History (Pre-release)
 
-The React 19 / TypeScript UI overhaul specified in these documents replaced the
-legacy shell and shipped in `2.3.0`:
+The October 2026 React architecture, staged preview, review, and migration
+documents are preserved as a **historical record**, not instructions for
+the currently shipped application. The React 19 / TypeScript frontend became
+the production default in `2.3.0`.
 
-- [Modern UI Architecture Decision](ui-modernization/architecture.md)
-- [Migration and Validation Plan](ui-modernization/migration-plan.md)
-- [Light/Dark Design System](ui-modernization/design-system.md)
-- [Legacy UI Source Inventory](ui-modernization/legacy-feature-inventory.md)
-- [Stage 2 Dashboard Review Specification](ui-modernization/dashboard-review-spec.md)
+- [UI Modernization — Historical Record Index](ui-modernization/README.md)
+- [Current shipped architecture](architecture_overview.md)
+- [Current operator workspaces](workspaces.md)
 
 ## Development And Release
 
@@ -75,7 +75,7 @@ Post-`2.3.0` follow-up planning is tracked directly in [Roadmap](roadmap.md) and
 [Issue Tracker](issue_tracker.md). No separate follow-up planning directory is
 kept in the live docs tree.
 
-## Common 2.0 Flow
+## Typical 2.3.0 Operator Flow
 
 1. Install the suite with the published image or a local build.
 2. Log in with `admin` / `admin123` and rotate credentials in `Settings`.
@@ -83,8 +83,5 @@ kept in the live docs tree.
 4. Use `MIB Browser` to inspect symbols and jump into other pages.
 5. Use `Simulator` and `Walk & Parse` for local responder validation.
 6. Use `Traps` for listener and trap-send testing.
-7. Use `Dashboard` and `Settings` for health, stats, and metadata.
+7. Use `Overview` and `Settings` for health, stats, and metadata.
 
-- [Modern Settings slice review specification](ui-modernization/settings-review-spec.md) — Stage 3 Settings implementation scope and validation gates.
-
-- [Seven-workspace integrated preview review checklist](ui-modernization/all-workspaces-review.md) — all operational pages and outstanding parity gates.
