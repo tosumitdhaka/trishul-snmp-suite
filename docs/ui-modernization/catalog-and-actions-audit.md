@@ -1,5 +1,7 @@
 # Catalog consolidation, fetch diagnostics, and action consistency
 
+> **Historical UI-modernization record — not current operating instructions.** The React 19 / TypeScript operator workbench shipped as the default `frontend/` in [v2.3.0](../changelog.md) on 2026-11-22. Mentions below of `frontend-next/`, the legacy UI as default, preview branches, or future cutover gates refer to the **pre-release** process. Use the [current architecture](../architecture_overview.md) and [workspaces guide](../workspaces.md) for the shipped product. Historical test checklists do not establish post-release acceptance; see [Issue #39](https://github.com/tosumitdhaka/trishul-snmp-suite/issues/39).
+
 **Branch:** `feat/modern-ui-catalog-and-action-consistency` stacked on PR #41. Draft preview only.
 
 ## Online MIB fetch: what CERAGON-MIB failure means

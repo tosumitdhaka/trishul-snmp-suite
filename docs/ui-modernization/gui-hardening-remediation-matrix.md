@@ -1,5 +1,7 @@
 # Modern GUI Fixer — remediation and validation ledger
 
+> **Historical UI-modernization record — not current operating instructions.** The React 19 / TypeScript operator workbench shipped as the default `frontend/` in [v2.3.0](../changelog.md) on 2026-11-22. Mentions below of `frontend-next/`, the legacy UI as default, preview branches, or future cutover gates refer to the **pre-release** process. Use the [current architecture](../architecture_overview.md) and [workspaces guide](../workspaces.md) for the shipped product. Historical test checklists do not establish post-release acceptance; see [Issue #39](https://github.com/tosumitdhaka/trishul-snmp-suite/issues/39).
+
 **Date:** 2026-10-11 · **Scope:** draft modern preview `frontend-next/` and `docs/ui-modernization/` only.  
 **Baseline:** `feat/modern-ui-catalog-and-action-consistency` at `7f19f4dda6c22a7230c00225ab47f509e225b14f` (PR #42).  
 **Implementation:** `feat/modern-ui-gui-hardening` (draft PR #43).  
